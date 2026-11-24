@@ -193,7 +193,10 @@ describe("the Sweep's settings (ADR-0043 §2–3)", () => {
     expect(provisioningLimitMs(TIMES)).toBe(PROVISIONING);
     // A clone the Owner allows a week is not cut short by a Sweep.
     expect(provisioningLimitMs({ ...TIMES, cloneMinutes: 7 * 24 * 60 })).toBe((7 * 24 * 60 + 65) * 60_000);
-    expect(sweepSettingsOf(resolveEnvironment(EMPTY_ENVIRONMENT), undefined).provisioningMs).toBe(PROVISIONING);
+    // The clone time limit off (0, the default since SPI-1386) counts as its week-long deadline.
+    expect(sweepSettingsOf(resolveEnvironment(EMPTY_ENVIRONMENT), undefined).provisioningMs).toBe(
+      (7 * 24 * 60 + 65) * 60_000,
+    );
   });
 
   it("are the stored Grace in days and the purging switch; a Stage's T3FLARE_SWEEP_GRACE_MS overrides the days", () => {
@@ -453,12 +456,12 @@ describe("a removed worktree's carry (SPI-1324)", () => {
     expect(limitOf(calls, "carryIn")).toBe(180_000);
   });
 
-  it("carry the default, 10 minutes, when the services hold no setting", async () => {
+  it("carry the default, off (0: the Workspace DO's off deadline, SPI-1386), when the services hold no setting", async () => {
     const calls: Array<{ id: string; method: string; input: unknown }> = [];
     bindCarry(calls);
     await removeWorktree("/w/p", "/w/.wt/p/x", false, t3Tables(), settings);
-    expect(limitOf(calls, "refTips")).toBe(600_000);
-    expect(limitOf(calls, "carryOut")).toBe(600_000);
-    expect(limitOf(calls, "carryIn")).toBe(600_000);
+    expect(limitOf(calls, "refTips")).toBe(0);
+    expect(limitOf(calls, "carryOut")).toBe(0);
+    expect(limitOf(calls, "carryIn")).toBe(0);
   });
 });

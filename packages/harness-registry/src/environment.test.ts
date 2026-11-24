@@ -86,7 +86,7 @@ const TUNABLE_DEFAULTS = {
   promptsDirectoryEntries: 1000,
   outsideRequestSeconds: 15,
   githubRetrySeconds: 60,
-  textGenerationSeconds: 110,
+  textGenerationSeconds: 180,
   idleAfterSeconds: 60,
   prWatchWakeMinutes: 10,
   remoteRetryMinutes: 30,
@@ -104,12 +104,12 @@ const TUNABLE_DEFAULTS = {
   mcpPausesPerCall: 16,
   cliMcpStartSeconds: 20,
   mcpSignInMinutes: 10,
-  customVcpu: 1,
-  customMemoryMib: 3072,
-  customDiskMb: 12_000,
+  customVcpu: 2,
+  customMemoryMib: 8192,
+  customDiskMb: 16_000,
   cliProcessesPerWorkspace: 4,
   cliReclaimSeconds: 30,
-  turnLimitMinutes: 120,
+  turnLimitMinutes: 0,
   ownerAnswerMinutes: 10,
   globalMiseInstallMinutes: 10,
   settingsReadSeconds: 5,
@@ -118,13 +118,13 @@ const TUNABLE_DEFAULTS = {
   terminalsPerWorkspace: 8,
   agentTerminalsPerWorkspace: 8,
   agentTerminalScrollbackLines: 1000,
-  cloneMinutes: 15,
-  checkpointMinutes: 10,
-  usageRetentionDays: 92,
-  piSessionRetentionDays: 60,
-  mcpCallSeconds: 270,
+  cloneMinutes: 0,
+  checkpointMinutes: 0,
+  usageRetentionDays: 0,
+  piSessionRetentionDays: 0,
+  mcpCallSeconds: 0,
   mcpResultKiB: 1024,
-  mcpConnectSeconds: 15,
+  mcpConnectSeconds: 30,
   mcpListSeconds: 120,
   mcpLogEntries: 50,
   mcpProgressPerSecond: 10,
@@ -132,8 +132,8 @@ const TUNABLE_DEFAULTS = {
   tempFilesHours: 24,
   gitReadsKept: 500,
   routerTraceEntries: 300,
-  commandMinutes: 2,
-  containerConnectSeconds: 60,
+  commandMinutes: 0,
+  containerConnectSeconds: 120,
   reclaimProtectionSeconds: 30,
   skillsWaitSeconds: 5,
   abortGraceSeconds: 2,
@@ -146,12 +146,12 @@ const TUNABLE_DEFAULTS = {
 } as const;
 
 describe("resolveEnvironment", () => {
-  it("gives the defaults for empty settings: cpu-1 and a 2-minute idle time, at revision 0", () => {
+  it("gives the defaults for empty settings: standard-3, a 2-minute idle time and no Container budget, at revision 0", () => {
     expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toEqual({
       revision: 0,
-      containerSize: "cpu-1",
+      containerSize: "standard-3",
       containerIdleMinutes: 2,
-      containerBudget: 3,
+      containerBudget: 0,
       variables: [],
       globalMiseConfig: "",
       containerSetup: "",
@@ -175,9 +175,9 @@ describe("resolveEnvironment", () => {
       }),
     ).toEqual({
       revision: 4,
-      containerSize: "cpu-1",
+      containerSize: "standard-3",
       containerIdleMinutes: 2,
-      containerBudget: 3,
+      containerBudget: 0,
       variables: [],
       globalMiseConfig: "",
       containerSetup: "",
@@ -228,7 +228,7 @@ describe("applyEnvironmentChange", () => {
       revision: 1,
       containerSize: "standard-4",
       containerIdleMinutes: 10,
-      containerBudget: 3,
+      containerBudget: 0,
       variables: [],
       globalMiseConfig: "",
       containerSetup: "",
@@ -248,7 +248,7 @@ describe("applyEnvironmentChange", () => {
       revision: 2,
       containerSize: "standard-4",
       containerIdleMinutes: 5,
-      containerBudget: 3,
+      containerBudget: 0,
       variables: [],
       globalMiseConfig: "",
       containerSetup: "",
@@ -266,13 +266,13 @@ describe("applyEnvironmentChange", () => {
 
   it("stores and bumps the revision for the settings that moved only; a save that moves none changes nothing", () => {
     const first = applyEnvironmentChange(EMPTY_ENVIRONMENT, {
-      settings: { containerSize: "standard-2", containerIdleMinutes: 2, containerBudget: 3 },
+      settings: { containerSize: "standard-2", containerIdleMinutes: 2, containerBudget: 0 },
     });
     if (!first.ok) throw new Error(first.error);
     expect(first.changed).toEqual(["containerSize"]);
     expect(first.environment).toEqual({ revision: 1, settings: { containerSize: "standard-2" } });
     const same = applyEnvironmentChange(first.environment, {
-      settings: { containerSize: "standard-2", containerIdleMinutes: 2, containerBudget: 3 },
+      settings: { containerSize: "standard-2", containerIdleMinutes: 2, containerBudget: 0 },
     });
     if (!same.ok) throw new Error(same.error);
     expect(same.changed).toEqual([]);
@@ -290,12 +290,12 @@ describe("applyEnvironmentChange", () => {
       });
   });
 
-  it("keeps the Container budget between 1 and 10 whole Containers", () => {
-    for (const budget of [1, 10, 11, MAX_CONTAINER_BUDGET])
+  it("keeps the Container budget off (0) or 1 to MAX_CONTAINER_BUDGET whole Containers", () => {
+    for (const budget of [0, 1, 10, 11, MAX_CONTAINER_BUDGET])
       expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { containerBudget: budget } })).toMatchObject({
         ok: true,
       });
-    for (const budget of [0, MAX_CONTAINER_BUDGET + 1, 2.5, "3"])
+    for (const budget of [-1, MAX_CONTAINER_BUDGET + 1, 2.5, "3"])
       expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { containerBudget: budget } })).toMatchObject({
         ok: false,
       });
@@ -407,7 +407,7 @@ describe("containerInstance", () => {
     for (const name of ["lite", "basic", "mem-8", "custom-1", "", null, 3, { vcpu: 4 }]) {
       expect(
         containerInstance(resolveEnvironment({ revision: 1, settings: { containerSize: name } }).containerSize),
-      ).toEqual({ vcpu: 1, memoryMib: 3072, diskMb: 12000 });
+      ).toBe("standard-3");
     }
   });
 });
@@ -563,18 +563,18 @@ describe("the clone and checkpoint time limits (SPI-1324)", () => {
   const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
   const keys = ["cloneMinutes", "checkpointMinutes"] as const;
 
-  it("are 15 and 10 minutes by default, the Workspace DO's fallbacks, 1 to MAX_TIMED_MINUTES whole minutes", () => {
-    expect(DEFAULT_CLONE_MINUTES).toBe(15);
-    expect(DEFAULT_CHECKPOINT_MINUTES).toBe(10);
-    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({ cloneMinutes: 15, checkpointMinutes: 10 });
+  it("are off by default (SPI-1386), the Workspace DO's fallbacks, or 1 to MAX_TIMED_MINUTES whole minutes", () => {
+    expect(DEFAULT_CLONE_MINUTES).toBe(0);
+    expect(DEFAULT_CHECKPOINT_MINUTES).toBe(0);
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({ cloneMinutes: 0, checkpointMinutes: 0 });
     for (const key of keys) {
       for (const minutes of [1, 60, MAX_TIMED_MINUTES]) expect(set({ [key]: minutes })).toMatchObject({ ok: true });
-      for (const minutes of [0, MAX_TIMED_MINUTES + 1, 2.5, "15"])
+      for (const minutes of [-1, MAX_TIMED_MINUTES + 1, 2.5, "15"])
         expect(set({ [key]: minutes })).toMatchObject({ ok: false });
     }
-    expect(resolveEnvironment({ revision: 1, settings: { cloneMinutes: 0, checkpointMinutes: -1 } })).toMatchObject({
+    expect(resolveEnvironment({ revision: 1, settings: { cloneMinutes: 15, checkpointMinutes: -1 } })).toMatchObject({
       cloneMinutes: 15,
-      checkpointMinutes: 10,
+      checkpointMinutes: 0,
     });
   });
 
@@ -603,13 +603,14 @@ describe("the clone and checkpoint time limits (SPI-1324)", () => {
 describe("the Turn limit (SPI-1315)", () => {
   const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
 
-  it("is 120 minutes by default, 1 to MAX_TIMED_MINUTES (10,080) whole minutes (ADR-0048)", () => {
-    expect(resolveEnvironment(EMPTY_ENVIRONMENT).turnLimitMinutes).toBe(120);
+  it("is off by default (SPI-1386: stock t3 has none), or 1 to MAX_TIMED_MINUTES (10,080) whole minutes (ADR-0048)", () => {
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT).turnLimitMinutes).toBe(0);
     for (const minutes of [1, 120, 1440, MAX_TIMED_MINUTES])
       expect(set({ turnLimitMinutes: minutes })).toMatchObject({ ok: true });
-    for (const minutes of [0, MAX_TIMED_MINUTES + 1, 2.5, "120"])
+    for (const minutes of [-1, MAX_TIMED_MINUTES + 1, 2.5, "120"])
       expect(set({ turnLimitMinutes: minutes })).toMatchObject({ ok: false });
-    expect(resolveEnvironment({ revision: 1, settings: { turnLimitMinutes: 0 } }).turnLimitMinutes).toBe(120);
+    expect(resolveEnvironment({ revision: 1, settings: { turnLimitMinutes: 120 } }).turnLimitMinutes).toBe(120);
+    expect(resolveEnvironment({ revision: 1, settings: { turnLimitMinutes: -1 } }).turnLimitMinutes).toBe(0);
   });
 
   it("is down-free, in the Agents row (AGENT_SETTING_KEYS), and states its consequence once in Owner words", () => {
@@ -633,18 +634,18 @@ describe("the Turn limit (SPI-1315)", () => {
 describe("how long history is kept (SPI-1323)", () => {
   const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
 
-  it("keeps usage records 92 days and pi sessions 60 by default, 1 to MAX_RETENTION_DAYS (3650) whole days", () => {
+  it("keeps usage records and sessions with no t3flare limit by default (SPI-1386), or 1 to MAX_RETENTION_DAYS (3650) whole days", () => {
     expect(MAX_RETENTION_DAYS).toBe(3650);
-    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({ usageRetentionDays: 92, piSessionRetentionDays: 60 });
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({ usageRetentionDays: 0, piSessionRetentionDays: 0 });
     for (const key of RETENTION_SETTING_KEYS) {
       for (const days of [1, 30, 365, 3650]) expect(set({ [key]: days })).toMatchObject({ ok: true });
-      expect(set({ [key]: 0 })).toEqual({ ok: false, error: `${key}: at least 1` });
+      expect(set({ [key]: -1 })).toEqual({ ok: false, error: `${key}: at least 0` });
       expect(set({ [key]: 1.5 })).toEqual({ ok: false, error: `${key}: an integer` });
-      for (const days of [-1, 3651, "92", null]) expect(set({ [key]: days })).toMatchObject({ ok: false });
+      for (const days of [3651, "92", null]) expect(set({ [key]: days })).toMatchObject({ ok: false });
     }
     expect(
-      resolveEnvironment({ revision: 1, settings: { usageRetentionDays: 0, piSessionRetentionDays: 3651 } }),
-    ).toMatchObject({ usageRetentionDays: 92, piSessionRetentionDays: 60 });
+      resolveEnvironment({ revision: 1, settings: { usageRetentionDays: 92, piSessionRetentionDays: 3651 } }),
+    ).toMatchObject({ usageRetentionDays: 92, piSessionRetentionDays: 0 });
   });
 
   it("is up-free, in a History row of its own (RETENTION_SETTING_KEYS), and says what a change keeps and loses", () => {
@@ -664,8 +665,14 @@ describe("how long history is kept (SPI-1323)", () => {
     expect(ENVIRONMENT_SETTINGS.piSessionRetentionDays.description).toContain(
       "An older one is deleted at the next Pi start, or by Claude Code at its next start; t3 can no longer resume that thread's conversation.",
     );
+    expect(ENVIRONMENT_SETTINGS.usageRetentionDays.description).toContain(
+      "Empty or 0 is off: they are kept for good, as local t3 keeps them.",
+    );
+    expect(ENVIRONMENT_SETTINGS.piSessionRetentionDays.description).toContain(
+      "Empty or 0 is off: each agent keeps its own way, Pi for good and Claude Code for its own 30 days.",
+    );
     for (const key of RETENTION_SETTING_KEYS)
-      expect(ENVIRONMENT_SETTINGS[key].description).toContain("At most 3650 (ten years), which keeps them for good.");
+      expect(ENVIRONMENT_SETTINGS[key].description).toContain("At most 3650 (ten years).");
   });
 });
 
@@ -695,10 +702,13 @@ describe("the Answer wait (SPI-1316)", () => {
   });
 
   it("sets a CLI process's MCP tool timeout: two waits, the MCP call time limit and 30 s (cliToolTimeoutSec)", () => {
-    expect(cliToolTimeoutSec(DEFAULT_OWNER_ANSWER_MS, DEFAULT_MCP_CALL_MS)).toBe(1500);
-    expect(cliToolTimeoutSec(30 * 60_000, DEFAULT_MCP_CALL_MS)).toBe(3900);
-    expect(cliToolTimeoutSec(60_000, DEFAULT_MCP_CALL_MS)).toBe(420);
-    expect(cliToolTimeoutSec(1500, DEFAULT_MCP_CALL_MS)).toBe(304);
+    expect(cliToolTimeoutSec(DEFAULT_OWNER_ANSWER_MS, 270_000)).toBe(1500);
+    expect(cliToolTimeoutSec(30 * 60_000, 270_000)).toBe(3900);
+    expect(cliToolTimeoutSec(60_000, 270_000)).toBe(420);
+    expect(cliToolTimeoutSec(1500, 270_000)).toBe(304);
+    // An off call time limit (0, the default, SPI-1386) gives the call the off deadline, a week.
+    expect(DEFAULT_MCP_CALL_MS).toBe(0);
+    expect(cliToolTimeoutSec(DEFAULT_OWNER_ANSWER_MS, DEFAULT_MCP_CALL_MS)).toBe(1200 + MAX_TIMED_SECONDS + 30);
     // A longer call time limit lengthens the CLI's own timeout with it (SPI-1359).
     expect(cliToolTimeoutSec(DEFAULT_OWNER_ANSWER_MS, 3600_000)).toBe(1200 + 3600 + 30);
   });
@@ -707,12 +717,11 @@ describe("the Answer wait (SPI-1316)", () => {
 describe("the MCP calls' time limit and result size (SPI-1359)", () => {
   const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
 
-  it("are 270 seconds and 1024 KiB by default: the time limit 1 s to a week (ADR-0048 §2), the size 1 to 8192 KiB", () => {
-    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({ mcpCallSeconds: 270, mcpResultKiB: 1024 });
-    expect(DEFAULT_MCP_CALL_MS).toBe(270_000);
+  it("are off and 1024 KiB by default: the time limit off or 1 s to a week (ADR-0048 §2), the size 1 to 8192 KiB", () => {
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({ mcpCallSeconds: 0, mcpResultKiB: 1024 });
     for (const seconds of [1, 270, MAX_TIMED_SECONDS])
       expect(set({ mcpCallSeconds: seconds })).toMatchObject({ ok: true });
-    for (const seconds of [0, MAX_TIMED_SECONDS + 1, 2.5, "270"])
+    for (const seconds of [-1, MAX_TIMED_SECONDS + 1, 2.5, "270"])
       expect(set({ mcpCallSeconds: seconds })).toMatchObject({ ok: false });
     for (const kib of [1, 1024, MAX_MCP_RESULT_KIB]) expect(set({ mcpResultKiB: kib })).toMatchObject({ ok: true });
     for (const kib of [0, MAX_MCP_RESULT_KIB + 1, 1.5]) expect(set({ mcpResultKiB: kib })).toMatchObject({ ok: false });
@@ -732,9 +741,9 @@ describe("the MCP layer's connect and listing time limits and its logs per call 
   const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
   const KEYS = ["mcpConnectSeconds", "mcpListSeconds", "mcpLogEntries"] as const;
 
-  it("keep today's values by default, whole numbers from 1 to their maximum, named in the description", () => {
+  it("keep their defaults (the connect limit 30 s, SPI-1386), whole numbers from 1 to their maximum, named in the description", () => {
     expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({
-      mcpConnectSeconds: 15,
+      mcpConnectSeconds: 30,
       mcpListSeconds: 120,
       mcpLogEntries: 50,
     });
@@ -805,7 +814,7 @@ describe("the housekeeping waits and counts (SPI-1366)", () => {
       clientsPerKey: 50,
       connectPublishLogKept: 100,
       githubRetrySeconds: 60,
-      textGenerationSeconds: 110,
+      textGenerationSeconds: 180,
       mcpPausesPerCall: 16,
       cliMcpStartSeconds: 20,
       mcpSignInMinutes: 10,
@@ -828,7 +837,7 @@ describe("the housekeeping waits and counts (SPI-1366)", () => {
     expect(MAX_BROWSER_KEEP_ALIVE_SECONDS).toBe(600);
     // The Environment's wait for text generation stays under a JS timer's 2^31 - 1 ms at the maximum.
     expect(MAX_TIMED_SECONDS * 1000 + TEXT_GENERATION_MARGIN_MS).toBeLessThan(2 ** 31 - 1);
-    expect(DEFAULT_TEXT_GENERATION_SECONDS * 1000 + TEXT_GENERATION_MARGIN_MS).toBe(120_000);
+    expect(DEFAULT_TEXT_GENERATION_SECONDS * 1000 + TEXT_GENERATION_MARGIN_MS).toBe(190_000);
   });
 
   it("each state a consequence, and each is read at its next use, never at a Container start", () => {
@@ -1053,7 +1062,8 @@ describe("the Base build's settings (SPI-1332, ADR-0047 §9)", () => {
   it("starts the Builder at the Container size unless the Owner gave it one", () => {
     const settings = (stored: Record<string, unknown>) => resolveEnvironment({ revision: 1, settings: stored });
     expect(builderInstance(settings({ containerSize: "standard-3" }))).toBe("standard-3");
-    expect(builderInstance(settings({}))).toEqual(containerInstance("cpu-1"));
+    expect(builderInstance(settings({}))).toBe("standard-3");
+    expect(builderInstance(settings({ containerSize: "cpu-1" }))).toEqual(containerInstance("cpu-1"));
     expect(builderInstance(settings({ containerSize: "standard-1", builderSize: "standard-4" }))).toBe("standard-4");
   });
 
@@ -1158,5 +1168,86 @@ describe("the Workspace's command limits, Terminals, previews and what it keeps 
       "A command that runs longer than this is ended and fails; while it runs it holds the Container.",
     );
     expect(ENVIRONMENT_SETTINGS.previewPorts.description).toContain("At most 8, and never 8080 or 17781");
+  });
+});
+
+describe("local parity by default (SPI-1386)", () => {
+  const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
+  /** The guardrails a new Environment has off (0 or an empty field: no limit), each opted into with a value. */
+  const OFF_BY_DEFAULT = [
+    "containerBudget",
+    "turnLimitMinutes",
+    "cloneMinutes",
+    "checkpointMinutes",
+    "usageRetentionDays",
+    "piSessionRetentionDays",
+    "mcpCallSeconds",
+    "commandMinutes",
+  ] as const;
+
+  it("resolves a new Environment to the Owner-approved defaults", () => {
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({
+      containerSize: "standard-3",
+      // The custom size's fields follow the default size.
+      customVcpu: 2,
+      customMemoryMib: 8192,
+      customDiskMb: 16_000,
+      containerBudget: 0,
+      turnLimitMinutes: 0,
+      cloneMinutes: 0,
+      checkpointMinutes: 0,
+      usageRetentionDays: 0,
+      piSessionRetentionDays: 0,
+      mcpCallSeconds: 0,
+      commandMinutes: 0,
+      mcpConnectSeconds: 30,
+      textGenerationSeconds: 180,
+      containerConnectSeconds: 120,
+      // Kept on (the Owner's decision): the Terminal holds and the setup scripts' time limits.
+      terminalBusyHoldMinutes: 30,
+      terminalPromptHoldMinutes: 10,
+      globalMiseInstallMinutes: 10,
+      containerSetupMinutes: 5,
+      imageSetupMinutes: 30,
+    });
+    expect(DEFAULT_TEXT_GENERATION_SECONDS).toBe(180);
+  });
+
+  it("takes 0 as off for each guardrail that has it, and any value from its least to its maximum as a limit", () => {
+    for (const key of OFF_BY_DEFAULT) {
+      const schema = ENVIRONMENT_SETTINGS[key].schema;
+      expect(schema, key).toMatchObject({ type: "integer", minimum: 0, off: true, default: 0 });
+      expect(set({ [key]: 0 }), key).toMatchObject({ ok: true, changed: [] });
+      expect(applyEnvironmentChange({ revision: 1, settings: { [key]: 5 } }, { settings: { [key]: 0 } }), key).toEqual({
+        ok: true,
+        environment: { revision: 2, settings: { [key]: 0 } },
+        changed: [key],
+      });
+      expect(set({ [key]: 1 }), key).toMatchObject({ ok: true });
+      expect(set({ [key]: schema.maximum }), key).toMatchObject({ ok: true });
+      for (const bad of [-1, schema.maximum + 1, 1.5, "5", null])
+        expect(set({ [key]: bad }), `${key} ${String(bad)}`).toMatchObject({ ok: false });
+      expect(fitsEnvironmentSetting(key, 0), key).toBe(true);
+      expect(ENVIRONMENT_SETTINGS[key].description, key).toContain("Empty or 0 is off");
+    }
+  });
+
+  it("keeps a value an Environment stored: only the defaults move", () => {
+    const stored = {
+      containerSize: "cpu-1",
+      customVcpu: 1,
+      containerBudget: 3,
+      turnLimitMinutes: 120,
+      cloneMinutes: 15,
+      checkpointMinutes: 10,
+      usageRetentionDays: 92,
+      piSessionRetentionDays: 60,
+      mcpCallSeconds: 270,
+      commandMinutes: 2,
+      mcpConnectSeconds: 15,
+      textGenerationSeconds: 110,
+      containerConnectSeconds: 60,
+    };
+    expect(resolveEnvironment({ revision: 9, settings: stored })).toMatchObject(stored);
   });
 });

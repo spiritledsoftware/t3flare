@@ -6,6 +6,7 @@
 import {
   applyMcpChange,
   DEFAULT_MCP_CALL_MS,
+  OFF_DEADLINE_MS,
   DO_VALUE_BYTES,
   EMPTY_HARNESS,
   storedBytes,
@@ -463,7 +464,7 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
     });
   });
 
-  it("times each call by the MCP call time limit as set, 270 s by default (SPI-1359)", async () => {
+  it("times each call by the MCP call time limit as set; off (0, the default since SPI-1386) gives the off deadline", async () => {
     const run = setup(() => [tool("fixture_echo", true)], undefined, withCommissary(), {
       callTimeoutMs: () => 3_600_000,
     });
@@ -472,7 +473,12 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
     expect(run.seen.at(-1).target.timeoutMs).toBe(3_600_000);
     const plain = setup(() => [tool("fixture_echo", true)]);
     await plain.host.list("commissary");
-    expect(plain.seen.at(-1).target.timeoutMs).toBe(DEFAULT_MCP_CALL_MS);
+    expect(DEFAULT_MCP_CALL_MS).toBe(0);
+    expect(plain.seen.at(-1).target.timeoutMs).toBe(OFF_DEADLINE_MS);
+    const off = setup(() => [tool("fixture_echo", true)], undefined, withCommissary(), { callTimeoutMs: () => 0 });
+    await off.host.list("commissary");
+    await off.host.call({ server: "commissary", tool: "fixture_echo", args: {}, judged: "read" });
+    expect(off.seen.at(-1).target.timeoutMs).toBe(OFF_DEADLINE_MS);
   });
 
   it("gives each target the servers' limits as set: connect, listing, logs (SPI-1363), progress and Legacy recheck (SPI-1368)", async () => {

@@ -69,7 +69,7 @@ describe("ContainerBudget", () => {
 
   it("judges each request by the budget it carries, and keeps the last one for status reads", async () => {
     const b = settingBudget();
-    expect((await b.state()).max).toBe(3);
+    expect((await b.state()).max).toBe(0);
     expect((await b.acquire("a", 1)).ok).toBe(true);
     const refused = await b.acquire("b", 1);
     expect(refused.ok).toBe(false);
@@ -87,7 +87,7 @@ describe("ContainerBudget", () => {
   it("ignores a carried budget out of bounds, keeping the last valid one", async () => {
     const b = settingBudget();
     await b.acquire("a", 2);
-    for (const bad of [0, MAX_CONTAINER_BUDGET + 1, 2.5, Number.NaN]) await b.acquire("x", bad).catch(() => undefined);
+    for (const bad of [-1, MAX_CONTAINER_BUDGET + 1, 2.5, Number.NaN]) await b.acquire("x", bad).catch(() => undefined);
     expect((await b.state()).max).toBe(2);
   });
 
@@ -107,6 +107,19 @@ describe("ContainerBudget", () => {
     expect((await b.acquire("c", 1)).ok).toBe(false);
     await b.release("b");
     expect((await b.acquire("c", 1)).ok).toBe(true);
+  });
+
+  it("with no budget (0, the default, SPI-1386), refuses no start, and a budget set again applies at the next", async () => {
+    const b = settingBudget();
+    for (const holder of ["a", "b", "c", "d", "e"]) expect((await b.acquire(holder)).ok, holder).toBe(true);
+    expect((await b.acquire("f", 0)).ok).toBe(true);
+    expect(await b.state()).toMatchObject({ max: 0 });
+    expect((await b.state()).leases).toHaveLength(6);
+    // Set to 2 with six running: new starts wait, running holders renew.
+    expect(await b.acquire("g", 2)).toMatchObject({ ok: false, max: 2 });
+    expect((await b.renew("a")).ok).toBe(true);
+    // Off again: the next start runs.
+    expect((await b.acquire("g", 0)).ok).toBe(true);
   });
 
   it("lets T3FLARE_MAX_CONTAINERS win over a carried budget (tests)", async () => {

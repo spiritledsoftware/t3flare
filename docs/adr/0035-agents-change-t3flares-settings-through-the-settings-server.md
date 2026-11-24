@@ -165,7 +165,8 @@ still form a run.
 ## Refinement (SPI-1322, 2026-11-23): the Settings server's limits are its entry's settings
 
 Plan D16's caps are now limits on the Settings server's own entry in the MCP server set (`limits`, kind `settings`
-only), each with today's value as its default: the run of strikes (`strikes`), the strike window and lock
+only), each with today's value as its default (superseded: each off by default since the SPI-1386 refinement below):
+the run of strikes (`strikes`), the strike window and lock
 (`strikeWindowMinutes`, `strikeLockMinutes`; a lock of 0 turns it off), the declined repeat (`declinedRepeatMinutes`),
 the applied, asked, read and network-read caps per hour, and the open changes per thread and per Owner client. The Owner
 sets them in a Limits form on the Settings server's card. As every change to that entry, a change to them is asked in
@@ -240,3 +241,19 @@ names it is refused, as a change to any setting the schema does not have is.
 §3's tiers apply to an opt-in guardrail by direction: turning one on, or tightening it, narrows; turning it off, or
 loosening it, widens. The Settings server's own limits on asking and changing (the SPI-1322 refinement) are such
 guardrails: each is its entry's setting, under Advanced, off by default where the tickets of SPI-1357's prune say so.
+
+## Refinement (SPI-1386, 2026-11-24): the Settings server's limits are off by default
+
+The Settings server's ten limits are opt-in guardrails
+([ADR-0049](0049-settings-follow-local-parity-and-guardrails-are-opt-in.md)): each is off, 0, by default, and an agent
+asks and changes as often as the Owner allows by answering. Each takes 0 as off (`off: true`); the Limits form shows it
+empty, "off" its placeholder, with "1 to its maximum; off by default" beside it. A stored value is kept.
+
+An off limit is never hit, and its count is not read: the open changes per thread and per Owner client (`openBy`), the
+asked and applied changes an hour (`openedSince`, `appliedSince`, the free change's applied cap included), the reads and
+network reads an hour (`readsSince`; with both off, a read is not counted either), and the declined repeat and the
+strike lock (the closed changes, not read while both are off: SPI-1393). The strike lock needs both its strikes and its
+length: either off, a run of strikes locks nothing, and closed rows are kept the floor hour. The strike window off is
+no window of its own: the run's spacing is the Answer wait's stretch alone (`strikeWindowMs`). The agents' instructions
+name no per-thread count while it is off. The held streams per Owner client (`holdsPerCaller`, the SPI-1363 backstop)
+take the most `openPerOwner` may be set to, `MAX_OPEN_PER_CALLER`, while it is off.

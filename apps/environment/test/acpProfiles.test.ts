@@ -98,7 +98,7 @@ describe("Claude Code's profile", () => {
       );
       if ("refused" in answer) throw new Error(answer.refused);
       const managed = fileOf(answer, "/managed-settings.json").json as {
-        cleanupPeriodDays: number;
+        cleanupPeriodDays?: number;
         env: Record<string, string>;
       };
       return {
@@ -108,7 +108,9 @@ describe("Claude Code's profile", () => {
       };
     };
     expect(at({ cliRetries: 3, piSessionRetentionDays: 14 })).toEqual({ days: 14, managed: "3", launch: "3" });
-    expect(at({})).toEqual({ days: 60, managed: "1", launch: "1" });
+    // Off (0, the default since SPI-1386): Claude Code's own cleanup, the key unset.
+    expect(at({})).toEqual({ days: undefined, managed: "1", launch: "1" });
+    expect(at({ piSessionRetentionDays: 0 }).days).toBeUndefined();
   });
 
   it("pins the endpoint and the key in managed settings a repository cannot override (review F3; K5; M0 P1, P3)", () => {

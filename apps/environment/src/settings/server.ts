@@ -1865,11 +1865,13 @@ const ownReader = (deps: SettingsServerDeps, caller: OwnCaller): Reader => ({
 
 /**
  * An asked change whose description reads GitHub (a skill's preview at a commit) spends a network read as
- * `preview_skills` does (SPI-1199 review): why not, past the cap, else undefined, and the read is counted.
+ * `preview_skills` does (SPI-1199 review): why not, past the cap, else undefined, and the read is counted. With the cap
+ * off (0, SPI-1386) nothing is read or counted.
  */
 const networkSpent = (deps: SettingsServerDeps, reader: Reader, limits: SettingsServerLimits): string | undefined => {
-  const now = deps.ops.now();
   const cap = limits.networkReadsPerHour;
+  if (cap === 0) return undefined;
+  const now = deps.ops.now();
   if (deps.changes.readsSince(reader.key, "network", now - READ_WINDOW_MS) >= cap) {
     return `${limitHit(`Not changed: ${reader.who} made ${cap} reads that reach GitHub or an MCP server in the last hour, the limit of ${cap} an hour, and this change must preview its skills on GitHub`, { settingsServer: "networkReadsPerHour" })} Try again later.`;
   }
@@ -1882,7 +1884,8 @@ const networkSpent = (deps: SettingsServerDeps, reader: Reader, limits: Settings
  * and a read that reaches GitHub or an MCP server (`NETWORK_READS`) toward `networkReadsPerHour` as well (the Settings
  * server's limits as stored now, SPI-1322). `preview_skills`
  * mints a GitHub App token for any installed repository, so only a caller that may write may preview (the owner's
- * decision). Undefined: the read runs, and is counted.
+ * decision). Undefined: the read runs, and is counted. A cap that is off (0, SPI-1386) is never hit and its count is
+ * not read; with both off the read is not counted either.
  */
 const readLimit = (deps: SettingsServerDeps, reader: Reader, tool: string): McpCallAnswer | undefined => {
   const refused = (reason: string, text: string) => {
@@ -1898,12 +1901,17 @@ const readLimit = (deps: SettingsServerDeps, reader: Reader, tool: string): McpC
   const now = deps.ops.now();
   const network = NETWORK_READS.has(tool);
   const limits = deps.changes.limits();
-  if (deps.changes.readsSince(key, "read", now - READ_WINDOW_MS) >= limits.readsPerHour)
+  if (limits.readsPerHour === 0 && limits.networkReadsPerHour === 0) return undefined;
+  if (limits.readsPerHour !== 0 && deps.changes.readsSince(key, "read", now - READ_WINDOW_MS) >= limits.readsPerHour)
     return refused(
       "read-cap",
       `${limitHit(`Not read: ${reader.who} made ${limits.readsPerHour} settings reads in the last hour, the limit of ${limits.readsPerHour} an hour`, { settingsServer: "readsPerHour" })} Try again later.`,
     );
-  if (network && deps.changes.readsSince(key, "network", now - READ_WINDOW_MS) >= limits.networkReadsPerHour) {
+  if (
+    network &&
+    limits.networkReadsPerHour !== 0 &&
+    deps.changes.readsSince(key, "network", now - READ_WINDOW_MS) >= limits.networkReadsPerHour
+  ) {
     return refused(
       "network-read-cap",
       `${limitHit(`Not read: ${reader.who} made ${limits.networkReadsPerHour} reads that reach GitHub or an MCP server in the last hour, the limit of ${limits.networkReadsPerHour} an hour`, { settingsServer: "networkReadsPerHour" })} Try again later.`,
@@ -1939,8 +1947,9 @@ const write = async (deps: SettingsServerDeps, input: SettingsCallInput): Promis
   const key = caller.thread!;
   // An asked change always asks, in every mode (plan D7): an Open change, answered on the card or the Change page.
   if (planned.verdict.tier !== "free") return ask(deps, input, planned, expected, key);
+  // Off (0, the default, SPI-1386): never hit, and not counted.
   const applied = deps.changes.limits().appliedPerHour;
-  if (deps.changes.appliedSince(capKeyOf("own", key), deps.ops.now() - APPLIED_WINDOW_MS) >= applied)
+  if (applied !== 0 && deps.changes.appliedSince(capKeyOf("own", key), deps.ops.now() - APPLIED_WINDOW_MS) >= applied)
     return refuse(
       "applied-cap",
       `Not changed: this thread made ${applied} settings changes in the last hour, the most t3flare allows. Try again later, or ask the owner.`,
@@ -2366,8 +2375,12 @@ const ownerWrite = async (deps: SettingsServerDeps, input: OwnerCallInput): Prom
   if (prepared.kind === "result") return result(prepared.answer);
   const { planned, expected } = prepared;
   if (planned.verdict.tier !== "free") return ownerAsk(deps, input, planned, expected);
+  // Off (0, the default, SPI-1386): never hit, and not counted.
   const applied = deps.changes.limits().appliedPerHour;
-  if (deps.changes.appliedSince(capKeyOf("owner", caller.key), deps.ops.now() - APPLIED_WINDOW_MS) >= applied)
+  if (
+    applied !== 0 &&
+    deps.changes.appliedSince(capKeyOf("owner", caller.key), deps.ops.now() - APPLIED_WINDOW_MS) >= applied
+  )
     return refuse(
       "applied-cap",
       `Not changed: you made ${applied} settings changes in the last hour, the most t3flare allows. Try again later.`,

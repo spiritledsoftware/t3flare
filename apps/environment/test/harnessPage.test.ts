@@ -592,32 +592,38 @@ describe("the Settings server's row", () => {
         .map((tag) => [tag.attrs["data-setting"], tag.attrs.value, tag.attrs.min, tag.attrs.max]);
     const html = at({});
     expect(html).toContain('<form class="server-limits" data-mcp-limits="settings"');
+    // Each off by default (SPI-1386): an empty field, "off" its placeholder.
     expect(inputs(html)).toEqual([
-      ["strikes", "3", "1", "1000"],
-      ["strikeWindowMinutes", "60", "1", "10080"],
-      ["strikeLockMinutes", "60", "0", "10080"],
-      ["declinedRepeatMinutes", "10", "0", "10080"],
-      ["appliedPerHour", "30", "1", "100000"],
-      ["askedPerHour", "6", "1", "100000"],
-      ["readsPerHour", "240", "1", "100000"],
-      ["networkReadsPerHour", "20", "1", "100000"],
-      ["openPerThread", "1", "1", "1000"],
-      ["openPerOwner", "2", "1", "1000"],
+      ["strikes", "", "0", "1000"],
+      ["strikeWindowMinutes", "", "0", "10080"],
+      ["strikeLockMinutes", "", "0", "10080"],
+      ["declinedRepeatMinutes", "", "0", "10080"],
+      ["appliedPerHour", "", "0", "100000"],
+      ["askedPerHour", "", "0", "100000"],
+      ["readsPerHour", "", "0", "100000"],
+      ["networkReadsPerHour", "", "0", "100000"],
+      ["openPerThread", "", "0", "1000"],
+      ["openPerOwner", "", "0", "1000"],
     ]);
+    expect(
+      tagsOf(html)
+        .filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined)
+        .map((tag) => tag.attrs.placeholder),
+    ).toEqual(Array(10).fill("off"));
     // The consequence, once; each limit's range and default in its hint.
     expect(html.split(escapeHtml(SETTINGS_SERVER_LIMITS_NOTE)).length).toBe(2);
-    expect(html).toContain("1 to 100,000; 240 by default.");
+    expect(html).toContain("Empty or 0 is off. 1 to 100,000; off by default.");
     // Three groups, under legends, covering every limit once.
     expect(tagsOf(html).filter((tag) => tag.name === "legend" && !tag.closing).length).toBe(3);
     expect(LIMIT_GROUPS.flatMap(([, keys]) => keys).sort()).toEqual([...SETTINGS_SERVER_LIMIT_KEYS].sort());
     // A stored value shows; one that no longer fits shows its default.
-    expect(inputs(at({ limits: { askedPerHour: 12, strikes: 0 } })).slice(0, 6)).toEqual([
-      ["strikes", "3", "1", "1000"],
-      ["strikeWindowMinutes", "60", "1", "10080"],
+    expect(inputs(at({ limits: { askedPerHour: 12, strikes: -1, strikeLockMinutes: 60 } })).slice(0, 6)).toEqual([
+      ["strikes", "", "0", "1000"],
+      ["strikeWindowMinutes", "", "0", "10080"],
       ["strikeLockMinutes", "60", "0", "10080"],
-      ["declinedRepeatMinutes", "10", "0", "10080"],
-      ["appliedPerHour", "30", "1", "100000"],
-      ["askedPerHour", "12", "1", "100000"],
+      ["declinedRepeatMinutes", "", "0", "10080"],
+      ["appliedPerHour", "", "0", "100000"],
+      ["askedPerHour", "12", "0", "100000"],
     ]);
     // A Direct server has none.
     expect(markup(renderPage(fixturePage()))).not.toContain("data-mcp-limits");
@@ -802,7 +808,7 @@ describe("the Environment section's dotfiles", () => {
       "mcpSignInMinutes",
     ]);
     expect(inputs.map((tag) => tag.attrs)).toMatchObject([
-      { type: "number", min: "1", max: "604800", value: "270" },
+      { type: "number", min: "0", max: "604800", value: "", placeholder: "off" },
       { type: "number", min: "1", max: "8192", value: "1024" },
       { type: "number", min: "1", max: "10000", value: "16" },
       { type: "number", min: "1", max: "604800", value: "20" },
@@ -832,7 +838,7 @@ describe("the Environment section's dotfiles", () => {
       "mcpLegacyRecheckHours",
     ]);
     expect(inputs.map((tag) => tag.attrs)).toMatchObject([
-      { type: "number", min: "1", max: "604800", value: "15" },
+      { type: "number", min: "1", max: "604800", value: "30" },
       { type: "number", min: "1", max: "604800", value: "120" },
       { type: "number", min: "1", max: "200", value: "50" },
       { type: "number", min: "1", max: "1000", value: "10" },
@@ -865,8 +871,8 @@ describe("the Environment section's dotfiles", () => {
       "routerTraceEntries",
     ]);
     expect(inputs.map((tag) => tag.attrs)).toMatchObject([
-      { type: "number", min: "1", max: "3650", value: "92" },
-      { type: "number", min: "1", max: "3650", value: "60" },
+      { type: "number", min: "0", max: "3650", value: "", placeholder: "off" },
+      { type: "number", min: "0", max: "3650", value: "", placeholder: "off" },
       { type: "number", min: "1", max: "87600", value: "24" },
       { type: "number", min: "1", max: "100000", value: "500" },
       { type: "number", min: "1", max: "10000", value: "300" },
@@ -947,8 +953,22 @@ describe("the Environment section's dotfiles", () => {
       .filter((key) => key !== undefined);
     expect(settings.slice(-3)).toEqual(["settingsReadSeconds", "cloneMinutes", "checkpointMinutes"]);
     const input = (key: string) => tagsOf(containers).find((tag) => tag.attrs["data-setting"] === key)?.attrs;
-    expect(input("cloneMinutes")).toMatchObject({ type: "number", min: "1", max: "10080", value: "15" });
-    expect(input("checkpointMinutes")).toMatchObject({ type: "number", min: "1", max: "10080", value: "10" });
+    // Off by default (SPI-1386): empty, "off" its placeholder, and not required.
+    expect(input("cloneMinutes")).toMatchObject({
+      type: "number",
+      min: "0",
+      max: "10080",
+      value: "",
+      placeholder: "off",
+    });
+    expect(input("checkpointMinutes")).toMatchObject({
+      type: "number",
+      min: "0",
+      max: "10080",
+      value: "",
+      placeholder: "off",
+    });
+    expect(input("cloneMinutes")?.required).toBeUndefined();
   });
 
   it("draws the Terminals' holds and counts in the Containers row under Advanced, holds first, counts after them (SPI-1317)", () => {

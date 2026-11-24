@@ -2,7 +2,6 @@
 // doors as the Environment wires them (the MCP host, the CLI relay, the Owner-client endpoint, the Settings page). Each
 // `describe` names its line of the list; `docs-archive-1:docs/steps/settings-mcp.md` maps every line to its tests here and elsewhere,
 // and `docs-archive-1:docs/steps/settings-mcp/m6-stage-run.md` to what the stage run records.
-import { DEFAULT_SETTINGS_SERVER_LIMITS } from "@t3flare/harness-registry";
 import {
   MCP_QUESTION_MARKER,
   type McpAsker,
@@ -24,11 +23,19 @@ import { OFF_MESSAGE, type OwnCaller } from "../src/settings/caller.ts";
 import { scrubUrls } from "../src/settings/changes.ts";
 import { READ_ONLY_REFUSAL } from "../src/settings/server.ts";
 import { bodyOf, endpointOf, modern } from "./settingsEndpointFixture.ts";
-import { HOST, settingsFixture, type SettingsFixture, structured, textOf, until } from "./settingsFixture.ts";
+import {
+  CAPPED_LIMITS,
+  HOST,
+  settingsFixture,
+  type SettingsFixture,
+  structured,
+  textOf,
+  until,
+} from "./settingsFixture.ts";
 
 // The Settings server's limits at their defaults (SPI-1322: they are its entry's settings).
-const OPENED_CAP = DEFAULT_SETTINGS_SERVER_LIMITS.askedPerHour;
-const STRIKES = DEFAULT_SETTINGS_SERVER_LIMITS.strikes;
+const OPENED_CAP = CAPPED_LIMITS.askedPerHour;
+const STRIKES = CAPPED_LIMITS.strikes;
 
 let fixture: SettingsFixture | undefined;
 const unregisters: Array<() => void> = [];
@@ -88,7 +95,7 @@ describe("hostile: an injected agent asking repeatedly is stopped by the caps; 1
     });
     expect(f.cards).toHaveLength(1);
     expect(structured(await ask({ containerBudget: 5 }))).toMatchObject({ status: "declined" });
-    expect(structured(await ask({ containerSize: "standard-3" }))).toMatchObject({ status: "declined" });
+    expect(structured(await ask({ containerSize: "standard-4" }))).toMatchObject({ status: "declined" });
     expect(f.cards).toHaveLength(STRIKES);
     // Locked: every further asked change is refused with no card; a free change still runs on its own card.
     for (const settings of [{ containerBudget: 6 }, { variables: { INJECTED: "1" } }]) {
@@ -107,7 +114,7 @@ describe("hostile: an injected agent asking repeatedly is stopped by the caps; 1
       limits: { strikeLockMinutes: 0 },
     });
     expect(saved.status).toBe(200);
-    expect(f.store.load().mcp?.servers.settings?.limits).toEqual({ strikeLockMinutes: 0 });
+    expect(f.store.load().mcp?.servers.settings?.limits).toMatchObject({ strikeLockMinutes: 0 });
     const agent = f.durable("thread-unlocked");
     const ask = (settings: Record<string, unknown>) =>
       f.call(agent, "change_environment", { expectedRevision: 0, settings });
@@ -129,7 +136,7 @@ describe("hostile: an injected agent asking repeatedly is stopped by the caps; 1
     expect(structured(await ask({ containerBudget: 8 }))).toMatchObject({ status: "refused", reason: "strikes" });
     expect(f.cards).toHaveLength(4);
     // The panel refuses a limit out of range, or on a Direct server.
-    expect((await panelPost(f, "/api/mcp", { op: "server", server: "settings", limits: { strikes: 0 } })).status).toBe(
+    expect((await panelPost(f, "/api/mcp", { op: "server", server: "settings", limits: { strikes: -1 } })).status).toBe(
       400,
     );
   });

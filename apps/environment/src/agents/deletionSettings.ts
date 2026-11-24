@@ -1,7 +1,7 @@
 // The Sweep's settings (ADR-0043 §2–3), apart from `deletion.ts` so the Environment DO's module graph stays small:
 // the Grace, whether the Sweep purges, and how long a Workspace may provision, read from the Environment settings at
 // each use.
-import type { ResolvedEnvironment } from "@t3flare/harness-registry";
+import { deadlineMs, type ResolvedEnvironment } from "@t3flare/harness-registry";
 
 export const DAY_MS = 24 * 60 * 60_000;
 
@@ -32,14 +32,15 @@ export type ProvisioningTimes = Pick<
  * longest Container start they allow, a wait for a Base build (`waitLimitMs`: the Image setup's limit and twice the
  * snapshot's) and the start's own steps (the Global mise install twice, and the Container setup). A row stays
  * `provisioning` for all of it, so a Sweep that purged it sooner would delete a Workspace whose clone is still running.
+ * An off clone limit (0, SPI-1386) counts as its deadline, a week (`OFF_DEADLINE_MS`).
  */
 export const provisioningLimitMs = (times: ProvisioningTimes): number =>
-  (times.cloneMinutes +
-    times.imageSetupMinutes +
+  deadlineMs(times.cloneMinutes, 60_000) +
+  (times.imageSetupMinutes +
     2 * times.snapshotMinutes +
     2 * times.globalMiseInstallMinutes +
     times.containerSetupMinutes) *
-  60_000;
+    60_000;
 
 /** The Sweep's settings from the resolved Environment settings and a Stage's `T3FLARE_SWEEP_GRACE_MS`, if set and positive. */
 export const sweepSettingsOf = (

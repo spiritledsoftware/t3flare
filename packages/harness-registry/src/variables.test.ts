@@ -60,7 +60,7 @@ describe("Variables", () => {
     if (!first.ok) throw new Error(first.error);
     expect(
       applyEnvironmentChange(first.environment, {
-        settings: { variables: [plain("A", "1"), plain("B", "2")], containerBudget: 3 },
+        settings: { variables: [plain("A", "1"), plain("B", "2")], containerBudget: 0 },
       }),
     ).toMatchObject({ ok: true, changed: [] });
     expect(

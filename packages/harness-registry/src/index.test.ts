@@ -703,17 +703,18 @@ describe("withoutQuery", () => {
 });
 
 describe("the Settings server's limits (SPI-1322)", () => {
+  /** Every limit off (0) by default: a cloud-only guardrail is opt-in (SPI-1386). */
   const DEFAULTS = {
-    strikes: 3,
-    strikeWindowMinutes: 60,
-    strikeLockMinutes: 60,
-    declinedRepeatMinutes: 10,
-    appliedPerHour: 30,
-    askedPerHour: 6,
-    readsPerHour: 240,
-    networkReadsPerHour: 20,
-    openPerThread: 1,
-    openPerOwner: 2,
+    strikes: 0,
+    strikeWindowMinutes: 0,
+    strikeLockMinutes: 0,
+    declinedRepeatMinutes: 0,
+    appliedPerHour: 0,
+    askedPerHour: 0,
+    readsPerHour: 0,
+    networkReadsPerHour: 0,
+    openPerThread: 0,
+    openPerOwner: 0,
   };
   const withDirect: StoredHarness = {
     ...EMPTY_HARNESS,
@@ -727,9 +728,29 @@ describe("the Settings server's limits (SPI-1322)", () => {
     return result.harness;
   };
 
-  it("resolve to today's values with nothing stored", () => {
+  it("resolve to off with nothing stored, and each takes 0 as off (SPI-1386)", () => {
     expect(settingsServerLimitsOf(EMPTY_HARNESS)).toEqual(DEFAULTS);
     expect(Object.keys(SETTINGS_SERVER_LIMITS).sort()).toEqual(Object.keys(DEFAULTS).sort());
+    for (const entry of Object.values(SETTINGS_SERVER_LIMITS)) {
+      expect(entry.schema).toMatchObject({ minimum: 0, default: 0, off: true });
+      expect(entry.description).toContain("Empty or 0 is off.");
+    }
+  });
+
+  it("keep a value stored before the defaults moved (SPI-1386)", () => {
+    const before = {
+      strikes: 3,
+      strikeWindowMinutes: 60,
+      strikeLockMinutes: 60,
+      declinedRepeatMinutes: 10,
+      appliedPerHour: 30,
+      askedPerHour: 6,
+      readsPerHour: 240,
+      networkReadsPerHour: 20,
+      openPerThread: 1,
+      openPerOwner: 2,
+    };
+    expect(settingsServerLimitsOf(applied(EMPTY_HARNESS, before))).toEqual(before);
   });
 
   it("are stored on the settings entry, merged over those set, and resolved over the defaults", () => {
@@ -749,7 +770,7 @@ describe("the Settings server's limits (SPI-1322)", () => {
             kind: "settings",
             enabled: true,
             exposure: "deferred",
-            limits: { askedPerHour: 0, readsPerHour: 1.5, openPerThread: 1001, strikes: 4 },
+            limits: { askedPerHour: -1, readsPerHour: 1.5, openPerThread: 1001, strikes: 4 },
           },
         },
       },
@@ -763,10 +784,9 @@ describe("the Settings server's limits (SPI-1322)", () => {
       error: "fixture: only the Settings server has limits",
     });
     for (const [limits, error] of [
-      [{ strikes: 0 }, "limits.strikes: at least 1"],
+      [{ strikes: -1 }, "limits.strikes: at least 0"],
       [{ strikes: 1001 }, "limits.strikes: at most 1000"],
       [{ strikeLockMinutes: -1 }, "limits.strikeLockMinutes: at least 0"],
-      [{ strikeWindowMinutes: 0 }, "limits.strikeWindowMinutes: at least 1"],
       [{ strikeWindowMinutes: MAX_TIMED_MINUTES + 1 }, `limits.strikeWindowMinutes: at most ${MAX_TIMED_MINUTES}`],
       [{ askedPerHour: 100_001 }, "limits.askedPerHour: at most 100000"],
       [{ openPerOwner: 1001 }, "limits.openPerOwner: at most 1000"],
@@ -786,12 +806,14 @@ describe("the Settings server's limits (SPI-1322)", () => {
     expect(
       applyMcpChange(EMPTY_HARNESS, { op: "server", server: SETTINGS_SERVER, limits: JSON.parse('{"__proto__":1}') }),
     ).toEqual({ ok: false, error: "limits.__proto__: not a limit of the Settings server" });
-    // The lock and the repeat take 0, which turns them off.
+    // Each takes 0, which turns it off.
     expect(
-      settingsServerLimitsOf(applied(EMPTY_HARNESS, { strikeLockMinutes: 0, declinedRepeatMinutes: 0 })),
+      settingsServerLimitsOf(
+        applied(applied(EMPTY_HARNESS, { strikes: 3, askedPerHour: 6 }), { strikes: 0, askedPerHour: 0 }),
+      ),
     ).toMatchObject({
-      strikeLockMinutes: 0,
-      declinedRepeatMinutes: 0,
+      strikes: 0,
+      askedPerHour: 0,
     });
   });
 });

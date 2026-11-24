@@ -134,7 +134,7 @@ describe("the Change page renders every kind escaped, a hostile value inert", ()
     const limited = applyMcpChange(EMPTY_HARNESS, {
       op: "server",
       server: "settings",
-      limits: { strikeLockMinutes: 180 },
+      limits: { strikes: 3, strikeWindowMinutes: 60, strikeLockMinutes: 180 },
     });
     if (!limited.ok) throw new Error(limited.error);
     fixture = settingsFixture({ harness: limited.harness });

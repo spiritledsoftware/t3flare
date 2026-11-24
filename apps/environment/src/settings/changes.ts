@@ -35,7 +35,7 @@ const KEPT_FLOOR_MS = 60 * 60_000;
  * How far apart a run of strikes may fall (SPI-1316), for the longest Answer wait `answerMs` among the run's changes:
  * the strike window, or more when the wait is long. One Open change per thread means its unanswered strikes come at
  * least a wait apart, so a run of expiries spans `strikes - 1` waits; a fixed window would never see one past a
- * 30-minute wait.
+ * 30-minute wait. With the window off (0, SPI-1386), that spacing alone.
  */
 export const strikeWindowMs = (
   answerMs: number,
@@ -45,13 +45,16 @@ export const strikeWindowMs = (
 /**
  * How long a closed row is kept: the longest a check looks back (SPI-1322 review), for the longest Answer wait
  * `answerMs` a run may have. A run of strikes and the lock after it (plan D16), the declined repeat, and the hourly caps'
- * hour, whichever is longest. Two hours at the defaults. A limit lowered prunes sooner, and what was pruned is not
- * recovered when it is raised again.
+ * hour, whichever is longest: the hour at the defaults (SPI-1386: every limit off), the lock's run only while its
+ * strikes and length are both set. A limit lowered prunes sooner, and what was pruned is not recovered when it is
+ * raised again.
  */
 export const closedKeptMs = (answerMs: number, limits: SettingsServerLimits = DEFAULT_SETTINGS_SERVER_LIMITS): number =>
   Math.max(
     KEPT_FLOOR_MS,
-    strikeWindowMs(answerMs, limits) + limits.strikeLockMinutes * 60_000,
+    limits.strikes === 0 || limits.strikeLockMinutes === 0
+      ? 0
+      : strikeWindowMs(answerMs, limits) + limits.strikeLockMinutes * 60_000,
     limits.declinedRepeatMinutes * 60_000,
   );
 

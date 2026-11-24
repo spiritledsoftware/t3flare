@@ -71,15 +71,21 @@ describe("a Session's turn and its Turn limit", () => {
     expect(s.housekeep(START + 120 * MINUTE)).toEqual(["a"]);
   });
 
-  it("reads a record with no kept limit (from before the setting) and a start that carried none as the default", () => {
+  it("arms nothing for a turn whose limit is off (0, the default since SPI-1386), and never ends it", () => {
     const s = session();
+    s.submit("off", START, 0);
+    s.submit("absent", START, undefined);
     s.turns.old = { submissionId: "s0", runId: "r0", attemptId: "a0", status: "running", startedAt: START };
-    s.submit("fresh", START, undefined);
-    expect(s.turns.fresh?.turnLimitMs).toBe(DEFAULT_TURN_LIMIT_MS);
-    expect(DEFAULT_TURN_LIMIT_MS).toBe(120 * MINUTE);
-    expect(s.alarmAt(START + MINUTE)).toBe(START + DEFAULT_TURN_LIMIT_MS);
-    expect(s.housekeep(START + DEFAULT_TURN_LIMIT_MS - 1)).toEqual([]);
-    expect(s.housekeep(START + DEFAULT_TURN_LIMIT_MS)).toEqual(["old", "fresh"]);
+    expect(DEFAULT_TURN_LIMIT_MS).toBe(0);
+    expect(s.turns.off?.turnLimitMs).toBe(0);
+    expect(s.turns.absent?.turnLimitMs).toBe(0);
+    s.run("off");
+    expect(s.alarmAt(START + MINUTE)).toBeNull();
+    expect(s.housekeep(START + 365 * 24 * 60 * MINUTE)).toEqual([]);
+    // A limited turn beside them is still ended at its own limit.
+    s.submit("limited", START, 5 * MINUTE);
+    expect(s.alarmAt(START + MINUTE)).toBe(START + 5 * MINUTE);
+    expect(s.housekeep(START + 5 * MINUTE)).toEqual(["limited"]);
   });
 
   it("lets the deploy's override win over the carried limit, the kept one and the default", () => {
@@ -100,9 +106,10 @@ describe("a Session's turn and its Turn limit", () => {
 });
 
 describe("turnLimitAt", () => {
-  it("reads a carried limit that is not a positive finite number as the default, and an empty or bad override as none", () => {
+  it("reads a carried limit that is not a positive finite number as off, and an empty or bad override as none", () => {
     for (const carried of [undefined, 0, -5, Number.NaN, Number.POSITIVE_INFINITY, "60"])
-      expect(turnLimitAt(carried, undefined)).toBe(DEFAULT_TURN_LIMIT_MS);
+      expect(turnLimitAt(carried, undefined)).toBe(0);
+    expect(turnLimitAt(0, "120000")).toBe(120_000);
     expect(turnLimitAt(10_080 * MINUTE, undefined)).toBe(10_080 * MINUTE);
     expect(turnLimitAt(30 * MINUTE, "")).toBe(30 * MINUTE);
     expect(turnLimitAt(30 * MINUTE, "nope")).toBe(30 * MINUTE);

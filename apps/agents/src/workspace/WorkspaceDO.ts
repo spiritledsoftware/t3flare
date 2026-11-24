@@ -55,6 +55,7 @@ import {
   BASE_BUILD_TEXT_CHARACTERS,
   type BaseBuildRecord,
   BUILDERS,
+  deadlineMs,
   EMPTY_ENVIRONMENT,
   fitVariableEnv,
   type McpRelayAnswer,
@@ -1342,10 +1343,10 @@ export class WorkspaceDO extends ContainerHost {
 
   /**
    * The command time limit (`commandMinutes`, SPI-1364) in ms: the deadline of a Container command that carries none of
-   * its own, as the running Container's start took it.
+   * its own, as the running Container's start took it; the off deadline when it is off (0, the default, SPI-1386).
    */
   #commandMs(): number {
-    return this.#keptSettings().commandMinutes * 60_000;
+    return deadlineMs(this.#keptSettings().commandMinutes, 60_000);
   }
 
   /** The settings the running Container took (kept by its start), read against this Worker's schema; else the defaults. */

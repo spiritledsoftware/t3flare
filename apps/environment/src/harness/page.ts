@@ -78,7 +78,16 @@ import type { AuditEntry } from "./store.ts";
 import { brand, FAVICON } from "./pageBrand.ts";
 import { ICON_SPRITE, icon, type IconName } from "./pageIcons.ts";
 import { changePagePath } from "./paths.ts";
-import { budgetNote, ENTITY_LABELS, ISO_TIME_SOURCE, KEPT_PLACEHOLDER, SCRIPT } from "./pageScript.ts";
+import {
+  budgetNote,
+  ENTITY_LABELS,
+  ISO_TIME_SOURCE,
+  KEPT_PLACEHOLDER,
+  NO_BUDGET_CELL,
+  NO_BUDGET_HEAD,
+  noBudgetNow,
+  SCRIPT,
+} from "./pageScript.ts";
 import { endpointsSection, type EndpointsView } from "./pageEndpoints.ts";
 import { workspacesSection, type WorkspacesSectionInput } from "./pageWorkspaces.ts";
 import { STYLE } from "./pageStyle.ts";
@@ -157,10 +166,13 @@ const field = (
   switch (setting.schema.type) {
     case "boolean":
       return `<div class="field"><div class="inline-field"><input type="checkbox" ${attrs}${value === true ? " checked" : ""}><label for="${id}">${escapeHtml(setting.title)}</label></div>${hint}</div>`;
-    case "integer":
-      return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="number" inputmode="numeric" required ${attrs} min="${setting.schema.minimum}"${
+    case "integer": {
+      // An off setting (SPI-1386) shows its 0 as an empty field, and takes one empty: the script reads it as 0.
+      const off = setting.schema.off === true;
+      return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="number" inputmode="numeric"${off ? ' placeholder="off"' : " required"} ${attrs} min="${setting.schema.minimum}"${
         setting.schema.maximum === undefined ? "" : ` max="${setting.schema.maximum}"`
-      } step="1" value="${escapeHtml(String(value))}">${hint}</div>`;
+      } step="1" value="${off && value === 0 ? "" : escapeHtml(String(value))}">${hint}</div>`;
+    }
     case "number":
       return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="number" inputmode="${setting.schema.whole === true ? "numeric" : "decimal"}" required ${attrs} min="${setting.schema.minimum}" step="${setting.schema.whole === true ? "1" : "any"}" value="${escapeHtml(String(value))}">${hint}</div>`;
     case "enum":
@@ -530,11 +542,15 @@ const advancedSettings = (id: string, count: number, body: string, of: string): 
 
 const containers = (count: number) => `${count} ${count === 1 ? "Container" : "Containers"}`;
 
+/** The budget column's head: its Containers', or no budget's while it is off (0, SPI-1386). */
+const budgetHead = (budget: number) => (budget === 0 ? NO_BUDGET_HEAD : `${containers(budget)}, an hour`);
+
 /** The worst case for the settings as they stand; the page's script rewrites it as the size or budget inputs change. */
 const costNow = (costs: ContainerCostTable, size: string): string => {
   const row = costs.rows.find((entry) => entry.size === size);
-  return row === undefined
-    ? ""
+  if (row === undefined) return "";
+  return costs.budget === 0
+    ? noBudgetNow(dollars(row.perContainerHour, 3), row.size)
     : `With these settings, at most ${dollars(row.budgetHour, 2)} an hour: ${containers(costs.budget)} of ${row.size}, every vCPU busy.`;
 };
 
@@ -549,10 +565,10 @@ const costTable = (costs: ContainerCostTable, size: string): string => {
   const rows = costs.rows
     .map(
       (row) =>
-        `<tr data-size="${escapeHtml(row.size)}" data-per-hour="${Number(row.perContainerHour.toFixed(6))}"${row.size === size ? ' aria-current="true"' : ""}${row.size === CUSTOM_SIZE ? CUSTOM_PRICES : ""}><td data-label="Size"><div><code>${escapeHtml(row.size)}</code>${row.default ? ' <span class="tag">default</span>' : ""}</div></td><td data-label="vCPU"><div data-resource="vcpu">${row.resources.vcpu}</div></td><td data-label="Memory"><div data-resource="memory">${gib(row.resources.memoryMib)}</div></td><td data-label="Disk"><div data-resource="disk">${row.resources.diskMb / 1000} GB</div></td><td data-label="One Container, an hour"><div data-container-hour>${dollars(row.perContainerHour, 3)}</div></td><td data-label="${containers(costs.budget)}, an hour" data-budget-cell><div data-budget-hour>${dollars(row.budgetHour, 2)}</div></td></tr>`,
+        `<tr data-size="${escapeHtml(row.size)}" data-per-hour="${Number(row.perContainerHour.toFixed(6))}"${row.size === size ? ' aria-current="true"' : ""}${row.size === CUSTOM_SIZE ? CUSTOM_PRICES : ""}><td data-label="Size"><div><code>${escapeHtml(row.size)}</code>${row.default ? ' <span class="tag">default</span>' : ""}</div></td><td data-label="vCPU"><div data-resource="vcpu">${row.resources.vcpu}</div></td><td data-label="Memory"><div data-resource="memory">${gib(row.resources.memoryMib)}</div></td><td data-label="Disk"><div data-resource="disk">${row.resources.diskMb / 1000} GB</div></td><td data-label="One Container, an hour"><div data-container-hour>${dollars(row.perContainerHour, 3)}</div></td><td data-label="${budgetHead(costs.budget)}" data-budget-cell><div data-budget-hour>${costs.budget === 0 ? NO_BUDGET_CELL : dollars(row.budgetHour, 2)}</div></td></tr>`,
     )
     .join("");
-  return `<div class="table-wrap"><table class="stacked"><thead><tr><th scope="col">Size</th><th scope="col">vCPU</th><th scope="col">Memory</th><th scope="col">Disk</th><th scope="col">One Container, an hour</th><th scope="col" data-budget-head>${containers(costs.budget)}, an hour</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  return `<div class="table-wrap"><table class="stacked"><thead><tr><th scope="col">Size</th><th scope="col">vCPU</th><th scope="col">Memory</th><th scope="col">Disk</th><th scope="col">One Container, an hour</th><th scope="col" data-budget-head>${budgetHead(costs.budget)}</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 };
 
 /**
@@ -753,7 +769,7 @@ const environmentSection = (
 <dl class="group kv"><div><dt>Running now</dt><dd>${
     running === null || running === undefined
       ? "unknown"
-      : `${running.count} of ${environment.containerBudget}${running.holders.length === 0 ? "" : `: ${running.holders.map((holder) => `<code>${escapeHtml(holder)}</code>`).join(", ")}`}`
+      : `${running.count}${environment.containerBudget === 0 ? ", no budget" : ` of ${environment.containerBudget}`}${running.holders.length === 0 ? "" : `: ${running.holders.map((holder) => `<code>${escapeHtml(holder)}</code>`).join(", ")}`}`
   }</dd></div></dl>
 <h3 class="sub-head">Cost at worst</h3>
 <p class="section-desc">Cloudflare's Workers Paid list prices, every vCPU busy the whole hour. Memory and disk are billed while a Container runs, CPU only while it works, so a real hour costs less.</p>
@@ -934,11 +950,12 @@ const settingsLimits = (row: McpRow): string => {
   const groups = LIMIT_GROUPS.map(([legend, keys]) => {
     const fields = keys.map((key) => {
       const setting = SETTINGS_SERVER_LIMITS[key];
-      const { minimum, maximum } = setting.schema;
-      // The range and default beside each description, from the schema the API checks against.
+      const { maximum } = setting.schema;
+      // The range and default beside each description, from the schema the API checks against: each is off (empty or
+      // 0) by default (SPI-1386), else 1 to its maximum.
       const ranged = {
         ...setting,
-        description: `${setting.description} ${minimum} to ${maximum.toLocaleString("en-US")}; ${setting.schema.default} by default.`,
+        description: `${setting.description} 1 to ${maximum.toLocaleString("en-US")}; off by default.`,
       };
       return field(`${row.name}-limits`, key, ranged, limits[key]);
     });

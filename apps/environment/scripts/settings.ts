@@ -3550,6 +3550,27 @@ if (!["m5a-prod", "changes", "owner-oauth", "snap"].includes(command ?? "")) {
   // owner's page items) outlive it: keep the window open for the longest arm (an hour), renewed by each run of this script.
   await admin("POST", "/_t3flare/arm-bootstrap?minutes=60");
 }
+// SPI-1386 turned the Settings server's limits and the Container budget off by default; the M4 to M6 items are written
+// against them set: the limits at their values before, and a budget, so a raise of it is an asked change.
+if (["m4", "m4-page", "m5a", "m5b", "m6"].includes(command ?? "")) {
+  await harness("POST", "/_t3flare/settings/api/mcp", {
+    op: "server",
+    server: "settings",
+    limits: {
+      strikes: 3,
+      strikeWindowMinutes: 60,
+      strikeLockMinutes: 60,
+      declinedRepeatMinutes: 10,
+      appliedPerHour: 30,
+      askedPerHour: 6,
+      readsPerHour: 240,
+      networkReadsPerHour: 20,
+      openPerThread: 1,
+      openPerOwner: 2,
+    },
+  });
+  if (Number((await environment()).resolved.containerBudget) === 0) await resetBudget(3);
+}
 switch (command) {
   case "setup":
     await setup();

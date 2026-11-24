@@ -17,8 +17,9 @@ import { acceptUsage, listedModelOf, USAGE_SLOT_MS, type UsageStore, usageStore 
 import { nodeSqlStorage } from "./nodeSqlStorage.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
-/** The default retention (`usageRetentionDays`' default, 92 days). */
-const USAGE_RETENTION_MS = DEFAULT_USAGE_RETENTION_DAYS * DAY;
+/** A retention the Owner set (`usageRetentionDays`), 92 days: its default is off (SPI-1386). */
+const RETENTION_DAYS = 92;
+const USAGE_RETENTION_MS = RETENTION_DAYS * DAY;
 const NOW = Date.parse("2026-11-16T12:00:00Z");
 
 const endpoints: ModelEndpoints = {
@@ -222,7 +223,7 @@ describe("the Environment's usage records", () => {
 
   it("reads only the window asked for, and keeps nothing past the retention window", async () => {
     const sql = nodeSqlStorage();
-    const store = usageStore(sql);
+    const store = usageStore(sql, { retentionDays: () => RETENTION_DAYS });
     store.record(
       [entry({ at: NOW - 3 * DAY }), entry({ at: NOW - USAGE_RETENTION_MS - DAY, session: "old" })],
       endpoints,
@@ -236,6 +237,23 @@ describe("the Environment's usage records", () => {
     expect((await scanOf(store, "pi", 0))[0]!.files![0]!.records.map((record) => record.timestampMs)).toEqual([
       Math.floor(later / USAGE_SLOT_MS) * USAGE_SLOT_MS,
     ]);
+  });
+
+  it("with the retention off (0, the default since SPI-1386), keeps every record however old, and prunes none", async () => {
+    expect(DEFAULT_USAGE_RETENTION_DAYS).toBe(0);
+    const sql = nodeSqlStorage();
+    let days = DEFAULT_USAGE_RETENTION_DAYS;
+    const store = usageStore(sql, { retentionDays: () => days });
+    expect(store.record([entry({ at: NOW - 4000 * DAY, session: "old" })], endpoints, NOW)).toBe(1);
+    expect(usageStore(sql).record([entry({ at: NOW - 5000 * DAY, session: "older" })], endpoints, NOW)).toBe(1);
+    const later = NOW + 2 * 60 * 60_000;
+    expect(store.record([entry({ at: later })], endpoints, later)).toBe(1);
+    expect((await scanOf(store, "pi", 0))[0]!.files![0]!.records).toHaveLength(3);
+    // Turned on: the next prune deletes what is past it.
+    days = 30;
+    const after = later + 2 * 60 * 60_000;
+    store.record([entry({ at: after })], endpoints, after);
+    expect((await scanOf(store, "pi", 0))[0]!.files![0]!.records).toHaveLength(2);
   });
 
   it("keeps the Owner's retention (usageRetentionDays, SPI-1323), read at each record and prune", async () => {
@@ -326,7 +344,7 @@ describe("the records' times and bounds", () => {
   });
 
   it("keeps an entry inside the retention window and up to an hour ahead of the clock, and drops the rest", () => {
-    const store = usageStore(nodeSqlStorage());
+    const store = usageStore(nodeSqlStorage(), { retentionDays: () => RETENTION_DAYS });
     expect(
       store.record(
         [entry({ at: NOW - USAGE_RETENTION_MS + 60_000 }), entry({ at: NOW + 30 * 60_000 })],
@@ -343,8 +361,8 @@ describe("the records' times and bounds", () => {
     ).toBe(0);
   });
 
-  it("keeps 92 days, more than the page's widest range (90 days)", () => {
-    const store = usageStore(nodeSqlStorage());
+  it("kept 92 days, keeps more than the page's widest range (90 days)", () => {
+    const store = usageStore(nodeSqlStorage(), { retentionDays: () => RETENTION_DAYS });
     expect(store.record([entry({ at: NOW - 91 * DAY })], endpoints, NOW)).toBe(1);
     expect(store.record([entry({ at: NOW - 93 * DAY })], endpoints, NOW)).toBe(0);
   });

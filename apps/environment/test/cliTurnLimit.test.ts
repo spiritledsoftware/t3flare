@@ -90,13 +90,13 @@ describe("a CLI agent's Turn limit", () => {
 describe("turnLimitMsNow", () => {
   afterEach(() => bindEnvironmentServices(undefined as unknown as EnvironmentServices));
 
-  it("reads the Environment's Turn limit, and the default (120 minutes) without services or a reader", () => {
+  it("reads the Environment's Turn limit, and the default (off, 0: SPI-1386) without services or a reader", () => {
     bindEnvironmentServices({ turnLimitMs: () => 5 * 60_000 } as unknown as EnvironmentServices);
     expect(turnLimitMsNow()).toBe(5 * 60_000);
     bindEnvironmentServices({} as unknown as EnvironmentServices);
-    expect(turnLimitMsNow()).toBe(120 * 60_000);
+    expect(turnLimitMsNow()).toBe(0);
     bindEnvironmentServices(undefined as unknown as EnvironmentServices);
-    expect(turnLimitMsNow()).toBe(120 * 60_000);
+    expect(turnLimitMsNow()).toBe(0);
   });
 });
 

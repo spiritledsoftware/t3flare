@@ -93,10 +93,10 @@ describe("takeEnvironment", () => {
     const store = keeper(odd);
     const taken = await takeEnvironment({ read: never, kept: store.kept, keep: store.keep, waitMs: 20 });
     expect(taken).toEqual({
-      settings: { ...DEFAULTS, revision: 6, containerSize: "cpu-1", containerIdleMinutes: 2, containerBudget: 2 },
+      settings: { ...DEFAULTS, revision: 6, containerSize: "standard-3", containerIdleMinutes: 2, containerBudget: 2 },
       source: "kept",
     });
-    expect(launchOf(taken).instance).toEqual(CPU_1);
+    expect(launchOf(taken).instance).toBe("standard-3");
   });
 
   it("reads an answer from an Environment newer or older than this Worker against this Worker's schema", async () => {
@@ -175,7 +175,7 @@ describe("launchOf", () => {
     expect(JSON.stringify(shown)).not.toContain("npm_live");
   });
 
-  it("launches a named size by its name and cpu-1 as its resources, with the idle time in milliseconds", () => {
+  it("launches a named size by its name and cpu-1 as its resources, with the idle time in milliseconds; standard-3 and no budget by default (SPI-1386)", () => {
     expect(
       launchOf({
         settings: {
@@ -201,11 +201,15 @@ describe("launchOf", () => {
       agentTerminalsPerWorkspace: 8,
       agentTerminalScrollbackLines: 1000,
     });
-    expect(launchOf({ settings: DEFAULTS, source: "environment" })).toEqual({
+    expect(launchOf({ settings: { ...DEFAULTS, containerSize: "cpu-1" }, source: "environment" })).toMatchObject({
       size: "cpu-1",
       instance: CPU_1,
+    });
+    expect(launchOf({ settings: DEFAULTS, source: "environment" })).toEqual({
+      size: "standard-3",
+      instance: "standard-3",
       idleMs: 120_000,
-      budget: 3,
+      budget: 0,
       revision: 0,
       variables: {},
       terminalsReadBashrc: true,

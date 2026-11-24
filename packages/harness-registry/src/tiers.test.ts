@@ -158,7 +158,7 @@ const ENVIRONMENT: Readonly<
   // SPI-1317: a longer Terminal hold keeps the Container running, and billed, longer, so it is asked.
   terminalBusyHoldMinutes: { up: [30, 60, "asked"], down: [30, 5, "free"] },
   terminalPromptHoldMinutes: { up: [10, 30, "asked"], down: [10, 5, "free"] },
-  containerBudget: { up: [3, 4, "asked"], down: [3, 2, "free"] },
+  containerBudget: { up: [3, 0, "asked"], down: [0, 2, "free"] },
   // SPI-1317: more Terminals use more of the Container's and the Workspace DO's memory, so a raise is asked.
   terminalsPerWorkspace: { up: [8, 16, "asked"], down: [8, 2, "free"] },
   agentTerminalsPerWorkspace: { up: [8, 16, "asked"], down: [8, 3, "free"] },
@@ -167,7 +167,7 @@ const ENVIRONMENT: Readonly<
   cliProcessesPerWorkspace: { up: [4, 8, "asked"], down: [4, 2, "free"] },
   cliReclaimSeconds: { up: [30, 600, "free"], down: [30, 0, "free"] },
   // SPI-1315: a shorter Turn limit only narrows; a longer one spends model tokens and Container time, so it is asked.
-  turnLimitMinutes: { up: [120, 240, "asked"], down: [120, 60, "free"] },
+  turnLimitMinutes: { up: [120, 0, "asked"], down: [0, 60, "free"] },
   // SPI-1316: a shorter Answer wait only narrows; a longer one holds a turn, and its Container, longer, so it is asked.
   ownerAnswerMinutes: { up: [10, 30, "asked"], down: [10, 5, "free"] },
   // SPI-1314: the settings read wait neither widens reach nor spends, so it is free either way.
@@ -189,7 +189,7 @@ const ENVIRONMENT: Readonly<
   // Keeping less of a setup's output is free; keeping more is asked (it is a larger stored value and a longer read).
   setupOutputKiB: { up: [32, 64, "asked"], down: [32, 16, "free"] },
   // SPI-1324: a shorter clone or checkpoint limit only narrows; a longer one holds the Container longer, so it is asked.
-  cloneMinutes: { up: [15, 60, "asked"], down: [15, 5, "free"] },
+  cloneMinutes: { up: [15, 0, "asked"], down: [0, 5, "free"] },
   checkpointMinutes: { up: [10, 30, "asked"], down: [10, 3, "free"] },
   // ADR-0047 §9: turning one on puts the Owner's dotfiles (text, hooks) in front of agents, so it is asked.
   terminalsReadBashrc: { up: [false, true, "asked"], down: [true, false, "free"] },
@@ -198,10 +198,10 @@ const ENVIRONMENT: Readonly<
   sweepPurges: { up: [false, true, "asked"], down: [true, false, "free"] },
   graceDays: { up: [7, 30, "free"], down: [7, 1, "asked"] },
   // SPI-1323: a shorter history deletes records and sessions, so it is asked; a longer one is free.
-  usageRetentionDays: { up: [92, 365, "free"], down: [92, 30, "asked"] },
+  usageRetentionDays: { up: [92, 0, "free"], down: [0, 30, "asked"] },
   piSessionRetentionDays: { up: [60, 365, "free"], down: [60, 30, "asked"] },
   // SPI-1359: a longer MCP call or a larger result is asked; a shorter or smaller one is free.
-  mcpCallSeconds: { up: [270, 600, "asked"], down: [270, 60, "free"] },
+  mcpCallSeconds: { up: [270, 0, "asked"], down: [0, 60, "free"] },
   mcpResultKiB: { up: [1024, 4096, "asked"], down: [1024, 256, "free"] },
   // SPI-1364: fewer temp hours delete files an agent was pointed at, so it is asked; keeping more git answers or trace
   // entries costs storage or memory, so it is asked; keeping fewer is free.
@@ -210,7 +210,7 @@ const ENVIRONMENT: Readonly<
   routerTraceEntries: { up: [300, 1000, "asked"], down: [300, 100, "free"] },
   // SPI-1364: a longer command limit or start wait holds the Container longer, so it is asked; the waits and graces that
   // spend nothing are free either way.
-  commandMinutes: { up: [2, 10, "asked"], down: [2, 1, "free"] },
+  commandMinutes: { up: [2, 0, "asked"], down: [0, 1, "free"] },
   containerConnectSeconds: { up: [60, 120, "asked"], down: [60, 30, "free"] },
   reclaimProtectionSeconds: { up: [30, 60, "free"], down: [30, 0, "free"] },
   skillsWaitSeconds: { up: [5, 10, "free"], down: [5, 1, "free"] },
@@ -804,22 +804,23 @@ describe("tierOf: the MCP server set", () => {
     expect(tier(withSettings, { askedPerHour: 12 })).toMatchObject({
       tier: "asked",
       reasons: [
-        "settings.limits.askedPerHour: 6 to 12 (every change to it is asked) (the Settings server's own entry)",
+        "settings.limits.askedPerHour: off to 12 (every change to it is asked) (the Settings server's own entry)",
       ],
     });
     expect(tier(withSettings, { askedPerHour: 1 }).tier).toBe("asked");
-    expect(tier(withSettings, { strikeLockMinutes: 0 }).tier).toBe("asked");
     expect(tier(withSettings, { strikeLockMinutes: 600 }).tier).toBe("asked");
     // At its value, a limit moves nothing: a form's save of every limit as it stands is unchanged.
-    expect(tier(withSettings, { askedPerHour: 6 }).tier).toBe("unchanged");
+    expect(tier(withSettings, { askedPerHour: 0 }).tier).toBe("unchanged");
     const raised = applyMcpChange(withSettings, {
       op: "server",
       server: SETTINGS_SERVER,
       limits: { askedPerHour: 12 },
     });
     if (!raised.ok) throw new Error(raised.error);
-    expect(tier(raised.harness, { askedPerHour: 12, strikes: 3 }).tier).toBe("unchanged");
+    expect(tier(raised.harness, { askedPerHour: 12, strikes: 0 }).tier).toBe("unchanged");
     expect(tier(raised.harness, { askedPerHour: 6 }).tier).toBe("asked");
+    // Turned off, asked too.
+    expect(tier(raised.harness, { askedPerHour: 0 }).tier).toBe("asked");
     // A key this registry does not know is asked (fails closed); a Direct server has no limits.
     expect(tier(withSettings, { nope: 1 }).tier).toBe("asked");
     expect(mcp(withDirect(), { op: "server", server: "fixture", limits: { strikes: 1 } })).toBe("asked");
@@ -852,6 +853,35 @@ describe("tierOf: the Environment settings", () => {
     }
   });
 
+  it("off (0) ranks above every limit (SPI-1386): turning a guardrail off widens, turning it on narrows", () => {
+    // down-free: a limit set from off is free; turning one off is asked.
+    expect(
+      tierOf({ entity: "environment", stored: EMPTY_ENVIRONMENT, change: { settings: { turnLimitMinutes: 60 } } }),
+    ).toEqual({ tier: "free", reasons: ["turnLimitMinutes: off to 60 (turned down)"] });
+    expect(
+      tierOf({
+        entity: "environment",
+        stored: stored("containerBudget", 3),
+        change: { settings: { containerBudget: 0 } },
+      }),
+    ).toEqual({ tier: "asked", reasons: ["containerBudget: 3 to off (turned up)"] });
+    // up-free: keeping history for good is free; setting a retention from off deletes, so it is asked.
+    expect(
+      tier({
+        entity: "environment",
+        stored: stored("usageRetentionDays", 30),
+        change: { settings: { usageRetentionDays: 0 } },
+      }),
+    ).toBe("free");
+    expect(
+      tier({
+        entity: "environment",
+        stored: EMPTY_ENVIRONMENT,
+        change: { settings: { piSessionRetentionDays: 3650 } },
+      }),
+    ).toBe("asked");
+  });
+
   it("up-free: a number raised is free, lowered is asked, with the reason in words", () => {
     expect(
       tierOf({ entity: "environment", stored: EMPTY_ENVIRONMENT, change: { settings: { graceDays: 8 } } }),
@@ -865,14 +895,14 @@ describe("tierOf: the Environment settings", () => {
     expect(
       tier({
         entity: "environment",
-        stored: EMPTY_ENVIRONMENT,
+        stored: stored("containerBudget", 3),
         change: { settings: { containerIdleMinutes: 1, containerBudget: 2 } },
       }),
     ).toBe("free");
     expect(
       tierOf({
         entity: "environment",
-        stored: EMPTY_ENVIRONMENT,
+        stored: stored("containerBudget", 3),
         change: { settings: { containerIdleMinutes: 1, containerBudget: 4 } },
       }),
     ).toEqual({ tier: "asked", reasons: ["containerBudget: 3 to 4 (turned up)"] });
@@ -880,7 +910,7 @@ describe("tierOf: the Environment settings", () => {
       tier({
         entity: "environment",
         stored: EMPTY_ENVIRONMENT,
-        change: { settings: { containerIdleMinutes: 2, containerSize: "cpu-1" } },
+        change: { settings: { containerIdleMinutes: 2, containerSize: "standard-3" } },
       }),
     ).toBe("unchanged");
     expect(tier({ entity: "environment", stored: EMPTY_ENVIRONMENT, change: { settings: { nope: 1 } } })).toBe("asked");

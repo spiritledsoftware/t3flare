@@ -46,7 +46,24 @@ const BUDGET_NOTE = [
   "Each running Container is billed for its size; at this budget, up to ",
   " can run at once. Your Cloudflare account's own Container limits (concurrent memory, vCPU and disk) also apply; t3flare does not check them.",
 ] as const;
-export const budgetNote = (budget: number): string => `${BUDGET_NOTE[0]}${budget}${BUDGET_NOTE[1]}`;
+/** The budget's consequence while it is off (0, the default, SPI-1386): no cap but the account's own limits. */
+const NO_BUDGET_NOTE =
+  "Each running Container is billed for its size; with no budget, as many can run at once as your Cloudflare account's own Container limits (concurrent memory, vCPU and disk) allow. t3flare does not check them.";
+export const budgetNote = (budget: number): string =>
+  budget === 0 ? NO_BUDGET_NOTE : `${BUDGET_NOTE[0]}${budget}${BUDGET_NOTE[1]}`;
+
+/** The cost table's budget column while the budget is off: its head and each size's cell. */
+export const NO_BUDGET_HEAD = "No budget, an hour";
+export const NO_BUDGET_CELL = "no cap";
+
+/** The worst case while the budget is off, for one Container of `size` at `perHour` dollars. */
+const NO_BUDGET_NOW = [
+  "With these settings, ",
+  " an hour for each Container of ",
+  ", every vCPU busy; no budget caps how many run at once.",
+] as const;
+export const noBudgetNow = (perHour: string, size: string): string =>
+  `${NO_BUDGET_NOW[0]}${perHour}${NO_BUDGET_NOW[1]}${size}${NO_BUDGET_NOW[2]}`;
 
 export const SCRIPT =
   `"use strict";
@@ -475,23 +492,28 @@ for (const form of document.querySelectorAll("form[data-environment]")) {
   };
   const cost = () => {
     priceCustom();
+    // An empty budget is off (0, SPI-1386): no cap, so the column says so and the summary prices one Container.
     const count = Number(budget === null ? NaN : budget.value);
-    if (!Number.isInteger(count) || count < 1) return;
+    if (!Number.isInteger(count) || count < 0) return;
+    const off = count === 0;
     const containers = count + (count === 1 ? " Container" : " Containers");
+    const headText = off ? ${JSON.stringify(NO_BUDGET_HEAD)} : containers + ", an hour";
     const head = document.querySelector("[data-budget-head]");
-    if (head !== null) head.textContent = containers + ", an hour";
+    if (head !== null) head.textContent = headText;
     let current = null;
     for (const row of document.querySelectorAll("tr[data-per-hour]")) {
       const per = Number(row.dataset.perHour);
-      row.querySelector("[data-budget-hour]").textContent = "$" + (per * count).toFixed(2);
-      row.querySelector("[data-budget-cell]").dataset.label = containers + ", an hour";
+      row.querySelector("[data-budget-hour]").textContent = off ? ${JSON.stringify(NO_BUDGET_CELL)} : "$" + (per * count).toFixed(2);
+      row.querySelector("[data-budget-cell]").dataset.label = headText;
       if (size !== null && row.dataset.size === size.value) { row.setAttribute("aria-current", "true"); current = row; }
       else row.removeAttribute("aria-current");
     }
     const budgetLine = document.querySelector("[data-budget-note]");
-    if (budgetLine !== null) budgetLine.textContent = ${JSON.stringify(BUDGET_NOTE[0])} + count + ${JSON.stringify(BUDGET_NOTE[1])};
+    if (budgetLine !== null) budgetLine.textContent = off ? ${JSON.stringify(NO_BUDGET_NOTE)} : ${JSON.stringify(BUDGET_NOTE[0])} + count + ${JSON.stringify(BUDGET_NOTE[1])};
     const now = document.querySelector("[data-cost-now]");
-    if (now !== null && current !== null) now.textContent = "With these settings, at most $" + (Number(current.dataset.perHour) * count).toFixed(2) + " an hour: " + containers + " of " + current.dataset.size + ", every vCPU busy.";
+    if (now !== null && current !== null) now.textContent = off
+      ? ${JSON.stringify(NO_BUDGET_NOW[0])} + "$" + Number(current.dataset.perHour).toFixed(3) + ${JSON.stringify(NO_BUDGET_NOW[1])} + current.dataset.size + ${JSON.stringify(NO_BUDGET_NOW[2])}
+      : "With these settings, at most $" + (Number(current.dataset.perHour) * count).toFixed(2) + " an hour: " + containers + " of " + current.dataset.size + ", every vCPU busy.";
   };
   for (const input of [size, budget, ...form.querySelectorAll("[data-custom-resource] [data-setting]")]) if (input !== null) { input.addEventListener("input", cost); input.addEventListener("change", cost); }
   form.addEventListener("submit", async (event) => {

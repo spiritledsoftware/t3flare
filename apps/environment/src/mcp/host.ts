@@ -18,6 +18,7 @@ import {
   ENVIRONMENT_SETTINGS,
   type Exposure,
   MAX_SCHEMA_BYTES,
+  OFF_DEADLINE_MS,
   type McpServerSetting,
   mcpServersOf,
   ownEntry,
@@ -167,8 +168,8 @@ export interface McpHostDeps {
    */
   readonly questionWaitMs?: () => number;
   /**
-   * The MCP call time limit in ms (`mcpCallSeconds`, SPI-1359), read as each call's target is made. Default:
-   * `DEFAULT_MCP_CALL_MS`.
+   * The MCP call time limit in ms (`mcpCallSeconds`, SPI-1359), read as each call's target is made; 0 when it is off
+   * (SPI-1386), which the target carries as `OFF_DEADLINE_MS`. Default: `DEFAULT_MCP_CALL_MS`.
    */
   readonly callTimeoutMs?: () => number;
   /**
@@ -260,7 +261,9 @@ export class McpHost {
       headers[server.auth.header] = value;
       redact.push(value);
     }
-    const timeoutMs = this.#deps.callTimeoutMs?.() ?? DEFAULT_MCP_CALL_MS;
+    // An off limit gives the engine the off deadline: its SDK times a request it gives no timeout at 60 s.
+    const callMs = this.#deps.callTimeoutMs?.() ?? DEFAULT_MCP_CALL_MS;
+    const timeoutMs = callMs === 0 ? OFF_DEADLINE_MS : callMs;
     return {
       kind: "http",
       conn: name,
