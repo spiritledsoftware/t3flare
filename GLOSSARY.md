@@ -217,6 +217,32 @@ Environment settings, with the Workspaces and their Purges, Status, the audit lo
 `/_t3flare/harness`, until 2026-11-20; that path redirects here.
 _Avoid_: Harness panel, dashboard, admin UI
 
+**Local parity**:
+The rule that out of the box t3flare behaves like stock t3 and the agents running on the Owner's machine: a limit with a
+local equivalent defaults to the local behaviour, usually no limit.
+_Avoid_: sensible default, safe default
+
+**Guardrail**:
+A limit that exists only because t3flare runs in the cloud, to bound cost or contain a failure, such as a Turn limit.
+Off by default and turned on by the Owner, but for the Terminal holds and the setup time limits.
+_Avoid_: guard (a Guard judges agents' calls), cost guard
+
+**Disclosure**:
+Where the Settings page shows a setting: visible (always), contextual (only while its feature is in use, such as the
+custom size's fields while the size is custom) or Advanced (collapsed under its section's Advanced). Disclosure changes
+only where a setting shows: the Settings server reads and changes every setting, and a limit that is a contextual or
+Advanced setting says, when hit, where to change it.
+_Avoid_: visibility, hidden (a setting is never hidden from the Settings server)
+
+**Advanced setting**:
+A setting whose Disclosure is Advanced: collapsed under its section's Advanced on the Settings page.
+_Avoid_: expert setting
+
+**Named constant**:
+A fixed value that only guards t3flare's own machinery, generous enough that no real use meets it, named where it is
+set with a comment saying what it guards. Not a setting.
+_Avoid_: magic number, hard-coded limit
+
 **Harness settings**:
 What agents are offered and how Pi Durable's loop runs: each tool's Exposure, its extensions with their options, how
 much of a tool's result the model is shown (the Tool output limit), and the MCP server set.
