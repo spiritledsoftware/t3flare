@@ -86,10 +86,11 @@ export const capRefusal = (
           : `Not changed: you asked for ${opened} changes in the last hour, answered or not, the most t3flare allows. Make the change on the Settings page${openList === undefined ? "" : ` (${openList})`}, or try again later.`,
     };
   }
-  // Everything the table keeps: a run's window is known only once its changes are (SPI-1316), and the kept time covers
-  // the declined repeat too (SPI-1322 review).
-  const recent = changes.closedBy(capKey, now - changes.keptMs());
   const repeatMs = limits.declinedRepeatMinutes * 60_000;
+  const lockMs = limits.strikeLockMinutes * 60_000;
+  // Everything the table keeps: a run's window is known only once its changes are (SPI-1316), and the kept time covers
+  // the declined repeat too (SPI-1322 review). Not read at all when the repeat and the lock are both off (SPI-1393).
+  const recent = repeatMs === 0 && lockMs === 0 ? [] : changes.closedBy(capKey, now - changes.keptMs());
   if (
     recent.some((record) => record.hash === hash && record.state === "declined" && record.closed!.at > now - repeatMs)
   ) {
@@ -104,7 +105,6 @@ export const capRefusal = (
     record.state === "declined" || (caller.door === "own" && record.state === "expired");
   // The lock runs from the last strike of the run (plan D16: refused for an hour after the third).
   const strikes = limits.strikes;
-  const lockMs = limits.strikeLockMinutes * 60_000;
   const run = recent.filter((record) => record.state === "applied" || strike(record)).slice(0, strikes);
   const last = run[0]?.closed?.at ?? 0;
   const first = run.at(-1)?.closed?.at ?? 0;

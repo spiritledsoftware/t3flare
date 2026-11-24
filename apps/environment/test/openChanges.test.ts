@@ -10,6 +10,8 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  APPLYING_GRACE_MS,
+  capKeyOf,
   CHANGE_ARGS_BYTES,
   CHANGE_RECORD_BYTES,
   CHANGES_TABLE,
@@ -1089,5 +1091,95 @@ describe("a change's record in its one row (SPI-1365)", () => {
     const args = { expectedRevision: 4, settings: { imageSetup: "€".repeat(Math.ceil(CHANGE_ARGS_BYTES / 3) + 1) } };
     expect(() => w.open(OWN, { args })).toThrow(/a change's record holds \(one 8 MB SQLite row\)/);
     expect(w.deps().changes.open()).toEqual([]);
+  });
+});
+
+describe("the table filters and counts in SQL (SPI-1393)", () => {
+  /** The table over `w.sql`, with every row a query returned, so a test can see which reads took whole records. */
+  const spied = (w: ReturnType<typeof world>) => {
+    const returned: Array<{ query: string; row: Record<string, unknown> }> = [];
+    const sql = {
+      exec: (query: string, ...params: Array<unknown>) => {
+        const result = w.sql.exec(query, ...params);
+        const rows = result.toArray() as Array<Record<string, unknown>>;
+        for (const row of rows) returned.push({ query, row });
+        return { columnNames: result.columnNames, toArray: () => rows };
+      },
+    } as unknown as Parameters<typeof settingsChanges>[0];
+    const changes = settingsChanges(sql, w.now, undefined, undefined, () => DEFAULT_SETTINGS_SERVER_LIMITS);
+    const records = () => returned.filter(({ row }) => "record" in row);
+    return { changes, records, reset: () => (returned.length = 0) };
+  };
+  const malform = (w: ReturnType<typeof world>, id: string) =>
+    w.sql.exec(`UPDATE ${CHANGES_TABLE} SET record = ? WHERE id = ?`, "{not json", id);
+
+  it("counts the asked changes opened without reading a record, skipping a malformed row and a free one", () => {
+    const w = world();
+    w.open(OWN, { hash: "hash-1" });
+    w.open(OWN, { hash: "hash-2", tier: "free", state: "applied", closed: { at: w.now() } });
+    malform(w, w.open(OWN, { hash: "hash-3" }).id);
+    const spy = spied(w);
+    spy.changes.keptMs();
+    spy.reset();
+    expect(spy.changes.openedSince(capKeyOf("own", OWN.key), w.now() - OPENED_WINDOW_MS)).toBe(1);
+    expect(spy.records()).toEqual([]);
+  });
+
+  it("reads whole records only for the closed asked changes it returns, skipping a malformed row and a free one", () => {
+    const w = world();
+    const declined = w.open(OWN, { hash: "hash-1", state: "declined", closed: { at: w.now(), by: "card" } });
+    w.open(OWN, { hash: "hash-2", tier: "free", state: "applied", closed: { at: w.now() } });
+    const broken = w.open(OWN, { hash: "hash-3" });
+    closeOpenChange(w.deps(), broken.id, "withdrawn", "stop");
+    malform(w, broken.id);
+    w.open(OWN, { hash: "hash-4" });
+    const spy = spied(w);
+    spy.changes.keptMs();
+    spy.reset();
+    const closed = spy.changes.closedBy(capKeyOf("own", OWN.key), w.now() - OPENED_WINDOW_MS);
+    expect(closed.map((record) => record.id)).toEqual([declined.id]);
+    expect(spy.records()).toHaveLength(1);
+  });
+
+  it("closes due changes, an expiry and an apply cut off, reading whole records only for those due", () => {
+    const w = world();
+    const due = w.open(OWN, { hash: "hash-1" });
+    const cut = w.open(OWNER, { hash: "hash-2", state: "applying" });
+    const waiting = w.open(TOKEN, { hash: "hash-3", expiresAt: w.now() + 2 * DEFAULT_OWNER_ANSWER_MS });
+    w.advance(DEFAULT_OWNER_ANSWER_MS);
+    const spy = spied(w);
+    expect(spy.changes.get(due.id)).toMatchObject({ state: "expired", closed: { at: NOW + DEFAULT_OWNER_ANSWER_MS } });
+    // `get` reads its own row too: the due change, and nothing of the applying one still in its grace.
+    expect(spy.records().map(({ row }) => JSON.parse(row.record as string).id)).toEqual([due.id, due.id]);
+    expect(spy.changes.get(cut.id)?.state).toBe("applying");
+    w.advance(APPLYING_GRACE_MS);
+    spy.reset();
+    expect(spy.changes.open().map((record) => record.id)).toEqual([waiting.id]);
+    expect(spy.changes.get(cut.id)).toMatchObject({ state: "failed", closed: { at: w.now() } });
+  });
+
+  it("a malformed open row neither closes nor breaks the reads", () => {
+    const w = world();
+    malform(w, w.open(OWN).id);
+    w.advance(DEFAULT_OWNER_ANSWER_MS + APPLYING_GRACE_MS);
+    const spy = spied(w);
+    expect(spy.changes.open()).toEqual([]);
+    expect(spy.records()).toEqual([{ query: expect.any(String), row: { record: "{not json" } }]);
+  });
+
+  it("capRefusal reads no closed changes when the strike lock and the declined repeat are both off", () => {
+    const w = world(DEFAULT_OWNER_ANSWER_MS, { strikeLockMinutes: 0, declinedRepeatMinutes: 0 });
+    const changes = w.deps().changes;
+    let reads = 0;
+    const counted = {
+      ...changes,
+      closedBy: (...args: Parameters<typeof changes.closedBy>) => (reads++, changes.closedBy(...args)),
+      keptMs: () => (reads++, changes.keptMs()),
+    };
+    expect(capRefusal(counted, OWN, "hash-1", w.now())).toBeUndefined();
+    expect(reads).toBe(0);
+    w.setLimits({ declinedRepeatMinutes: 0 });
+    capRefusal(counted, OWN, "hash-1", w.now());
+    expect(reads).toBe(2);
   });
 });

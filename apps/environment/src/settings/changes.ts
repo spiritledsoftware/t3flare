@@ -351,12 +351,17 @@ export const settingsChanges = (
         const record = parse(row.record);
         return record === undefined ? [] : [record];
       });
+  // A record's own fields are filtered in SQL, so a read takes whole records (each up to `CHANGE_RECORD_BYTES`) only where
+  // it needs them (SPI-1393). Every `json_extract` comes after `validSql`: it would throw on a malformed row and break
+  // every read, so such a row is skipped, as `parse` skips it.
+  const validSql = `json_valid(record)`;
+  const askedSql = `${validSql} AND json_extract(record, '$.tier') = 'asked'`;
+  const deadlineSql = `COALESCE(json_extract(record, '$.expiresAt'), created_at)`;
   /** The longest wait a kept change took, or the wait now, whichever is longer (SPI-1316). */
   const longestWait = (): number => {
     const row = sql
       .exec<{ longest: number | null }>(
-        // A malformed row is skipped, as `parse` skips it: `json_extract` would throw on it and break every read.
-        `SELECT MAX(json_extract(record, '$.expiresAt') - created_at) AS longest FROM ${CHANGES_TABLE} WHERE json_valid(record)`,
+        `SELECT MAX(json_extract(record, '$.expiresAt') - created_at) AS longest FROM ${CHANGES_TABLE} WHERE ${validSql}`,
       )
       .toArray()[0];
     return Math.max(answerMs(), Number(row?.longest ?? 0));
@@ -377,9 +382,14 @@ export const settingsChanges = (
       ready = true;
     }
     const at = now();
-    // Few: each caller's open changes are bounded by its own limits (open per thread and per Owner client, asked per
-    // hour), and an open row lasts until it expires, so reading them all is cheap.
-    for (const record of rows(`state IN ('open', 'applying')`)) {
+    // Only the rows due to close are read whole: an open one past its expiry, an applying one past its grace too.
+    for (const record of rows(
+      // The state first, so SQLite parses only the open rows' records, never every closed one's.
+      `state IN ('open', 'applying') AND ${validSql} AND ((state = 'open' AND ${deadlineSql} <= ?) OR (state = 'applying' AND ${deadlineSql} + ? <= ?))`,
+      at,
+      APPLYING_GRACE_MS,
+      at,
+    )) {
       const expiresAt = record.expiresAt ?? record.createdAt;
       const closed: ChangeRecord | undefined =
         record.state === "open" && expiresAt <= at
@@ -416,7 +426,14 @@ export const settingsChanges = (
     openedSince: (key, since) => {
       prepare();
       // Closed rows are kept an hour at least (`closedKeptMs`), as long as any window this is asked about.
-      return rows(`caller_key = ? AND created_at >= ?`, key, since).filter((record) => record.tier === "asked").length;
+      const row = sql
+        .exec<{ count: number }>(
+          `SELECT COUNT(*) AS count FROM ${CHANGES_TABLE} WHERE caller_key = ? AND created_at >= ? AND ${askedSql}`,
+          key,
+          since,
+        )
+        .toArray()[0];
+      return Number(row?.count ?? 0);
     },
     recordApplied: (record) => {
       prepare();
@@ -441,10 +458,10 @@ export const settingsChanges = (
     closedBy: (key, since) => {
       prepare();
       return rows(
-        `caller_key = ? AND closed_at IS NOT NULL AND closed_at >= ? ORDER BY closed_at DESC, created_at DESC`,
+        `caller_key = ? AND closed_at IS NOT NULL AND closed_at >= ? AND ${askedSql} ORDER BY closed_at DESC, created_at DESC`,
         key,
         since,
-      ).filter((record) => record.tier === "asked");
+      );
     },
     noteRead: (key, kind, at) => {
       prepare();
