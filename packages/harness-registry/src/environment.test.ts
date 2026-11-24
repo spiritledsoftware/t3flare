@@ -55,7 +55,6 @@ import {
   SETUP_OUTPUT_KIB,
   STOP_GRACE_SECONDS,
   TERMINAL_HISTORY_KIB,
-  TERMINALS_PER_WORKSPACE,
 } from "./environment.ts";
 import type { EnvironmentSettingEntry } from "./fields.ts";
 import { DO_VALUE_BYTES, storedBytes } from "./storedValue.ts";
@@ -438,7 +437,6 @@ describe("the Terminals' holds and counts (SPI-1317, SPI-1387)", () => {
   });
 
   it("count and keep fixed values", () => {
-    expect(TERMINALS_PER_WORKSPACE).toBe(8);
     expect(AGENT_TERMINALS_PER_WORKSPACE).toBe(8);
     expect(AGENT_TERMINAL_SCROLLBACK_LINES).toBe(1000);
     // SPI-1391: stock t3's, with the history in storage.

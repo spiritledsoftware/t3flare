@@ -311,4 +311,81 @@ describe("Patch 0009: Owner Terminals keep their history in storage (SPI-1391)",
     expect(await heldBy(StockManager.makeWithOptions)).toBeGreaterThan(TERMINALS * 6 * MiB);
     expect(await heldBy(patchedMake)).toBeLessThan(2 * MiB);
   });
+
+  // What one snapshot of an 8 MiB log allocates, measured on Node 26 (an upper bound on its peak: the most in use
+  // before any collection, or at its end): 16 MiB within the caps, the read buffer and the decoded string, which is
+  // the history itself; 40 MiB past the line cap, where stock's capping copies the string into chunks and joins the
+  // kept lines. All of it is released once the snapshot is sent, and snapshots run one at a time across the
+  // Environment, so concurrent attaches never stack it.
+  it.each([
+    { shape: "long lines, within the caps", long: true, bound: 24 * MiB },
+    // A log the Manager appended to across many writes; the test appends it at once.
+    { shape: "short lines, past the line cap", long: false, bound: 48 * MiB },
+  ])("holds a few copies of an 8 MiB history while one snapshot reads it: $shape", async ({ long, bound }) => {
+    v8.setFlagsFromString("--expose-gc");
+    const gc = vm.runInNewContext("gc") as () => void;
+    const used = (heap: { usedHeapSize: number; externalMemory: number }) => heap.usedHeapSize + heap.externalMemory;
+    const now = () => {
+      const heap = v8.getHeapStatistics();
+      return heap.used_heap_size + heap.external_memory;
+    };
+    const peak = await run((scope) =>
+      Effect.gen(function* () {
+        const fixture = yield* makeManager(patchedMake, scope);
+        yield* fixture.manager.open(input("big"));
+        yield* emitAll(fixture, fixture.shells[0]!, long ? lines(2_048, 4_096) : lines(1, 80));
+        yield* Effect.promise(() =>
+          vi.waitFor(() => expect(logBytes(fixture.logsDir)).toBeGreaterThanOrEqual(long ? 8 * MiB : 80), {
+            timeout: 10_000,
+          }),
+        );
+        if (!long) {
+          const [log] = fs.readdirSync(fixture.logsDir);
+          fs.appendFileSync(path.join(fixture.logsDir, log!), [...lines(104_000, 80, 1)].join(""));
+        }
+        gc();
+        gc();
+        const before = now();
+        const profiler = new v8.GCProfiler();
+        profiler.start();
+        const snapshot = yield* attachSnapshot(fixture.manager, "big");
+        const after = now();
+        const { statistics } = profiler.stop();
+        expect(snapshot.history.length).toBeGreaterThan(0);
+        return Math.max(after, ...statistics.map((gcRun) => used(gcRun.beforeGC.heapStatistics))) - before;
+      }),
+    );
+    expect(peak, `peak heap of one 8 MiB snapshot: ${(peak / MiB).toFixed(1)} MiB`).toBeLessThan(bound);
+  });
+
+  it("gives stock's history when more than the history arrives between writes and the last write ended mid-line", async () => {
+    await run((scope) =>
+      Effect.gen(function* () {
+        const stock = yield* makeManager(StockManager.makeWithOptions, scope);
+        const patched = yield* makeManager(patchedMake, scope);
+        const both = [stock, patched];
+        for (const fixture of both) {
+          yield* fixture.manager.open(input("burst"));
+          yield* emitAll(fixture, fixture.shells[0]!, [...lines(10, 80), "an unfinished line"]);
+        }
+        const logHas = (text: string) =>
+          fs
+            .readdirSync(patched.logsDir)
+            .some((name) => fs.readFileSync(path.join(patched.logsDir, name), "utf8").includes(text));
+        yield* Effect.promise(() =>
+          vi.waitFor(() => expect(logHas("an unfinished line")).toBe(true), { timeout: 10_000 }),
+        );
+        // One chunk past 5,000 lines: it reaches the unwritten output before any write can.
+        for (const fixture of both) yield* emitAll(fixture, fixture.shells[0]!, [[...lines(6_000, 80, 10)].join("")]);
+        const expected = (yield* attachSnapshot(stock.manager, "burst")).history;
+        expect(expected).not.toContain("an unfinished line");
+        expect((yield* attachSnapshot(patched.manager, "burst")).history).toBe(expected);
+        // The next write replaces the log with that output alone.
+        yield* Effect.promise(() =>
+          vi.waitFor(() => expect(logHas("an unfinished line")).toBe(false), { timeout: 10_000 }),
+        );
+        expect((yield* attachSnapshot(patched.manager, "burst")).history).toBe(expected);
+      }),
+    );
+  });
 });

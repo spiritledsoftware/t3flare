@@ -26,13 +26,6 @@ import type {
 import type { TerminalHold } from "./containerLaunch.ts";
 import { ContainerRefused } from "./containerStep.ts";
 
-/**
- * Why a Terminal is refused at the Workspace's cap (SPI-1387, ADR-0049 §4): the limit and its value
- * (`TERMINALS_PER_WORKSPACE`).
- */
-export const terminalsFull = (opened: number, max: number): string =>
-  `this Workspace already has ${opened} open terminals, and a Workspace may have at most ${max} (a fixed limit); close one first`;
-
 /** A terminal not heartbeaten for this long is killed (the adapter beats every 30 s). */
 export const HEARTBEAT_LAPSE_MS = 90_000;
 /** A batch closes after this long or this many bytes. */
@@ -94,12 +87,6 @@ export interface TerminalHostDeps {
    * each open. Absent: it does, the setting's default (an agent's Terminal runs a command, not the rc file, either way).
    */
   readonly readBashrc?: () => boolean;
-  /**
-   * The most terminals open at once (the DO's in-memory handles): `TERMINALS_PER_WORKSPACE` (SPI-1317, SPI-1387), read
-   * at each open; one more is refused, naming that limit (`terminalsFull`). Absent: no cap of this host's own (the
-   * agent's Terminals, which `AgentTerminals` counts against `AGENT_TERMINALS_PER_WORKSPACE`).
-   */
-  readonly maxTerminals?: () => number;
 }
 
 interface Terminal {
@@ -200,13 +187,6 @@ export class TerminalHost {
       exited: false,
       closing: false,
     };
-    const max = this.#deps.maxTerminals?.();
-    const opened = this.#terminals.size;
-    if (max !== undefined && opened >= max) {
-      this.#terminals.set(input.key, terminal);
-      this.#refuse(terminal, terminalsFull(opened, max));
-      return this.#answer([]);
-    }
     this.#terminals.set(input.key, terminal);
     if (!this.#deps.running()) {
       this.#frame(terminal, { data: "\x1b[2mStarting the Workspace's Container…\x1b[0m\r\n" });

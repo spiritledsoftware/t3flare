@@ -78,4 +78,4 @@ Shadows 4 (unchanged), Patches 8.
 
 Shadows 4 (unchanged), Patches 9.
 
-- Patch `0009-terminal-history-lives-in-its-log.patch`: t3's terminal `Manager.ts` keeps each Terminal's history in its log file, not in memory. Memory holds only output not yet written; a snapshot reads the log's tail (`readHistoryTail`) and that output. The client protocol is unchanged. See U12 in `docs/upstream-fragility.md`. A Layer cannot reach it: `makeWithOptions` takes no history store, and the history lives in the session state its closure owns. A Shadow would copy the 3,960-line file.
+- Patch `0009-terminal-history-lives-in-its-log.patch`: t3's terminal `Manager.ts` keeps each Terminal's history in its log file, not in memory. Memory holds only output not yet written; a snapshot reads the log's tail (`readHistoryTail`) and that output. The client protocol is unchanged. See U107 in `docs/upstream-fragility.md`. A Layer cannot reach it: `makeWithOptions` takes no history store, and the history lives in the session state its closure owns. A Shadow would copy the 3,960-line file.

@@ -160,6 +160,15 @@ describe("State directory", () => {
           read: Math.min(length, total - from),
         });
         expect(same(range, whole.slice(from, from + length))).toBe(true);
+        // Into the caller's buffer, at an offset, with no copy of its own.
+        const into = new Uint8Array(length + 3);
+        let count = 0;
+        expect(metering(() => (count = store.readInto(file, from, into.subarray(3))))).toEqual({
+          bound: 0,
+          read: Math.min(length, total - from),
+        });
+        expect(count).toBe(Math.min(length, total - from));
+        expect(same(into.subarray(3, 3 + count), whole.slice(from, from + length))).toBe(true);
       }
 
       // An inline file's range, and a truncate after the appends, as before.

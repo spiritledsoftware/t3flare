@@ -72,7 +72,6 @@ import {
   SKILLS_WAIT_SECONDS,
   STOP_GRACE_SECONDS,
   TEMP_FILES_HOURS,
-  TERMINALS_PER_WORKSPACE,
 } from "@t3flare/harness-registry";
 import { BaseBuild } from "./baseBuild.ts";
 import { checkpointLimitMs, cloneLimitMs } from "./gitLimits.ts";
@@ -704,8 +703,6 @@ export class WorkspaceDO extends ContainerHost {
       baseEnv: terminalEnv,
       // ADR-0047 §9: as the running Container started (its launch), so a change applies at its next start.
       readBashrc: () => ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)?.terminalsReadBashrc !== false,
-      // SPI-1317, SPI-1387: a fixed count, `TERMINALS_PER_WORKSPACE`.
-      maxTerminals: () => TERMINALS_PER_WORKSPACE,
       filesMayHaveChanged: (why) => this.#terminalSync.changed(why),
       remember: (markers) => ctx.storage.kv.put(TERMINAL_MARKERS_KEY, [...markers]),
       remembered: () => ctx.storage.kv.get<ReadonlyArray<string>>(TERMINAL_MARKERS_KEY) ?? [],

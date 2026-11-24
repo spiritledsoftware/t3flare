@@ -94,10 +94,9 @@ const open: FileSystem.FileSystem["open"] = (path, options) =>
       sync: Effect.void,
       read: (buffer) =>
         attempt("read", path, () => {
-          const bytes = store.readRange(path, Number(position), buffer.byteLength);
-          buffer.set(bytes);
-          position += BigInt(bytes.byteLength);
-          return bytes.byteLength;
+          const read = store.readInto(path, Number(position), buffer);
+          position += BigInt(read);
+          return read;
         }) as never,
       readAlloc: (size) =>
         attempt("read", path, () => {

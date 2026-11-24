@@ -932,8 +932,8 @@ each guards only t3flare's own machinery, or bounds memory in a 128 MB isolate, 
 - **Fixed in code**, the setting's old default unless named: the Terminals per Workspace (8), the agents' Terminals per
   Workspace (8) and their scrollback (1,000 lines), the Terminal history (1 MiB) and exited Terminals kept (16), each a
   memory-safety bound for the 128 MB Environment or Workspace DO isolate that every Workspace's Terminals share, not a
-  measured force (SPI-1391 / SPI-1397 measure and lift them; the Terminal history and exited Terminals kept, and the
-  memory reason for the Terminals per Workspace, are superseded by the SPI-1391 refinement); the CLI reclaim delay
+  measured force (SPI-1391 / SPI-1397 measure and lift them; the Terminals per Workspace, the Terminal history and
+  exited Terminals kept are superseded by the SPI-1391 refinement); the CLI reclaim delay
   (30 s), the settings read wait (5 s), the setup output kept (32 KiB), the Base build retry (60 min), the outside
   request time limit (30 s, up from 15), one directory listing for skills, skill links and Prompt templates (5,000,
   `DIRECTORY_LISTING_ENTRIES` in `packages/skills`; the link's was 200 and the templates' 1,000), the MCP result size (1,024 KiB), pauses per call (16), logs per call (50),
@@ -960,17 +960,21 @@ each guards only t3flare's own machinery, or bounds memory in a 128 MB isolate, 
 - The Settings page loses those rows: Retries and kills, Terminals, the Settings page and clients row, and t3's trace;
   Outside requests becomes Text generation. The Settings server's tool descriptions and its "applies at" texts follow.
 
-## Refinement (SPI-1391, 2026-11-24): Owner Terminals keep their history in storage
+## Refinement (SPI-1391, 2026-11-24): Owner Terminals keep their history in storage, and have no count
 
-Supersedes, in the SPI-1387 refinement, the Terminal history (1 MiB) and exited Terminals kept (16) as memory-safety
-bounds, and that bound as the reason for the Terminals per Workspace (8).
+Supersedes, in the SPI-1387 refinement, the Terminals per Workspace (8), the Terminal history (1 MiB) and the exited
+Terminals kept (16), each a memory-safety bound there.
 
-- **Stock t3's values.** `TERMINAL_HISTORY_KIB` is 8 MiB and `EXITED_TERMINALS_KEPT` 128, stock t3's defaults, still
-  named constants. They fit because Patch 0009 (ADR-0001's counts after SPI-1391; `docs/upstream-fragility.md` U12)
-  keeps each Owner Terminal's history in its log file in the Environment DO's storage: the isolate holds only output not
-  yet written, and an exited Terminal holds none. Attaching reads the log's tail. The client protocol is unchanged.
-- **The State directory streams a log.** An append rewrites only a file's last 4 MiB row, and a range read takes only
-  its own bytes, so a log of up to twice the history size costs each write and attach its own bytes, not the file's.
-- **The Terminals per Workspace stay 8**, now a fixed count without a memory reason; their refusal names the limit and
-  its value. Whether 8 stays is the Owner's decision; SPI-1391 leaves the value as it is.
+- **History at stock t3's values.** `TERMINAL_HISTORY_KIB` is 8 MiB and `EXITED_TERMINALS_KEPT` 128, stock t3's
+  defaults, still named constants. They fit because Patch 0009 (ADR-0001's counts after SPI-1391;
+  `docs/upstream-fragility.md` U107) keeps each Owner Terminal's history in its log file in the Environment DO's
+  storage: the isolate holds only output not yet written, and an exited Terminal holds none. Attaching reads the log's
+  tail, one snapshot at a time across the Environment, so concurrent attaches never stack their copies of a history.
+  The client protocol is unchanged.
+- **The State directory streams a log.** An append rewrites only a file's last 4 MiB row, and a read takes only its own
+  bytes, into the caller's buffer, so a log of up to twice the history size costs each write and attach its own bytes,
+  not the file's.
+- **No count of Owner Terminals** (the Owner, 2026-11-24, local parity under ADR-0049): with the history in storage,
+  memory no longer bounds how many a Workspace may have open, so `TERMINALS_PER_WORKSPACE` and its refusal are gone, as
+  locally. The Terminal holds still apply to every open Terminal.
 - Agents' Terminals and Background jobs, held in the Workspace DO, are SPI-1397's.

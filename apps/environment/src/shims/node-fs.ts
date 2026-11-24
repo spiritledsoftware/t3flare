@@ -367,10 +367,13 @@ export function readSync(
   const count = Math.max(0, Math.min(options.length ?? target.byteLength - offset, target.byteLength - offset));
   // No position (or -1) reads from, and advances, the descriptor's own; a given one leaves it as it was.
   const atCurrent = options.position === undefined || options.position === null || Number(options.position) < 0;
-  const bytes = store.readRange(file.path, atCurrent ? file.position : Number(options.position), count);
-  target.set(bytes, offset);
-  if (atCurrent) file.position += bytes.byteLength;
-  return bytes.byteLength;
+  const read = store.readInto(
+    file.path,
+    atCurrent ? file.position : Number(options.position),
+    target.subarray(offset, offset + count),
+  );
+  if (atCurrent) file.position += read;
+  return read;
 }
 
 export function writeSync(fd: number, data: unknown): number {

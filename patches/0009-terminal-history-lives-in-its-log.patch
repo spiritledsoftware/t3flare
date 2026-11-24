@@ -1,5 +1,5 @@
 diff --git a/apps/server/src/terminal/Manager.ts b/apps/server/src/terminal/Manager.ts
-index a294ba7..6ee992c 100644
+index a294ba7..eb738fb 100644
 --- a/apps/server/src/terminal/Manager.ts
 +++ b/apps/server/src/terminal/Manager.ts
 @@ -63,6 +63,7 @@ import * as Path from "effect/Path";
@@ -55,35 +55,49 @@ index a294ba7..6ee992c 100644
      exitCode: session.exitCode,
      exitSignal: session.exitSignal,
      label: terminalWireLabel(session),
-@@ -1191,6 +1192,63 @@ export class BoundedTerminalHistory {
+@@ -1191,6 +1192,82 @@ export class BoundedTerminalHistory {
    }
  }
  
 +// t3flare (SPI-1391): a Terminal's history lives in its log file. Memory keeps only output not
 +// yet written there; `lock` orders a write against a snapshot's read.
++interface TerminalHistoryWrite {
++  readonly data: string;
++  readonly rewrite: boolean;
++}
++
 +class TerminalHistoryLog {
 +  readonly lock = Semaphore.makeUnsafe(1);
 +  // The file's size as this log last wrote it, and whether the next write replaces the file.
 +  fileBytes = 0;
-+  rewrite = true;
 +  // A failed append may have left part of its output past `fileBytes`.
 +  torn = false;
++  private rewrite = true;
 +  private pending: BoundedTerminalHistory;
++  // Code units appended to `pending`: it holds fewer once it has dropped output.
++  private appended = 0;
 +  private readonly maxLines: number;
 +  private readonly maxBytes: number;
 +
 +  constructor(maxLines: number, maxBytes: number, initial = "") {
 +    this.maxLines = maxLines;
 +    this.maxBytes = maxBytes;
-+    this.pending = new BoundedTerminalHistory(maxLines, initial, maxBytes);
++    this.pending = this.history(initial);
++    this.appended = initial.length;
++  }
++
++  history(initial: string): BoundedTerminalHistory {
++    return new BoundedTerminalHistory(this.maxLines, initial, this.maxBytes);
 +  }
 +
 +  append(text: string): void {
++    this.appended += text.length;
 +    this.pending.append(text);
 +  }
 +
 +  clear(): void {
 +    this.pending.clear();
++    this.appended = 0;
 +    this.rewrite = true;
 +  }
 +
@@ -91,27 +105,32 @@ index a294ba7..6ee992c 100644
 +    return this.pending.value();
 +  }
 +
++  // Whether the file no longer leads into the unwritten output: after a clear, in a new session,
++  // or once that output passed the history's caps, which stock then holds alone.
++  replacesFile(): boolean {
++    if (this.pending.value().length < this.appended) this.rewrite = true;
++    return this.rewrite;
++  }
++
 +  // A trailing high surrogate stays for its pair: UTF-8 cannot encode it alone.
-+  take(): { readonly data: string; readonly rewrite: boolean } {
++  take(): TerminalHistoryWrite {
++    const rewrite = this.replacesFile();
 +    const value = this.pending.value();
 +    const last = value.charCodeAt(value.length - 1);
 +    const kept = last >= 0xd800 && last <= 0xdbff ? 1 : 0;
-+    const taken = { data: value.slice(0, value.length - kept), rewrite: this.rewrite };
-+    this.pending = new BoundedTerminalHistory(
-+      this.maxLines,
-+      value.slice(value.length - kept),
-+      this.maxBytes,
-+    );
++    this.pending = this.history(value.slice(value.length - kept));
++    this.appended = kept;
 +    this.rewrite = false;
-+    return taken;
++    return { data: value.slice(0, value.length - kept), rewrite };
 +  }
 +
-+  // A failed write's output goes back before what arrived since, unless a clear came between.
-+  restore(taken: { readonly data: string; readonly rewrite: boolean }): void {
-+    if (this.rewrite) return;
-+    const pending = new BoundedTerminalHistory(this.maxLines, taken.data, this.maxBytes);
-+    pending.append(this.pending.value());
-+    this.pending = pending;
++  // A failed write's output goes back before what arrived since, unless the file is replaced.
++  restore(taken: TerminalHistoryWrite): void {
++    if (this.replacesFile()) return;
++    const since = this.pending.value();
++    this.pending = this.history(taken.data);
++    this.pending.append(since);
++    this.appended = taken.data.length + since.length;
 +    this.rewrite = taken.rewrite;
 +  }
 +}
@@ -119,7 +138,7 @@ index a294ba7..6ee992c 100644
  // Pop beyond Ghostty's eight-entry Kitty stacks on both screens before clearing
  // flags. A 1049 round trip preserves the main cursor, text, and scrollback.
  const INHERITED_INPUT_RESET =
-@@ -2255,7 +2313,8 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -2255,7 +2332,8 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
      yield* registerKillFiber(process, fiber);
    });
  
@@ -129,7 +148,7 @@ index a294ba7..6ee992c 100644
    const persistWorker = yield* makeKeyedCoalescingWorker<
      string,
      PersistHistoryRequest,
-@@ -2276,34 +2335,62 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -2276,34 +2354,58 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
          return;
        }
  
@@ -151,11 +170,7 @@ index a294ba7..6ee992c 100644
 +            ));
 +          }
 +          if (!rewrite && log.fileBytes + Buffer.byteLength(data) > historyByteLimit * 2) {
-+            const compacted = new BoundedTerminalHistory(
-+              historyLineLimit,
-+              yield* readLogTail(filePath),
-+              historyByteLimit,
-+            );
++            const compacted = log.history(yield* readLogTail(filePath));
 +            compacted.append(data);
 +            data = compacted.value();
 +            rewrite = true;
@@ -213,7 +228,7 @@ index a294ba7..6ee992c 100644
    ) {
      yield* persistWorker.enqueue(toSessionKey(threadId, terminalId), {
        history,
-@@ -2321,7 +2408,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -2321,7 +2423,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
    const persistHistory = Effect.fn("terminal.persistHistory")(function* (
      threadId: string,
      terminalId: string,
@@ -222,7 +237,7 @@ index a294ba7..6ee992c 100644
    ) {
      yield* persistWorker.enqueue(toSessionKey(threadId, terminalId), {
        history,
-@@ -2374,6 +2461,31 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -2374,6 +2476,46 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
      };
    });
  
@@ -237,24 +252,39 @@ index a294ba7..6ee992c 100644
 +    );
 +
 +  // t3flare (SPI-1391): the log file's tail and the output not yet written, capped as stock caps
-+  // its history. Under the log's lock, so no write lands between the two reads.
++  // its history. Under the log's lock, so no write lands between the two reads; one snapshot at a
++  // time, as each briefly holds a few copies of its history.
++  const snapshotLock = Semaphore.makeUnsafe(1);
 +  const sessionSnapshot = (session: TerminalSessionState) =>
 +    session.history.lock.withPermits(1)(
 +      Effect.gen(function* () {
 +        const log = session.history;
-+        const written = log.rewrite
++        const written = log.replacesFile()
 +          ? ""
 +          : yield* readLogTail(historyPath(session.threadId, session.terminalId));
-+        const history = new BoundedTerminalHistory(historyLineLimit, written, historyByteLimit);
-+        history.append(log.unwritten());
++        const unwritten = log.unwritten();
++        const whole = written + unwritten;
++        const lines =
++          countLineBreaks(written) +
++          countLineBreaks(unwritten) +
++          ((unwritten || written).endsWith("\n") || whole.length === 0 ? 0 : 1);
++        // Within the caps, stock's capped history is the text itself: skip copying it into chunks.
++        if (
++          lines <= historyLineLimit &&
++          Buffer.byteLength(written) + Buffer.byteLength(unwritten) <= historyByteLimit
++        ) {
++          return snapshot(session, whole);
++        }
++        const history = log.history(written);
++        history.append(unwritten);
 +        return snapshot(session, history.value());
 +      }),
-+    );
++    ).pipe(snapshotLock.withPermits(1));
 +
    const readHistory = Effect.fn("terminal.readHistory")(function* (
      threadId: string,
      terminalId: string,
-@@ -2941,7 +3053,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -2941,7 +3083,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
                threadId: session.threadId,
                terminalId: session.terminalId,
                sequence: eventStamp.sequence,
@@ -263,7 +293,7 @@ index a294ba7..6ee992c 100644
              });
              // Publish startup before draining any events replayed during subscription.
              eventsActivated = true;
-@@ -3267,15 +3379,17 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -3267,15 +3409,17 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
      if (Option.isNone(existing)) {
        yield* flushPersist(input.threadId, terminalId);
        const inherited = yield* readHistory(input.threadId, terminalId);
@@ -283,7 +313,7 @@ index a294ba7..6ee992c 100644
        const cols = input.cols ?? DEFAULT_OPEN_COLS;
        const rows = input.rows ?? DEFAULT_OPEN_ROWS;
        const session: TerminalSessionState = {
-@@ -3327,7 +3441,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -3327,7 +3471,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
          },
          "started",
        );
@@ -292,7 +322,7 @@ index a294ba7..6ee992c 100644
      }
  
      const liveSession = existing.value;
-@@ -3377,14 +3491,14 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -3377,14 +3521,14 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
          },
          "started",
        );
@@ -309,7 +339,7 @@ index a294ba7..6ee992c 100644
    });
  
    const openLocked = (input: TerminalOpenInput) =>
-@@ -3452,7 +3566,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -3452,7 +3596,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
        yield* resizeSession(session, session.process, targetCols, targetRows);
      }
  
@@ -318,7 +348,7 @@ index a294ba7..6ee992c 100644
    });
  
    const readAllTerminalMetadata = () =>
-@@ -3632,7 +3746,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -3632,7 +3776,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
    ) =>
      streamSession(
        input,
@@ -327,7 +357,7 @@ index a294ba7..6ee992c 100644
        listener,
        registerCleanup,
      );
-@@ -3645,7 +3759,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -3645,7 +3789,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
      streamSession(
        input,
        getSession(input.threadId, input.terminalId).pipe(

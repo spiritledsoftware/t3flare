@@ -289,13 +289,6 @@ export const DEFAULT_TERMINAL_BUSY_HOLD_MINUTES = 30;
 export const DEFAULT_TERMINAL_PROMPT_HOLD_MINUTES = 10;
 
 /**
- * How many of the Owner's own t3 Terminals one Workspace may have open at once (ADR-0021's 8; SPI-1317, SPI-1387). Set as
- * a memory-safety bound while each Terminal held its history in the Environment DO's isolate; since SPI-1391 the history
- * is in the DO's storage, so memory no longer sets this count, and its value stays 8 until the Owner sets another.
- */
-export const TERMINALS_PER_WORKSPACE = 8;
-
-/**
  * How many Terminals and Background jobs Pi Durable agents may run at once per Workspace, across its threads (SPI-1317,
  * SPI-1387). A memory-safety bound, not a measured force: each keeps a headless xterm with
  * `AGENT_TERMINAL_SCROLLBACK_LINES` of scrollback in the Workspace DO's 128 MB isolate, which holds its files' sync too,
