@@ -315,8 +315,9 @@ describe("Patch 0009: Owner Terminals keep their history in storage (SPI-1391)",
   // What one snapshot of an 8 MiB log allocates, measured on Node 26 (an upper bound on its peak: the most in use
   // before any collection, or at its end): 16 MiB within the caps, the read buffer and the decoded string, which is
   // the history itself; 40 MiB past the line cap, where stock's capping copies the string into chunks and joins the
-  // kept lines. All of it is released once the snapshot is sent, and snapshots run one at a time across the
-  // Environment, so concurrent attaches never stack it.
+  // kept lines. These copies last only while the snapshot is built, one at a time across the Environment (as do the
+  // log's reads at a reopen and its compactions); the finished history, and its encoding as it is sent, can still
+  // coexist with another's.
   it.each([
     { shape: "long lines, within the caps", long: true, bound: 24 * MiB },
     // A log the Manager appended to across many writes; the test appends it at once.

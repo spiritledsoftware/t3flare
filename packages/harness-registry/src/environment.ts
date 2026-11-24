@@ -228,7 +228,7 @@ export const FIRST_PROMPT_SECONDS = 20;
  * t3's Terminals' history in the Environment DO (SPI-1364, SPI-1387, SPI-1391): each Terminal's history in KiB, and how
  * many exited Terminals keep theirs for a reattach. Stock t3's values (8 MiB and 128): the history lives in each
  * Terminal's log file in the DO's storage, and memory holds only output not yet written there (Patch 0009,
- * docs/upstream-fragility.md U12).
+ * docs/upstream-fragility.md U107).
  */
 export const TERMINAL_HISTORY_KIB = 8 * 1024;
 export const EXITED_TERMINALS_KEPT = 128;

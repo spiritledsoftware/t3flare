@@ -969,8 +969,9 @@ Terminals kept (16), each a memory-safety bound there.
   defaults, still named constants. They fit because Patch 0009 (ADR-0001's counts after SPI-1391;
   `docs/upstream-fragility.md` U107) keeps each Owner Terminal's history in its log file in the Environment DO's
   storage: the isolate holds only output not yet written, and an exited Terminal holds none. Attaching reads the log's
-  tail, one snapshot at a time across the Environment, so concurrent attaches never stack their copies of a history.
-  The client protocol is unchanged.
+  tail. Each read or write of a log, a snapshot's included, runs one at a time across the Environment, so the temporary
+  copies a read makes never stack; the finished histories, and their encodings as they are sent, still can. The client
+  protocol is unchanged.
 - **The State directory streams a log.** An append rewrites only a file's last 4 MiB row, and a read takes only its own
   bytes, into the caller's buffer, so a log of up to twice the history size costs each write and attach its own bytes,
   not the file's.
