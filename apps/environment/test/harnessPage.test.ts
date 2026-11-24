@@ -278,8 +278,10 @@ describe("harness page", () => {
       "project-context",
     ]);
     expect(tags.find((tag) => tag.attrs["data-setting"] === "inlineBudget")).toMatchObject({
-      attrs: { type: "number", min: "0", max: String(Number.MAX_SAFE_INTEGER), value: "3000" },
+      attrs: { type: "number", min: "0", value: "3000" },
     });
+    // No maximum (SPI-1368): the browser is given none to name.
+    expect(tags.find((tag) => tag.attrs["data-setting"] === "inlineBudget")?.attrs.max).toBeUndefined();
     expect(tags.filter((tag) => tag.attrs["data-enabled"] !== undefined)).toHaveLength(3);
     expect(html).toContain("locked: the thread&#39;s modes and the link fence depend on it");
     expect(html).not.toContain("a core extension: always on");

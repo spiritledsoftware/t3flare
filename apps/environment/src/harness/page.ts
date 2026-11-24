@@ -158,7 +158,10 @@ const field = (
     case "boolean":
       return `<div class="field"><div class="inline-field"><input type="checkbox" ${attrs}${value === true ? " checked" : ""}><label for="${id}">${escapeHtml(setting.title)}</label></div>${hint}</div>`;
     case "integer":
-      return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="number" inputmode="numeric" required ${attrs} min="${setting.schema.minimum}" max="${setting.schema.maximum}" step="1" value="${escapeHtml(String(value))}">${hint}</div>`;
+      return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="number" inputmode="numeric" required ${attrs} min="${setting.schema.minimum}"${
+        // The largest safe integer is a schema's "no maximum" (ADR-0048, SPI-1368): the browser is given none to name.
+        setting.schema.maximum < Number.MAX_SAFE_INTEGER ? ` max="${setting.schema.maximum}"` : ""
+      } step="1" value="${escapeHtml(String(value))}">${hint}</div>`;
     case "number":
       return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="number" inputmode="${setting.schema.whole === true ? "numeric" : "decimal"}" required ${attrs} min="${setting.schema.minimum}" step="${setting.schema.whole === true ? "1" : "any"}" value="${escapeHtml(String(value))}">${hint}</div>`;
     case "enum":

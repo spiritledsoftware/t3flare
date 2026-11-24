@@ -204,7 +204,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
       inlineBudget: {
         title: "Inline budget",
         description:
-          "Estimated tokens the tool declarations in the code mode section may use; past it, scripts find tools with searchTools(). A larger budget puts more declarations in every request's prompt; 0 leaves them all to searchTools().",
+          "Estimated tokens the tool declarations in the code mode section may use; past it, scripts find tools with searchTools(). A larger budget puts more declarations in every request's prompt; 0 leaves them all to searchTools(). No maximum.",
         // No maximum of t3flare's: a budget past every declaration inlines them all, and nothing breaks either way
         // (SPI-1368). The schema's integer type takes the largest safe integer as "none".
         schema: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER, default: 2_000 },
@@ -450,14 +450,14 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
       },
       cols: {
         title: "Columns",
-        description: `A Terminal's width. Each Terminal keeps its screen and scrollback in the Workspace's memory, ${ISOLATE_MEMORY_MB} MB shared with its other Terminals and its files, so a wider one takes more of it. At most ${MAX_TERMINAL_COLS}.`,
+        description: `A Terminal's width in characters. Each Terminal keeps its screen and scrollback in the Workspace's memory, ${ISOLATE_MEMORY_MB} MB shared with its other Terminals and its files, so a wider one takes more of it. At most ${MAX_TERMINAL_COLS}, which assumes the default rows; raising both takes more memory than either maximum allows for.`,
         // A named constraint, provisional (`MAX_TERMINAL_COLS`): the Workspace DO's memory per Terminal.
         schema: { type: "integer", minimum: 1, maximum: MAX_TERMINAL_COLS, default: DEFAULT_TERMINAL_COLS },
         tier: "free",
       },
       rows: {
         title: "Rows",
-        description: `A Terminal's height, which takes the Workspace's memory as the width does. At most ${MAX_TERMINAL_ROWS}.`,
+        description: `A Terminal's height in lines. Each Terminal keeps its screen and scrollback in the Workspace's memory, ${ISOLATE_MEMORY_MB} MB shared with its other Terminals and its files, so a taller one takes more of it. At most ${MAX_TERMINAL_ROWS.toLocaleString("en-US")}, which assumes the default columns; raising both takes more memory than either maximum allows for.`,
         // A named constraint, provisional (`MAX_TERMINAL_ROWS`): the Workspace DO's memory per Terminal.
         schema: { type: "integer", minimum: 1, maximum: MAX_TERMINAL_ROWS, default: DEFAULT_TERMINAL_ROWS },
         tier: "free",

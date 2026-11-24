@@ -137,7 +137,8 @@ made settings; ADR-0032's SPI-1368 refinement lists the settings. Two points of 
 
 - **A setting with no failure past any value has no maximum of its own.** `codemode.inlineBudget` decides only how many
   tool declarations go inline: a budget past every declaration inlines them all, 0 defers them all, and neither breaks
-  anything. The integer schema still needs a maximum, so it takes `Number.MAX_SAFE_INTEGER`, which reads as none. This
+  anything. The integer schema still needs a maximum, so it takes `Number.MAX_SAFE_INTEGER`, which reads as none: the
+  Settings page gives its field no `max` and its description says "No maximum". This
   refines the considered option "No maximum at all" for such settings; a timed limit keeps the shared timed maximum.
 - **A text setting needs no length of its own.** The text schema's `maxLength` is optional, kept only where a constraint
   sets one. The Guardian's rules and policy and the model settings had 4,000, 8,000 and 300 characters; they are bounded,
