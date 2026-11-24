@@ -277,7 +277,7 @@ describe("TerminalHost", () => {
     await h.host.settled();
     // SPI-1387: the limit names itself and its value.
     expect(h.text("term-extra")).toContain(
-      "already has 2 open terminals, and a Workspace may have at most 2 (a fixed limit: each keeps its history in the Environment's memory); close one first",
+      "already has 2 open terminals, and a Workspace may have at most 2 (a fixed limit); close one first",
     );
     expect(h.frames.at(-1)).toMatchObject({ key: "term-extra", exit: { code: 1 } });
     // A lower count closes none already open; the next open is refused against it.

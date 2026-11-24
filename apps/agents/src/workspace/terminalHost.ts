@@ -27,11 +27,11 @@ import type { TerminalHold } from "./containerLaunch.ts";
 import { ContainerRefused } from "./containerStep.ts";
 
 /**
- * Why a Terminal is refused at the Workspace's cap (SPI-1387, ADR-0049 §4): the limit and its value, a memory-safety
- * bound for the Environment DO's 128 MB isolate, where each Terminal's history lives (`TERMINALS_PER_WORKSPACE`).
+ * Why a Terminal is refused at the Workspace's cap (SPI-1387, ADR-0049 §4): the limit and its value
+ * (`TERMINALS_PER_WORKSPACE`).
  */
 export const terminalsFull = (opened: number, max: number): string =>
-  `this Workspace already has ${opened} open terminals, and a Workspace may have at most ${max} (a fixed limit: each keeps its history in the Environment's memory); close one first`;
+  `this Workspace already has ${opened} open terminals, and a Workspace may have at most ${max} (a fixed limit); close one first`;
 
 /** A terminal not heartbeaten for this long is killed (the adapter beats every 30 s). */
 export const HEARTBEAT_LAPSE_MS = 90_000;

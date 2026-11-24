@@ -26,9 +26,44 @@ const same = (a: Uint8Array, b: Uint8Array) => a.byteLength === b.byteLength && 
 
 const inObject = <T>(name: string, run: (state: DurableObjectState) => T | Promise<T>) =>
   runInDurableObject(env.TEST_OBJECTS.getByName(name), async (_instance, state) => {
-    store.bindStateStorage({ sql: state.storage.sql, transactionSync: (f) => state.storage.transactionSync(f) });
+    store.bindStateStorage({
+      sql: metered(state.storage.sql),
+      transactionSync: (f) => state.storage.transactionSync(f),
+    });
     return run(state);
   });
+
+/** The bytes the store binds into SQL and reads back, as it runs: the store reads every result through `toArray`. */
+const meter = { bound: 0, read: 0 };
+const blobBytes = (value: unknown) =>
+  value instanceof ArrayBuffer ? value.byteLength : ArrayBuffer.isView(value) ? value.byteLength : 0;
+const metered = (sql: SqlStorage): SqlStorage =>
+  new Proxy(sql, {
+    get: (target, key) =>
+      key === "exec"
+        ? (query: string, ...bindings: Array<unknown>) => {
+            for (const binding of bindings) meter.bound += blobBytes(binding);
+            const cursor = target.exec(query, ...bindings);
+            return new Proxy(cursor, {
+              get: (inner, name) =>
+                name === "toArray"
+                  ? () => {
+                      const rows = inner.toArray();
+                      for (const row of rows) for (const value of Object.values(row)) meter.read += blobBytes(value);
+                      return rows;
+                    }
+                  : Reflect.get(inner, name, inner),
+            });
+          }
+        : Reflect.get(target, key, target),
+  });
+/** What `run` bound and read. */
+const metering = (run: () => void) => {
+  meter.bound = 0;
+  meter.read = 0;
+  run();
+  return { ...meter };
+};
 
 const rowCount = (state: DurableObjectState, table: string) =>
   (state.storage.sql.exec(`SELECT COUNT(*) AS n FROM ${table}`).one() as { n: number }).n;
@@ -79,6 +114,60 @@ describe("State directory", () => {
       store.remove("/t3/b", { recursive: true });
       expect(rowCount(state, "t3flare_file_chunks")).toBe(0);
       expect(store.get("/t3/b")).toBeUndefined();
+    });
+  });
+
+  // SPI-1391: a Terminal's log file takes an append every quarter second and up to 16 MiB, read as its tail on attach.
+  it("appends by rewriting only the last chunk, and reads a range from only its own bytes", async () => {
+    await inObject("append", (state) => {
+      store.mkdir("/t3/logs", { recursive: true });
+      const file = "/t3/logs/terminal.log";
+      const expected: Array<Uint8Array> = [];
+      const append = (data: Uint8Array) => {
+        store.writeFile(file, data, { append: true });
+        expected.push(data);
+      };
+      append(bytes(1000, 1));
+      append(bytes(store.CHUNK_BYTES - 1000, 2)); // exactly one chunk's worth, still inline
+      expect(rowCount(state, "t3flare_file_chunks")).toBe(0);
+      append(bytes(10, 3)); // inline becomes two chunks
+      expect(rowCount(state, "t3flare_file_chunks")).toBe(2);
+      append(bytes(store.CHUNK_BYTES - 10, 4)); // fills the second exactly
+      append(bytes(store.CHUNK_BYTES * 2 + 7, 5)); // starts a third, fills it, starts a fifth
+      expect(rowCount(state, "t3flare_file_chunks")).toBe(5);
+      // An append reads and writes the last chunk and what it adds, never the whole 16 MiB.
+      expect(metering(() => append(bytes(100, 8)))).toEqual({ bound: 107, read: 7 });
+
+      const total = expected.reduce((sum, part) => sum + part.byteLength, 0);
+      const whole = new Uint8Array(total);
+      let at = 0;
+      for (const part of expected) {
+        whole.set(part, at);
+        at += part.byteLength;
+      }
+      expect(store.get(file)?.size).toBe(total);
+      expect(same(store.readFile(file), whole)).toBe(true);
+      expect(store.usage()).toEqual({ files: 1, bytes: total, chunked: 1 });
+      for (const [from, length] of [
+        [0, 10],
+        [store.CHUNK_BYTES - 3, 64 * 1024],
+        [store.CHUNK_BYTES * 3 + 5, store.CHUNK_BYTES + 10],
+        [total - 5, 100],
+      ] as const) {
+        let range: Uint8Array = new Uint8Array(0);
+        expect(metering(() => (range = store.readRange(file, from, length)))).toEqual({
+          bound: 0,
+          read: Math.min(length, total - from),
+        });
+        expect(same(range, whole.slice(from, from + length))).toBe(true);
+      }
+
+      // An inline file's range, and a truncate after the appends, as before.
+      store.writeFile("/t3/logs/small.log", bytes(5000, 6));
+      expect(same(store.readRange("/t3/logs/small.log", 4990, 64), bytes(5000, 6).slice(4990))).toBe(true);
+      store.truncate(file, store.CHUNK_BYTES + 1);
+      expect(rowCount(state, "t3flare_file_chunks")).toBe(2);
+      expect(same(store.readFile(file), whole.slice(0, store.CHUNK_BYTES + 1))).toBe(true);
     });
   });
 

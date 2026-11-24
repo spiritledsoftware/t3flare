@@ -239,38 +239,83 @@ const storeBytes = (path: string, data: Uint8Array, mode: number) => {
   });
 };
 
-/** The bytes of the file at `path` (already resolved), between `start` and `end`. */
+/**
+ * The bytes of the file at `path` (already resolved), between `start` and `end`. SQLite cuts each row's range
+ * (`substr` on a BLOB), so a read takes only its own bytes, not every row it touches (SPI-1391).
+ */
 const loadBytes = (path: string, start = 0, end = Number.POSITIVE_INFINITY): Uint8Array => {
   const row = db()
-    .exec<{ data: ArrayBuffer | null; size: number; chunks: number }>(
-      `SELECT data, size, chunks FROM t3flare_files WHERE path = ?`,
-      path,
-    )
+    .exec<{ size: number; chunks: number }>(`SELECT size, chunks FROM t3flare_files WHERE path = ?`, path)
     .toArray()[0];
   if (row === undefined) return new Uint8Array(0);
   const from = Math.max(0, Math.min(start, row.size));
   const to = Math.max(from, Math.min(end, row.size));
-  if (row.chunks === 0) return new Uint8Array(row.data ?? new ArrayBuffer(0)).slice(from, to);
   const out = new Uint8Array(to - from);
   if (to === from) return out;
-  const first = Math.floor(from / CHUNK_BYTES);
-  const last = Math.floor((to - 1) / CHUNK_BYTES);
-  const rows = db()
-    .exec<{ idx: number; data: ArrayBuffer }>(
-      `SELECT idx, data FROM t3flare_file_chunks WHERE path = ? AND idx BETWEEN ? AND ? ORDER BY idx`,
-      path,
-      first,
-      last,
-    )
-    .toArray();
-  for (const chunk of rows) {
-    const chunkStart = chunk.idx * CHUNK_BYTES;
-    const bytes = new Uint8Array(chunk.data);
-    const sliceFrom = Math.max(from, chunkStart) - chunkStart;
-    const sliceTo = Math.min(to, chunkStart + bytes.byteLength) - chunkStart;
-    out.set(bytes.subarray(sliceFrom, sliceTo), chunkStart + sliceFrom - from);
+  const slice = (table: string, where: string, args: ReadonlyArray<string | number>, rowStart: number) => {
+    const sliceFrom = Math.max(from, rowStart) - rowStart;
+    const sliceTo = Math.min(to, rowStart + CHUNK_BYTES) - rowStart;
+    const data = db()
+      .exec<{ data: ArrayBuffer | null }>(
+        `SELECT substr(data, ?, ?) AS data FROM ${table} WHERE ${where}`,
+        sliceFrom + 1,
+        sliceTo - sliceFrom,
+        ...args,
+      )
+      .toArray()[0]?.data;
+    if (data) out.set(new Uint8Array(data), rowStart + sliceFrom - from);
+  };
+  if (row.chunks === 0) {
+    slice("t3flare_files", "path = ?", [path], 0);
+    return out;
+  }
+  for (let idx = Math.floor(from / CHUNK_BYTES); idx <= Math.floor((to - 1) / CHUNK_BYTES); idx++) {
+    slice("t3flare_file_chunks", "path = ? AND idx = ?", [path, idx], idx * CHUNK_BYTES);
   }
   return out;
+};
+
+/**
+ * Appends to the file at `path` (already resolved), of `size` bytes in `chunks` rows: only its last, partly filled row is
+ * read and written again, so a log appended to as it grows never moves its whole bytes (SPI-1391).
+ */
+const appendBytes = (path: string, size: number, chunks: number, data: Uint8Array) => {
+  if (chunks === 0 && size + data.byteLength <= CHUNK_BYTES) {
+    const joined = new Uint8Array(size + data.byteLength);
+    joined.set(loadBytes(path), 0);
+    joined.set(data, size);
+    db().exec(
+      `UPDATE t3flare_files SET data = ?, size = ?, mtime_ms = ? WHERE path = ?`,
+      joined,
+      joined.byteLength,
+      Date.now(),
+      path,
+    );
+    return;
+  }
+  // The row the bytes continue: an inline file's becomes row 0; a full last row is left as it is.
+  const first = chunks === 0 ? 0 : Math.floor(size / CHUNK_BYTES);
+  const kept = loadBytes(path, first * CHUNK_BYTES, size);
+  const tail = new Uint8Array(kept.byteLength + data.byteLength);
+  tail.set(kept, 0);
+  tail.set(data, kept.byteLength);
+  const rows = Math.ceil(tail.byteLength / CHUNK_BYTES);
+  for (let row = 0; row < rows; row++) {
+    db().exec(
+      `INSERT INTO t3flare_file_chunks (path, idx, data) VALUES (?, ?, ?)
+       ON CONFLICT(path, idx) DO UPDATE SET data = excluded.data`,
+      path,
+      first + row,
+      tail.subarray(row * CHUNK_BYTES, Math.min(tail.byteLength, (row + 1) * CHUNK_BYTES)),
+    );
+  }
+  db().exec(
+    `UPDATE t3flare_files SET data = NULL, size = ?, chunks = ?, mtime_ms = ? WHERE path = ?`,
+    size + data.byteLength,
+    first + rows,
+    Date.now(),
+    path,
+  );
 };
 
 const requireParentDir = (path: string, syscall: string) => {
@@ -324,12 +369,11 @@ export const writeFile = (
   if (existing !== undefined && options.exclusive) throw new FsError("EEXIST", "open", path);
   if (existing === undefined) requireParentDir(path, "open");
   const target = existing?.path ?? path;
-  if (options.append && existing !== undefined && existing.size > 0) {
-    const before = loadBytes(target);
-    const joined = new Uint8Array(before.byteLength + data.byteLength);
-    joined.set(before, 0);
-    joined.set(data, before.byteLength);
-    storeBytes(target, joined, existing.mode);
+  if (options.append && existing !== undefined && existing.kind === "file" && existing.size > 0) {
+    const { chunks } = db()
+      .exec<{ chunks: number }>(`SELECT chunks FROM t3flare_files WHERE path = ?`, target)
+      .toArray()[0]!;
+    if (data.byteLength > 0) transactionSync(() => appendBytes(target, existing.size, chunks, data));
   } else {
     storeBytes(target, data, existing?.mode ?? options.mode ?? 0o644);
   }

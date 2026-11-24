@@ -704,7 +704,7 @@ export class WorkspaceDO extends ContainerHost {
       baseEnv: terminalEnv,
       // ADR-0047 §9: as the running Container started (its launch), so a change applies at its next start.
       readBashrc: () => ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)?.terminalsReadBashrc !== false,
-      // SPI-1317, SPI-1387: a fixed count, `TERMINALS_PER_WORKSPACE`, a memory-safety bound.
+      // SPI-1317, SPI-1387: a fixed count, `TERMINALS_PER_WORKSPACE`.
       maxTerminals: () => TERMINALS_PER_WORKSPACE,
       filesMayHaveChanged: (why) => this.#terminalSync.changed(why),
       remember: (markers) => ctx.storage.kv.put(TERMINAL_MARKERS_KEY, [...markers]),

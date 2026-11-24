@@ -437,12 +437,13 @@ describe("the Terminals' holds and counts (SPI-1317, SPI-1387)", () => {
     ).toMatchObject({ terminalBusyHoldMinutes: 30, terminalPromptHoldMinutes: 10 });
   });
 
-  it("count and keep fixed values the isolates' memory forces", () => {
+  it("count and keep fixed values", () => {
     expect(TERMINALS_PER_WORKSPACE).toBe(8);
     expect(AGENT_TERMINALS_PER_WORKSPACE).toBe(8);
     expect(AGENT_TERMINAL_SCROLLBACK_LINES).toBe(1000);
-    expect(TERMINAL_HISTORY_KIB).toBe(1024);
-    expect(EXITED_TERMINALS_KEPT).toBe(16);
+    // SPI-1391: stock t3's, with the history in storage.
+    expect(TERMINAL_HISTORY_KIB).toBe(8 * 1024);
+    expect(EXITED_TERMINALS_KEPT).toBe(128);
   });
 
   it("are down-free, in the Containers row, after the idle time, and state their consequence in Owner words", () => {
