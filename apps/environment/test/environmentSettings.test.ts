@@ -276,7 +276,7 @@ describe("Environment settings in the panel", () => {
     const { deps } = setup();
     const html = await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
     expect(html).toMatch(
-      /<input type="number" inputmode="numeric" placeholder="off" [^>]*data-setting="containerBudget"[^>]* value="">/,
+      /<input type="number" inputmode="numeric" placeholder="no budget" [^>]*data-setting="containerBudget"[^>]* value="">/,
     );
     expect(html).toMatch(/Running now<\/dt><dd>2 running, no budget/);
     expect(html).toContain(`data-budget-head>${NO_BUDGET_HEAD}<`);
@@ -289,6 +289,8 @@ describe("Environment settings in the panel", () => {
     // The script says the same as the budget input is emptied.
     expect(SCRIPT).toContain(JSON.stringify(NO_BUDGET_HEAD));
     expect(SCRIPT).toContain(JSON.stringify(budgetNote(0)));
+    // Input the browser refuses (a letter empties the value, as off does) never previews as no budget.
+    expect(SCRIPT).toContain("if (budget === null || !budget.validity.valid) return;");
   });
 
   it("audits the Global mise config as its size and SHA-256, never its text", async () => {

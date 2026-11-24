@@ -493,7 +493,9 @@ for (const form of document.querySelectorAll("form[data-environment]")) {
   const cost = () => {
     priceCustom();
     // An empty budget is off (0, SPI-1386): no cap, so the column says so and the summary prices one Container.
-    const count = Number(budget === null ? NaN : budget.value);
+    // Input the browser refuses (a letter leaves the value empty, as off does) leaves the preview as it was.
+    if (budget === null || !budget.validity.valid) return;
+    const count = Number(budget.value);
     if (!Number.isInteger(count) || count < 0) return;
     const off = count === 0;
     const containers = count + (count === 1 ? " Container" : " Containers");

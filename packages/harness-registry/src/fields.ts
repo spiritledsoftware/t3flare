@@ -9,7 +9,8 @@ export type FieldSchema =
    * `maximum`: a named constraint or a sanity bound (ADR-0048 §1); absent only where no value breaks anything (the
    * SPI-1368 refinement), and then any safe integer from `minimum` is taken. `off`: a guardrail with no limit at 0
    * (SPI-1386), its `minimum` then 0: the Settings page shows 0 as an empty field, and a Change tier ranks it above every
-   * limit (`offRank`).
+   * limit (`offRank`). `offLabel`: what the empty field says, where "off" would read wrong (a retention's "kept: off"
+   * reads as not kept); "off" without it.
    */
   | {
       readonly type: "integer";
@@ -17,6 +18,7 @@ export type FieldSchema =
       readonly maximum?: number;
       readonly default: number;
       readonly off?: true;
+      readonly offLabel?: string;
     }
   /**
    * A number with no maximum of t3flare's (a custom Container size's resources, SPI-1365: Cloudflare's account limits

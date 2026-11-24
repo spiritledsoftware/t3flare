@@ -167,9 +167,10 @@ const field = (
     case "boolean":
       return `<div class="field"><div class="inline-field"><input type="checkbox" ${attrs}${value === true ? " checked" : ""}><label for="${id}">${escapeHtml(setting.title)}</label></div>${hint}</div>`;
     case "integer": {
-      // An off setting (SPI-1386) shows its 0 as an empty field, and takes one empty: the script reads it as 0.
+      // An off setting (SPI-1386) shows its 0 as an empty field, its off word the placeholder, and takes one empty: the
+      // script reads it as 0.
       const off = setting.schema.off === true;
-      return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="number" inputmode="numeric"${off ? ' placeholder="off"' : " required"} ${attrs} min="${setting.schema.minimum}"${
+      return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="number" inputmode="numeric"${off ? ` placeholder="${escapeHtml(setting.schema.offLabel ?? "off")}"` : " required"} ${attrs} min="${setting.schema.minimum}"${
         setting.schema.maximum === undefined ? "" : ` max="${setting.schema.maximum}"`
       } step="1" value="${off && value === 0 ? "" : escapeHtml(String(value))}">${hint}</div>`;
     }

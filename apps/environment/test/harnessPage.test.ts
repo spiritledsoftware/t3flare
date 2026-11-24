@@ -871,8 +871,9 @@ describe("the Environment section's dotfiles", () => {
       "routerTraceEntries",
     ]);
     expect(inputs.map((tag) => tag.attrs)).toMatchObject([
-      { type: "number", min: "0", max: "3650", value: "", placeholder: "off" },
-      { type: "number", min: "0", max: "3650", value: "", placeholder: "off" },
+      // Each its own off word (SPI-1386): "off" would read as not kept.
+      { type: "number", min: "0", max: "3650", value: "", placeholder: "for good" },
+      { type: "number", min: "0", max: "3650", value: "", placeholder: "each agent&#39;s own" },
       { type: "number", min: "1", max: "87600", value: "24" },
       { type: "number", min: "1", max: "100000", value: "500" },
       { type: "number", min: "1", max: "10000", value: "300" },
