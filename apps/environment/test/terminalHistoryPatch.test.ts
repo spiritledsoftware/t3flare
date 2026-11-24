@@ -303,6 +303,10 @@ describe("Patch 0009: Owner Terminals keep their history in storage (SPI-1391)",
               timeout: 10_000,
             }),
           );
+          // Every byte is in the files, but the last write can still be finishing (Node's writeFile has written its
+          // bytes before it resolves), holding its output. A snapshot waits on the history lock, which a write holds
+          // until it has finished, so past it no write is in flight and the heap holds only what the Manager keeps.
+          yield* attachSnapshot(fixture.manager, "t0");
           return heapAfterGc() - before;
         }),
       );
