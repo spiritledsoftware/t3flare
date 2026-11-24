@@ -1294,7 +1294,7 @@ export const ENVIRONMENT_SETTINGS = {
   },
   mcpProgressPerSecond: {
     title: "MCP progress notices per second",
-    description: `How many of an MCP server's progress notices for one call t3flare passes on to the thread each second; the rest are dropped, and the next one passed says where the call is. Each notice is a request to the thread's Session, so a higher rate lets a chatty server keep it busier and slow its other requests, a Stop among them. At most ${MAX_MCP_PROGRESS_PER_SECOND}. Applies at the next MCP call.`,
+    description: `How many of an MCP server's progress notices for one call t3flare passes on to the thread each second; the rest are dropped, and the next one passed says where the call is. Each notice is a request to the thread's Session, so a higher rate lets a chatty server keep it busier and slow its other requests, a Stop among them. At most ${MAX_MCP_PROGRESS_PER_SECOND.toLocaleString("en-US")}. Applies at the next MCP call.`,
     // A sanity bound (`MAX_MCP_PROGRESS_PER_SECOND`): a Durable Object's documented soft request rate.
     schema: {
       type: "integer",

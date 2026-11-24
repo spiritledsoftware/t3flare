@@ -757,12 +757,13 @@ read as each call's target is made:
 
 New Harness settings of the `web` extension: `fetchRedirects` (default 10, at most `MAX_REDIRECTS`, 100, a sanity
 bound; `down-free`, since each hop spends up to three of the turn invocation's subrequests) and `fetchTitleCharacters`
-(default 200, at most 10,000; `free`, it changes only what t3's web item shows). The 4,000-character window the title was
+(default 200, at most 10,000; `down-free`, since a longer title takes more of the thread's stored history). The 4,000-character window the title was
 searched in is gone, as are the 300-character cuts of `web_fetch`'s and `web_search`'s snippets: `web_fetch`'s snippet
 is the model's text, cut only where the result's Session row has no more room, and `web_search`'s are whole, within the
 result lists' share of the row.
 
-Changed Harness settings: `codemode.inlineBudget` takes any whole number from 0 (was 500 to 20,000); the Guardian's
+Changed Harness settings: `codemode.inlineBudget` takes any whole number from 0, with no maximum (was 500 to 20,000),
+and becomes `down-free` (was `free`), since a larger budget puts more in every request's prompt; the Guardian's
 `tools`, `commands` and `policy` and the model settings (`guardian.model`, `advisor.model`, `web.searchModel`) have no
 length of their own (were 4,000, 4,000, 8,000 and 300 characters): an extension change is checked against the Harness
 settings' one Durable Object value instead, as a tools change already was. `termctrl.cols` and `termctrl.rows` take

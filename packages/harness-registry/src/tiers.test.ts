@@ -44,7 +44,8 @@ const SWITCHES: Readonly<Record<string, "switch" | "guard" | "unchangeable" | "t
  * declared tier).
  */
 const SETTINGS: Readonly<Record<string, "free" | "down-free" | "up-free" | "asked">> = {
-  "codemode.inlineBudget": "free",
+  // SPI-1368: no ceiling, and a larger budget puts more in every prompt.
+  "codemode.inlineBudget": "down-free",
   // SPI-1364: a larger budget lets a script spend more of the sandbox's CPU, near the most resetting it.
   "codemode.interruptBudget": "down-free",
   "web.searchModel": "asked",
@@ -52,9 +53,9 @@ const SETTINGS: Readonly<Record<string, "free" | "down-free" | "up-free" | "aske
   "web.fetchTimeoutSeconds": "down-free",
   "web.fetchMaxTimeoutSeconds": "down-free",
   "web.fetchMaxKiB": "down-free",
-  // SPI-1368: more redirects spend more of a turn's subrequests; the title changes only what t3's item shows.
+  // SPI-1368: more redirects spend more of a turn's subrequests; a longer title takes more stored history.
   "web.fetchRedirects": "down-free",
-  "web.fetchTitleCharacters": "free",
+  "web.fetchTitleCharacters": "down-free",
   "web.searchResults": "down-free",
   "web.searchesPerCall": "down-free",
   "web.searchSummaryTokens": "down-free",

@@ -775,7 +775,7 @@ describe("the MCP progress rate and the Legacy recheck (SPI-1368)", () => {
       const { maximum } = ENVIRONMENT_SETTINGS[key].schema;
       for (const good of [low, maximum]) expect(set({ [key]: good })).toMatchObject({ ok: true });
       for (const bad of [low - 1, maximum + 1, 1.5]) expect(set({ [key]: bad })).toMatchObject({ ok: false });
-      expect(ENVIRONMENT_SETTINGS[key].description).toContain(`At most ${maximum}`);
+      expect(ENVIRONMENT_SETTINGS[key].description).toContain(`At most ${maximum?.toLocaleString("en-US")}`);
     }
   });
 });

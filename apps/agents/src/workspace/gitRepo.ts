@@ -24,10 +24,10 @@ export interface Repo {
 }
 
 /**
- * The most tracked files the DO handles itself; past it, a capture needs the Container's git. A named constraint: the
- * Workspace DO's CPU time per invocation and its 128 MB isolate, which a capture spends per tracked file
- * (isomorphic-git walks and hashes them). 2,000 is a figure from step 2a's checks, not derived; a raised CPU limit
- * could take more once measured.
+ * The most tracked files the DO handles itself; past it, a capture needs the Container's git. A sanity bound (ADR-0048
+ * §1) under the Workspace DO's CPU time per invocation and its 128 MB isolate, which a capture spends per tracked file
+ * (isomorphic-git walks and hashes them): 2,000 is a figure from step 2a's checks, not derived from either, and a raised
+ * CPU limit could take more once measured.
  */
 export const MAX_TRACKED_FILES = 2_000;
 /**

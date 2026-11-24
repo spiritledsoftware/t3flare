@@ -315,8 +315,7 @@ const runCall = Effect.fnUntraced(function* <A, R>(
       }),
     // A server may echo a header it was sent (a Secret's value) into a log, an error or a result; all are scrubbed of them.
     secretsOf(input.target),
-    input.target.logEntries,
-    input.target.progressPerSecond,
+    input.target,
   );
 });
 

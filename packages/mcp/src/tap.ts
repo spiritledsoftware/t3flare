@@ -57,8 +57,9 @@ interface Policy {
 }
 
 /**
- * Any request not in `POLICIES`: 1 MiB, no retry. A named constraint, generous: the MCP Worker's 128 MB isolate, which
- * concurrent calls share (apps/mcp-worker/src/engine/budget.ts); these answers are small by protocol.
+ * Any request not in `POLICIES`: 1 MiB, no retry. A sanity bound (ADR-0048 §1) under the MCP Worker's 128 MB isolate,
+ * which concurrent calls share (apps/mcp-worker/src/engine/budget.ts): nothing forces 1 MiB, and these answers are small
+ * by protocol.
  */
 const OTHER: Policy = { limit: MiB, readOnly: false, probe: false, mayHaveRun: false };
 
@@ -318,9 +319,9 @@ const encoder = new TextEncoder();
 const drain = (body: ReadableStream<Uint8Array> | null) => body?.cancel().catch(() => undefined);
 
 /**
- * The most one event on a GET stream, or on a resumed request stream, may be. A named constraint, generous: an event is
- * held whole in the MCP Worker's 128 MB isolate, which concurrent calls share, and a GET stream is not charged to the
- * byte budget; notifications are small by protocol.
+ * The most one event on a GET stream, or on a resumed request stream, may be. A sanity bound (ADR-0048 §1) under the
+ * MCP Worker's 128 MB isolate, which concurrent calls share: an event is held whole there and a GET stream is not
+ * charged to the byte budget. Nothing forces 1 MiB; notifications are small by protocol.
  */
 const EVENT_LIMIT = MiB;
 

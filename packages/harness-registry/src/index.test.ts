@@ -312,6 +312,16 @@ describe("applyChange", () => {
       expect(applyChange(EMPTY_HARNESS, { extension: "codemode", settings: { inlineBudget } })).toMatchObject({
         ok: true,
       });
+    expect(EXTENSIONS.find((entry) => entry.id === "codemode")?.settings.inlineBudget?.schema).not.toHaveProperty(
+      "maximum",
+    );
+    expect(
+      applyChange(EMPTY_HARNESS, { extension: "codemode", settings: { inlineBudget: Number.MAX_SAFE_INTEGER } }),
+    ).toMatchObject({ ok: true });
+    expect(applyChange(EMPTY_HARNESS, { extension: "codemode", settings: { inlineBudget: 2 ** 53 } })).toEqual({
+      ok: false,
+      error: "codemode.inlineBudget: an integer",
+    });
   });
 
   it("bounds the Guardian's texts and a model slug by the one stored value, not a length each (SPI-1368)", () => {
@@ -335,11 +345,16 @@ describe("applyChange", () => {
   });
 
   it("keeps the tools' Exposures when an extension's settings change (SPI-1368)", () => {
-    const tools = applyToolsChange(EMPTY_HARNESS, { tools: { bash: "deferred" } });
+    const tools = applyToolsChange(EMPTY_HARNESS, {
+      tools: { bash: "deferred" },
+      t3: { exposure: "codemode", tools: { t3_threads: "hidden" } },
+    });
     if (!tools.ok) throw new Error(tools.error);
+    expect(tools.harness.global.t3).toBeDefined();
     const changed = applyChange(tools.harness, { extension: "files", settings: { lsLimit: 5 } });
     if (!changed.ok) throw new Error(changed.error);
     expect(changed.harness.global.tools).toEqual(tools.harness.global.tools);
+    expect(changed.harness.global.t3).toEqual(tools.harness.global.t3);
   });
 
   it("refuses a switch that is not true or false: a stored null would resolve to the default, on", () => {
@@ -476,7 +491,7 @@ describe("applyChange", () => {
     for (const [id, names] of Object.entries(keys))
       for (const name of names) {
         const setting = EXTENSIONS.find((entry) => entry.id === id)!.settings[name]!;
-        const maximum = setting.schema.type === "integer" ? setting.schema.maximum : Number.NaN;
+        const maximum = setting.schema.type === "integer" ? (setting.schema.maximum ?? Number.NaN) : Number.NaN;
         expect(setting.description, `${id}.${name}`).toContain(`At most ${maximum.toLocaleString("en-US")}`);
       }
   });

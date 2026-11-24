@@ -205,10 +205,10 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         title: "Inline budget",
         description:
           "Estimated tokens the tool declarations in the code mode section may use; past it, scripts find tools with searchTools(). A larger budget puts more declarations in every request's prompt; 0 leaves them all to searchTools(). No maximum.",
-        // No maximum of t3flare's: a budget past every declaration inlines them all, and nothing breaks either way
-        // (SPI-1368). The schema's integer type takes the largest safe integer as "none".
-        schema: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER, default: 2_000 },
-        tier: "free",
+        // No maximum (ADR-0048's SPI-1368 refinement): a budget past every declaration inlines them all, and nothing
+        // breaks at any value.
+        schema: { type: "integer", minimum: 0, default: 2_000 },
+        tier: "down-free",
       },
       interruptBudget: {
         title: "Script compute budget (polls)",
@@ -346,7 +346,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
       },
       fetchRedirects: {
         title: "Redirects per fetch",
-        description: `How many redirects one web_fetch call follows; one more fails the call. Each redirect is checked and sent as a new request, up to three of the Session's subrequests (two address lookups and the request), which count against the Workers subrequest limit of the turn's invocation; a redirect loop spends that many before it fails. At most ${MAX_REDIRECTS}.`,
+        description: `How many redirects one web_fetch call follows; one more fails the call. Each redirect takes up to three of the turn's Workers subrequests (two address lookups and the request), so a redirect loop spends that many before it fails. At most ${MAX_REDIRECTS}.`,
         // MAX_REDIRECTS: a sanity bound (ADR-0048); the invocation's subrequest limit bounds it in fact.
         schema: { type: "integer", minimum: 0, maximum: MAX_REDIRECTS, default: DEFAULT_REDIRECTS },
         tier: "down-free",
@@ -356,7 +356,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         description: `How many characters of a fetched page's first heading t3's web item shows as its title. The title is kept with the tool result, so a longer one takes more of the thread's stored history; the model never reads it. At most ${MAX_PREVIEW_CHARACTERS.toLocaleString("en-US")}.`,
         // MAX_PREVIEW_CHARACTERS: a sanity bound (ADR-0048); the title rides in the result's `details`, within its row.
         schema: { type: "integer", minimum: 1, maximum: MAX_PREVIEW_CHARACTERS, default: 200 },
-        tier: "free",
+        tier: "down-free",
       },
       searchModel: modelSetting(
         "Search model",
@@ -450,14 +450,14 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
       },
       cols: {
         title: "Columns",
-        description: `A Terminal's width in characters. Each Terminal keeps its screen and scrollback in the Workspace's memory, ${ISOLATE_MEMORY_MB} MB shared with its other Terminals and its files, so a wider one takes more of it. At most ${MAX_TERMINAL_COLS}, which assumes the default rows; raising both takes more memory than either maximum allows for.`,
+        description: `A Terminal's width in characters. A wider Terminal keeps more of its screen and scrollback in the Workspace's memory, ${ISOLATE_MEMORY_MB} MB shared with its other Terminals and its files. At most ${MAX_TERMINAL_COLS}, sized for the default rows.`,
         // A named constraint, provisional (`MAX_TERMINAL_COLS`): the Workspace DO's memory per Terminal.
         schema: { type: "integer", minimum: 1, maximum: MAX_TERMINAL_COLS, default: DEFAULT_TERMINAL_COLS },
         tier: "free",
       },
       rows: {
         title: "Rows",
-        description: `A Terminal's height in lines. Each Terminal keeps its screen and scrollback in the Workspace's memory, ${ISOLATE_MEMORY_MB} MB shared with its other Terminals and its files, so a taller one takes more of it. At most ${MAX_TERMINAL_ROWS.toLocaleString("en-US")}, which assumes the default columns; raising both takes more memory than either maximum allows for.`,
+        description: `A Terminal's height in lines. A taller Terminal keeps more of its screen in the Workspace's memory, ${ISOLATE_MEMORY_MB} MB shared with its other Terminals and its files. At most ${MAX_TERMINAL_ROWS.toLocaleString("en-US")}, sized for the default columns.`,
         // A named constraint, provisional (`MAX_TERMINAL_ROWS`): the Workspace DO's memory per Terminal.
         schema: { type: "integer", minimum: 1, maximum: MAX_TERMINAL_ROWS, default: DEFAULT_TERMINAL_ROWS },
         tier: "free",

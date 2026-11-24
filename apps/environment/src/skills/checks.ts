@@ -9,9 +9,9 @@ export const MAX_FILE_BYTES = 1_536 * 1024;
 /** The most files one Skill's folder may hold, far above any real one. */
 export const MAX_SKILL_FILES = 500;
 /**
- * The most the Environment's skills may be together, disabled ones counted. A named constraint: the set travels in one
- * Durable Object RPC, which Cloudflare caps at 32 MiB, and is held whole in the isolates at both ends (128 MB each).
- * 8 MiB is a choice under that, leaving room for the call's envelope and the encoding of the files' bytes.
+ * The most the Environment's skills may be together, disabled ones counted. A sanity bound (ADR-0048 §1) under the
+ * 32 MiB of the one Durable Object RPC the set travels in, held whole in the 128 MB isolates at both ends: nothing
+ * forces 8 MiB, which leaves room for the call's envelope and the encoding of the files' bytes.
  */
 export const MAX_SET_BYTES = 8 * 1024 * 1024;
 /** The longest name a Skill may have (Agent Skills). */

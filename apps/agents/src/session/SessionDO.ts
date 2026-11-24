@@ -185,8 +185,8 @@ const HARNESS_KEY = "t3flare:harness";
 /** The MCP tools the Session last installed (ADR-0028), in chunks (review M12): a restart installs the same first. */
 const MCP_BUILD_KEY = "t3flare:mcp-build";
 /**
- * The characters of one chunk of that list. A named constraint, with room to spare: each chunk is one Durable Object
- * KV value, at most 8 MB, and a string takes at most two bytes a character there.
+ * The characters of one chunk of that list. A sanity bound (ADR-0048 §1) under the 8 MB of one Durable Object KV
+ * value, which each chunk is (a string takes at most two bytes a character there): nothing forces 100,000.
  */
 const MCP_CHUNK_CHARS = 100_000;
 /** This Session started a Terminal or Background job once (SPI-1057): exits are asked for after each tool round. */

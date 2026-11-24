@@ -36,6 +36,8 @@ export interface LeakScanAnswer {
   readonly files: number;
   readonly bytes: number;
   readonly ms: number;
+  /** Files whose read failed part way: their hits found before the failure are in `hits`. */
+  readonly errors?: ReadonlyArray<{ readonly path: string; readonly error: string }>;
 }
 
 /** The image's Node (the CLI layer's), by absolute path. */
@@ -52,6 +54,8 @@ const hits = []; let files = 0, bytes = 0;
 const CHUNK = 8 * 1024 * 1024;
 const OVERLAP = Math.max(1, ...input.patterns.map((p) => p.length)) - 1;
 let chunk;
+// A read that fails part way keeps what was found before it, and names the file in "errors".
+const errors = [];
 const scanFile = (file) => {
   const fd = fs.openSync(file, "r");
   const found = new Set();
@@ -67,6 +71,8 @@ const scanFile = (file) => {
       carry = Math.min(OVERLAP, filled);
       chunk.copy(chunk, 0, filled - carry, filled);
     }
+  } catch (error) {
+    errors.push({ path: file, error: String(error && error.message || error) });
   } finally { fs.closeSync(fd); }
   return [...found];
 };
@@ -116,7 +122,7 @@ if (input.procs) {
     }
   }
 }
-process.stdout.write(JSON.stringify({ hits, files, bytes, ms: Date.now() - started }) + "\n");
+process.stdout.write(JSON.stringify({ hits, files, bytes, ms: Date.now() - started, ...(errors.length > 0 ? { errors } : {}) }) + "\n");
 `;
 
 /** argv for the platform's exec: the image's Node running the scanner on `input`. */
