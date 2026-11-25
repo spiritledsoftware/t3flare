@@ -209,7 +209,8 @@ export const isPort = (port: unknown): boolean =>
 
 /**
  * A stored ports list that no longer fits as much of it as still does (SPI-1390): its ports, each once, ascending, without
- * one that is no port or is `reserved` now, at most `maxCount`; `dropped`, the ports left out. Never wider than stored.
+ * one that is no port or is `reserved` now, at most `maxCount`; `dropped`, the ports left out. An empty `ports` is
+ * what a caller reads as none (any port).
  */
 export const fitPorts = (
   value: unknown,

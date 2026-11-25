@@ -1312,7 +1312,8 @@ export const resolveEnvironment = (stored: {
     const schema = settingOf(key).schema;
     // Variables: one a later rule refuses is dropped alone, never the whole set (ADR-0032's Variables refinement).
     if (schema.type === "variables") resolved[key] = fitVariables(value);
-    // An opt-in port list that no longer fits keeps what still does (SPI-1390): never wider than the Owner set it.
+    // An opt-in port list that no longer fits keeps what still does (SPI-1390); one with nothing left
+    // reads as none, which is any port, and the Environment logs what it dropped.
     else if (schema.type === "ports" && value !== undefined && !fitsEnvironmentSetting(key, value))
       resolved[key] = fitPorts(value, schema.maxCount, schema.reserved).ports;
     else resolved[key] = value !== undefined && fitsEnvironmentSetting(key, value) ? value : schema.default;
