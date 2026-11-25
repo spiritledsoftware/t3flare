@@ -6,6 +6,7 @@ import * as WorkspaceFileSystem from "t3/src/workspace/WorkspaceFileSystem.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
@@ -126,6 +127,27 @@ describe("a Workspace's file index", () => {
     expect(found.truncated).toBe(true);
     expect(asked).toEqual([{ op: "index", path: "/workspace/repo", maxBytes: INDEX_MAX_BYTES }]);
     expect(INDEX_MAX_BYTES).toBe(32 * 1024 * 1024 - 64 * 1024);
+  });
+
+  it("logs a named cut once per revision, naming the Workspace", async () => {
+    bind();
+    let revision = 7;
+    const cut = "t3flare: the file index of /workspace/repo is cut to 1 entries: at most 1 entries";
+    answer = async () => ({
+      ok: { entries: [{ path: "/workspace/repo/f1.ts", kind: "file" }], truncated: true, cut, revision },
+    });
+    const logged: Array<Logger.Options<unknown>> = [];
+    const logger = Logger.layer([Logger.make((entry) => void logged.push(entry))], { mergeWithExisting: false });
+    const search = () =>
+      withEntries((entries) => entries.search({ cwd: "/w/demo", query: "f1", limit: 10 }).pipe(Effect.provide(logger)));
+    await search();
+    await search();
+    expect(logged).toHaveLength(1);
+    expect(Logger.formatLogFmt.log(logged[0]!)).toContain("Workspace demo");
+    expect(Logger.formatLogFmt.log(logged[0]!)).toContain("at most 1 entries");
+    revision = 8;
+    await search();
+    expect(logged).toHaveLength(2);
   });
 
   it("the Workspace DO's cut keeps every entry that fits, and says when it left some out", () => {

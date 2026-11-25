@@ -1655,7 +1655,7 @@ export class WorkspaceDO extends ContainerHost {
       case "find":
         return ops.find(op.path, op.pattern, op.limit);
       case "index":
-        return this.#fileIndex.index(op.path, op.maxBytes);
+        return this.#fileIndex.read(op.path, op.maxBytes);
       case "grep":
         return ops.grep(op.pattern, op.path, op.options ?? {});
     }
