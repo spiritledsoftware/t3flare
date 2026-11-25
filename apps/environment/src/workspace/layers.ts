@@ -96,8 +96,25 @@ const rangesOf = (line: string, pattern: RegExp) => {
   return ranges;
 };
 
+/**
+ * The cut each Workspace's index was last logged for (SPI-1392): its revision, or the cut itself where the Workspace
+ * knew no revision. One entry per Workspace.
+ */
+const cutsNamed = new Map<string, number | string>();
+
+/** Logs `found`'s cut, naming the Workspace, once per revision: search asks for the index on every keystroke. */
+const nameCut = (at: Located, found: FoundIndex) => {
+  if (found.cut === undefined) return Effect.void;
+  const seen = found.revision ?? found.cut;
+  if (cutsNamed.get(at.id) === seen) return Effect.void;
+  cutsNamed.set(at.id, seen);
+  return Effect.logWarning(`Workspace ${at.id}: ${found.cut}`);
+};
+
 const findAll = (at: Located) =>
   call<FoundIndex>(at, { op: "index", path: at.inner, maxBytes: INDEX_MAX_BYTES }).pipe(
+    // SPI-1392: t3's answers carry only `truncated`; the limit that cut the index is named in the log.
+    Effect.tap((found) => nameCut(at, found)),
     Effect.map((found) => ({
       entries: found.entries.flatMap((entry): Array<ProjectEntry> => {
         const path = relativeTo(at.inner, entry.path);

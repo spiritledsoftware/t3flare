@@ -117,6 +117,10 @@ export interface FoundEntry {
 export interface FoundIndex {
   readonly entries: ReadonlyArray<FoundEntry>;
   readonly truncated: boolean;
+  /** When `truncated`, the limit that cut it, with its value (SPI-1392). */
+  readonly cut?: string;
+  /** The repo's revision the index was walked at, when the Workspace knows one: a cut is named once per revision. */
+  readonly revision?: number;
 }
 
 /**
@@ -125,15 +129,26 @@ export interface FoundIndex {
  */
 export const foundEntryBytes = (entry: FoundEntry): number => entry.path.length * 2 + 64;
 
-/** The first of `entries` whose `foundEntryBytes` fit in `maxBytes`, and whether any were left out. */
-export const fitFoundEntries = (entries: ReadonlyArray<FoundEntry>, maxBytes: number): FoundIndex => {
+/** The smallest an entry can count against an index's bytes (`foundEntryBytes`): a one-character path (SPI-1392). */
+export const MIN_FOUND_ENTRY_BYTES = foundEntryBytes({ path: "x", kind: "file" });
+
+/** `fitFoundEntries`, with the `foundEntryBytes` of the entries it kept. */
+export const fitFoundEntriesSized = (
+  entries: ReadonlyArray<FoundEntry>,
+  maxBytes: number,
+): { readonly index: FoundIndex; readonly bytes: number } => {
   let bytes = 0;
   for (let at = 0; at < entries.length; at++) {
-    bytes += foundEntryBytes(entries[at]!);
-    if (bytes > maxBytes) return { entries: entries.slice(0, at), truncated: true };
+    const next = bytes + foundEntryBytes(entries[at]!);
+    if (next > maxBytes) return { index: { entries: entries.slice(0, at), truncated: true }, bytes };
+    bytes = next;
   }
-  return { entries, truncated: false };
+  return { index: { entries, truncated: false }, bytes };
 };
+
+/** The first of `entries` whose `foundEntryBytes` fit in `maxBytes`, and whether any were left out. */
+export const fitFoundEntries = (entries: ReadonlyArray<FoundEntry>, maxBytes: number): FoundIndex =>
+  fitFoundEntriesSized(entries, maxBytes).index;
 
 export interface GrepMatch {
   readonly path: string;
