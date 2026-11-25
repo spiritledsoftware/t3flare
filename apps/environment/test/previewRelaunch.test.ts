@@ -172,6 +172,47 @@ describe("a Workspace's preview browser (SPI-1390)", () => {
     await contexts.close();
   });
 
+  it("joins pages asking together into one restart, each port added, up to eight; a ninth is told it was not", async () => {
+    const { contexts, tab } = await open();
+    const pages = await Promise.all(Array.from({ length: 9 }, () => tab()));
+    const ports = Array.from({ length: 9 }, (_, index) => 41_000 + index);
+    const outcomes = await Promise.all(
+      pages.map((page, index) =>
+        page.goto(`http://localhost:${ports[index]}/`).then(String, (error: Error) => error.message),
+      ),
+    );
+    expect(outcomes.slice(0, 8)).toEqual(ports.slice(0, 8).map((port) => relaunchMessage(port, "added")));
+    expect(outcomes[8]).toBe(relaunchMessage(41_008, "full"));
+    expect(launches).toHaveLength(1);
+    await tab();
+    expect(launches[1]?.hosts).toEqual(hostsOf(ports.slice(0, 8)));
+    await contexts.close();
+  });
+
+  it("never hands out a context that a restart is closing: the next one is the new browser's", async () => {
+    const { contexts, tab } = await open();
+    const page = await tab();
+    const old = await contexts.contextFor("default", "tab", "thread-a");
+    const asking = page.goto("http://localhost:41234/").catch(() => undefined);
+    const next = await contexts.contextFor("default", "tab", "thread-a");
+    expect(next).not.toBe(old);
+    expect((next as unknown as FakeContext).owner).toBe(launches[1]?.browser);
+    expect(launches[0]?.browser.closed).toBe(true);
+    expect(launches[1]?.hosts[0]).toBe("41234.t3flare.internal");
+    await asking;
+    await contexts.close();
+  });
+
+  it("never restarts for port 0: a page names it", async () => {
+    const { contexts, tab } = await open();
+    const page = await tab();
+    await page.goto("http://localhost:0/");
+    expect(decodeURIComponent(page.visited[0] ?? "")).toContain("0 is not a port from 1 to 65535");
+    expect(launches).toHaveLength(1);
+    expect(launches[0]?.browser.closed).toBe(false);
+    await contexts.close();
+  });
+
   it("refuses each reserved port with a page naming it, and restarts nothing", async () => {
     const { contexts, tab } = await open();
     const page = await tab();

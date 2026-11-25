@@ -40,7 +40,11 @@ import * as Stock from "t3/src/preview/ServerBrowserContexts.ts";
 import { nodeSqlStorage } from "./nodeSqlStorage.ts";
 
 describe("a preview browser opens any Container port but t3flare's own (SPI-1390)", () => {
-  const browser = (routed: ReadonlyArray<number>, allowlist: ReadonlyArray<number> = []) => ({ routed, allowlist });
+  const browser = (routed: ReadonlyArray<number>, allowlist: ReadonlyArray<number> = []) => ({
+    workspace: true,
+    routed,
+    allowlist,
+  });
   const pageOf = (navigation: PreviewNavigation) => {
     if (navigation.kind !== "page") throw new Error(`not a page: ${navigation.kind}`);
     expect(navigation.url.startsWith("data:text/html")).toBe(true);
@@ -72,7 +76,7 @@ describe("a preview browser opens any Container port but t3flare's own (SPI-1390
     });
   });
 
-  it("restarts the browser with a port it does not route yet, which a refusal never names: any port is allowed", () => {
+  it("restarts the browser with a port it does not route yet: any port is allowed", () => {
     expect(previewNavigation("http://localhost:9999/", browser([3000, 5173]))).toEqual({
       kind: "relaunch",
       port: 9999,
@@ -112,6 +116,34 @@ describe("a preview browser opens any Container port but t3flare's own (SPI-1390
     });
   });
 
+  it("never restarts for a port that is none: port 0 gets a page naming it", () => {
+    const page = previewNavigation("http://localhost:0/", browser([3000]));
+    expect(page.kind).toBe("page");
+    if (page.kind === "page")
+      expect(decodeURIComponent(page.url)).toContain(
+        "0 is not a port from 1 to 65535, so no dev server can listen on it.",
+      );
+  });
+
+  it("gives localhost in the route-less browser a page saying where previews open", () => {
+    const page = previewNavigation("http://localhost:5173/", { workspace: false, routed: [], allowlist: [] });
+    expect(page.kind).toBe("page");
+    if (page.kind === "page")
+      expect(decodeURIComponent(page.url)).toContain("localhost previews open from a thread's preview browser");
+    expect(previewNavigation("https://example.com/", { workspace: false, routed: [], allowlist: [] })).toEqual({
+      kind: "go",
+      url: "https://example.com/",
+    });
+  });
+
+  it("names how a port that needed a restart went: added, past the restart's eight, or its browser already replaced", () => {
+    expect(relaunchMessage(9999, "added")).toBe(relaunchMessage(9999));
+    expect(relaunchMessage(9999, "full")).toContain(
+      "The preview browser is restarting with 8 other ports pages asked for, so port 9999 is not among them",
+    );
+    expect(relaunchMessage(9999, "stale")).toContain("This tab's preview browser had already restarted");
+  });
+
   it("leaves every other URL as it is", () => {
     for (const url of ["https://example.com/", "http://5173.t3flare.internal/", "not a url", "file:///etc/hosts"])
       expect(previewNavigation(url, browser([5173]))).toEqual({ kind: "go", url });
@@ -119,18 +151,18 @@ describe("a preview browser opens any Container port but t3flare's own (SPI-1390
 
   it("routes, at most Browser Run's eight: the Owner's list alone, else the wanted port, the listeners, the last routes, then the usual ones", () => {
     expect(MAX_PREVIEW_PORTS).toBe(8);
-    expect(previewRoutes({ allowlist: [4200, 8081], wanted: 9999, listening: [9998], previous: [] })).toEqual([
+    expect(previewRoutes({ allowlist: [4200, 8081], wanted: [9999], listening: [9998], previous: [] })).toEqual([
       4200, 8081,
     ]);
-    expect(previewRoutes({ allowlist: [], wanted: undefined, listening: [], previous: [] })).toEqual([
+    expect(previewRoutes({ allowlist: [], wanted: [], listening: [], previous: [] })).toEqual([
       3000, 3001, 4173, 4321, 5173, 5174, 8000, 8787,
     ]);
-    expect(previewRoutes({ allowlist: [], wanted: 9999, listening: [9998, 3000], previous: [41_000] })).toEqual([
+    expect(previewRoutes({ allowlist: [], wanted: [9999], listening: [9998, 3000], previous: [41_000] })).toEqual([
       9999, 9998, 3000, 41_000, 3001, 4173, 4321, 5173,
     ]);
     // Never a reserved port, and never past eight however many listen.
     const many = Array.from({ length: 12 }, (_, index) => 10_000 + index);
-    expect(previewRoutes({ allowlist: [], wanted: 8080, listening: [17_781, ...many], previous: [] })).toEqual(
+    expect(previewRoutes({ allowlist: [], wanted: [8080], listening: [17_781, ...many], previous: [] })).toEqual(
       many.slice(0, 8),
     );
   });

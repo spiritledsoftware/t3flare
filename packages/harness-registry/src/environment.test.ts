@@ -9,8 +9,10 @@ import {
   COMMAND_SETTING_KEYS,
   CONTAINER_PREVIEW_SETTING_KEYS,
   MAX_PREVIEW_PORTS,
+  RESERVED_CONTAINER_PORT_USES,
   RESERVED_CONTAINER_PORTS,
   reservedPortMessage,
+  reservedPortSentence,
   BASE_BUILD_SETTING_KEYS,
   builderInstance,
   containerInstance,
@@ -58,7 +60,7 @@ import {
   STOP_GRACE_SECONDS,
   TERMINAL_HISTORY_KIB,
 } from "./environment.ts";
-import type { EnvironmentSettingEntry } from "./fields.ts";
+import { type EnvironmentSettingEntry, fitPorts, isPort } from "./fields.ts";
 import { DO_VALUE_BYTES, storedBytes } from "./storedValue.ts";
 import { cliToolTimeoutSec } from "./mcp.ts";
 
@@ -950,8 +952,38 @@ describe("the Workspace's command limits, Terminals, previews and what it keeps 
     expect(stored("3000, http")).toBe("previewPorts: ports from 1 to 65535, not http");
     expect(stored("70000")).toBe("previewPorts: ports from 1 to 65535, not 70000");
     expect(stored(5173)).toBe("previewPorts: a list of ports, or none");
-    // A stored list that no longer fits (a reserved port) is read as the default: any port.
+    // A stored list that no longer fits keeps what still does: the Owner's narrowing holds (SPI-1390).
+    expect(resolveEnvironment({ revision: 1, settings: { previewPorts: [4200, 8080, 0, "x"] } }).previewPorts).toEqual([
+      4200,
+    ]);
+    const nine = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+    expect(resolveEnvironment({ revision: 1, settings: { previewPorts: nine } }).previewPorts).toEqual(
+      nine.slice(0, 8),
+    );
+    expect(fitPorts([4200, 8080, 4200, 17_781], MAX_PREVIEW_PORTS, RESERVED_CONTAINER_PORT_USES)).toEqual({
+      ports: [4200],
+      dropped: [8080, 17_781],
+    });
+    expect(fitPorts([3000, 4200], MAX_PREVIEW_PORTS, RESERVED_CONTAINER_PORT_USES)).toEqual({
+      ports: [3000, 4200],
+      dropped: [],
+    });
+    // One with nothing left reads as none, any port; the Environment logs what it dropped.
     expect(resolveEnvironment({ revision: 1, settings: { previewPorts: [8080] } }).previewPorts).toEqual([]);
+    expect(reservedPortSentence(8080)).toBe(
+      "Port 8080 is reserved by t3flare for computerd, its server that runs the Container's commands and serves its files.",
+    );
+    expect(reservedPortSentence(5173)).toBeUndefined();
+    expect([0, 1, 65_535, 65_536, 1.5, -1, "80", Number.NaN].map(isPort)).toEqual([
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+    ]);
   });
 
   it("each states its consequence and when it applies", () => {

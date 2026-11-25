@@ -31,6 +31,8 @@ import {
   resolveEnvironment,
   type ResolvedEnvironment,
   resolveHarness,
+  ENVIRONMENT_SETTINGS,
+  fitPorts,
   type ResolvedHarness,
   settingsServerLimitsOf,
 } from "@t3flare/harness-registry";
@@ -183,6 +185,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
   #idleTimer: ReturnType<typeof setInterval> | undefined;
   #lastBoot: BootReport | undefined;
   #constructedAt = Date.now();
+  /** The stored `previewPorts` whose dropped ports were last logged, so each such list is named once (SPI-1390). */
+  #previewPortsLogged: string | undefined;
   #github: GitHubTokens | undefined;
   /**
    * Step 3 (review C2): delegated tasks' questions a restart cut, raised again once t3 takes commands after this boot.
@@ -261,7 +265,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       cloneMs: () => this.#environmentNow().cloneMinutes * 60_000,
       checkpointMs: () => this.#environmentNow().checkpointMinutes * 60_000,
       // SPI-1364: read at each preview browser's acquisition and URL translation, and at each routed command.
-      previewPorts: () => this.#environmentNow().previewPorts,
+      previewPorts: () => this.#previewPortsNow(),
       // Read at each CLI spawn (SPI-1389): the process keeps it, and its MCP tool timeout is made from it.
       parkAfterMs: () => parkAfterMsOf(this.#environmentNow()),
       parked,
@@ -1311,6 +1315,22 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
   /** The Environment settings as stored now (SPI-1366): the Sleep and wake settings read at each use. */
   #environmentNow(): ResolvedEnvironment {
     return resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment());
+  }
+
+  /**
+   * The Owner's preview ports now (SPI-1390). A stored list that no longer fits keeps the ports that still do
+   * (`resolveEnvironment`), and the ports it lost are named once in a log line.
+   */
+  #previewPortsNow(): ReadonlyArray<number> {
+    const stored = harnessStore(this.ctx.storage.kv).loadEnvironment().settings.previewPorts;
+    const { schema } = ENVIRONMENT_SETTINGS.previewPorts;
+    const { ports, dropped } = fitPorts(stored, schema.maxCount, schema.reserved);
+    const key = JSON.stringify(stored ?? null);
+    if (dropped.length > 0 && this.#previewPortsLogged !== key) {
+      this.#previewPortsLogged = key;
+      console.warn(JSON.stringify({ t3flare: "preview-ports-dropped", dropped, kept: ports }));
+    }
+    return this.#environmentNow().previewPorts;
   }
 
   /** The idle delay: a test's or the acceptance stage's `T3FLARE_IDLE_AFTER_MS`, else the setting (SPI-1366). */

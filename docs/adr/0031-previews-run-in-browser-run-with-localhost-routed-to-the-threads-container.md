@@ -66,7 +66,8 @@ Advanced list: empty, the default, means any port. A list allows only its ports,
 So a browser routes at most eight ports, fixed when it starts (`previewRoutes`, `apps/environment/src/preview/previewRoutes.ts`).
 With the Owner's list, it routes that list. Otherwise, in order, it routes:
 
-1. the port a page asked for, if a restart is starting it;
+1. the ports pages asked for while a restart was under way (at most eight; past that, a page is told its port was not
+   among them);
 2. the ports listening in the Container now, as reachable (not bound to loopback alone, not reserved);
 3. its last routes;
 4. the dev servers' usual ports (3000, 3001, 4173, 4321, 5173, 5174, 8000, 8787) in the slots left.
@@ -102,6 +103,8 @@ Consequences:
   old bound sets the list.
 - **A restart closes the Workspace browser's tabs.** It happens only for a port the browser does not route, so when a
   dev server starts after the browser did, on a port outside the usual ones.
+- **An agent can restart the browser at will.** Its `preview_navigate` to an unrouted port restarts the Workspace's
+  preview browser, and each restart closes the Owner's tabs there too.
 - **Eight at a time.** When more than eight ports are candidates, those last in the order above are not routed, and
   opening one restarts the browser again. That is the Cloudflare-forced limit, named in the restart's message.
   Engineering it away (a CDP `Fetch` interception in place of `outboundByHost`) is a follow-up.

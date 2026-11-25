@@ -5,7 +5,7 @@ import type { BrowserRun, Fetcher } from "@cloudflare/workers-types/index.ts";
 export type BrowserRunBinding = BrowserRun;
 export type BrowserRunFetcher = Fetcher;
 
-import { RESERVED_CONTAINER_PORTS } from "@t3flare/harness-registry";
+import { isPort, RESERVED_CONTAINER_PORTS } from "@t3flare/harness-registry";
 
 export { CONTAINER_PREVIEW_DOMAIN, containerPreviewHost } from "@t3flare/workspace-client";
 
@@ -18,12 +18,7 @@ const CONTAINER_PREVIEW_HOST = /^(\d{1,5})\.t3flare\.internal$/;
  */
 export const containerPreviewPortOf = (url: URL): number | undefined => {
   const port = Number(CONTAINER_PREVIEW_HOST.exec(url.hostname)?.[1]);
-  return Number.isInteger(port) &&
-    port >= 1 &&
-    port <= 65_535 &&
-    !RESERVED_CONTAINER_PORTS.includes(port) &&
-    url.port === "" &&
-    url.protocol === "http:"
+  return isPort(port) && !RESERVED_CONTAINER_PORTS.includes(port) && url.port === "" && url.protocol === "http:"
     ? port
     : undefined;
 };

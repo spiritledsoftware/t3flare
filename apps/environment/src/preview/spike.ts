@@ -51,7 +51,7 @@ const step = async (lines: Array<Line>, name: string, run: () => Promise<unknown
 
 const routes = (workspace: string) => {
   const entry = environmentServices().containerPreviews(workspace);
-  const ports = previewRoutes({ allowlist: previewPortsNow(), wanted: undefined, listening: [], previous: [] });
+  const ports = previewRoutes({ allowlist: previewPortsNow(), wanted: [], listening: [], previous: [] });
   return Object.fromEntries(ports.map((port) => [containerPreviewHost(port), entry]));
 };
 

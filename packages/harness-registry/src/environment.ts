@@ -7,7 +7,13 @@
 // One schema (`ENVIRONMENT_SETTINGS`), one resolve (`resolveEnvironment`), one change (`applyEnvironmentChange`): a later
 // setting (the Global mise config, SPI-1150; Variables, SPI-1152) is one entry in `ENVIRONMENT_SETTINGS`. The resolved
 // type, the resolve, the validation and the panel's section all follow from it.
-import { type EnvironmentSettingEntry, type EnvironmentValue, fieldProblem, normalizeField } from "./fields.ts";
+import {
+  type EnvironmentSettingEntry,
+  type EnvironmentValue,
+  fieldProblem,
+  fitPorts,
+  normalizeField,
+} from "./fields.ts";
 import { DO_VALUE_BYTES, storedValueProblem } from "./storedValue.ts";
 import { fitVariables, MAX_ENV_STRING_BYTES, MAX_VARIABLES_BYTES, type Variable } from "./variables.ts";
 
@@ -260,6 +266,12 @@ export const RESERVED_CONTAINER_PORTS: ReadonlyArray<number> = Object.keys(RESER
 export const reservedPortMessage = (port: number): string | undefined => {
   const use = RESERVED_CONTAINER_PORT_USES[port];
   return use === undefined ? undefined : `port ${port} is reserved by t3flare for ${use}`;
+};
+
+/** `reservedPortMessage` as a sentence of its own, for a page: "Port 8080 is reserved by t3flare for computerd, …." */
+export const reservedPortSentence = (port: number): string | undefined => {
+  const message = reservedPortMessage(port);
+  return message === undefined ? undefined : `P${message.slice(1)}.`;
 };
 
 /**
@@ -1300,6 +1312,9 @@ export const resolveEnvironment = (stored: {
     const schema = settingOf(key).schema;
     // Variables: one a later rule refuses is dropped alone, never the whole set (ADR-0032's Variables refinement).
     if (schema.type === "variables") resolved[key] = fitVariables(value);
+    // An opt-in port list that no longer fits keeps what still does (SPI-1390): never wider than the Owner set it.
+    else if (schema.type === "ports" && value !== undefined && !fitsEnvironmentSetting(key, value))
+      resolved[key] = fitPorts(value, schema.maxCount, schema.reserved).ports;
     else resolved[key] = value !== undefined && fitsEnvironmentSetting(key, value) ? value : schema.default;
   }
   // The Sweep's switch, folded into the Grace (SPI-1387): purging turned off reads as a Grace of 0, never, until the

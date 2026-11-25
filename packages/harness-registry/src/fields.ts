@@ -203,6 +203,27 @@ const normalizePorts = (value: unknown): unknown => {
   return [...new Set(read as ReadonlyArray<number>)].sort((a, b) => a - b);
 };
 
+/** Whether `port` is a TCP port: a whole number from 1 to 65535. */
+export const isPort = (port: unknown): boolean =>
+  typeof port === "number" && Number.isInteger(port) && port >= 1 && port <= 65_535;
+
+/**
+ * A stored ports list that no longer fits as much of it as still does (SPI-1390): its ports, each once, ascending, without
+ * one that is no port or is `reserved` now, at most `maxCount`; `dropped`, the ports left out. Never wider than stored.
+ */
+export const fitPorts = (
+  value: unknown,
+  maxCount: number,
+  reserved: Readonly<Record<number, string>>,
+): { readonly ports: ReadonlyArray<number>; readonly dropped: ReadonlyArray<unknown> } => {
+  if (!Array.isArray(value)) return { ports: [], dropped: [] };
+  const kept = [...new Set((value as ReadonlyArray<unknown>).filter(isPort).map(Number))]
+    .filter((port) => reserved[port] === undefined)
+    .sort((a, b) => a - b);
+  const ports = kept.slice(0, maxCount);
+  return { ports, dropped: (value as ReadonlyArray<unknown>).filter((port) => !ports.includes(port as number)) };
+};
+
 /** Why `value` is not a list of 1 to `maxCount` ports (0 too when `off`), none of `reserved`, or undefined. */
 const portsProblem = (
   value: unknown,
@@ -213,10 +234,9 @@ const portsProblem = (
   if (!Array.isArray(value)) return off ? "a list of ports, or none" : "a list of at least one port";
   if (value.length === 0) return off ? undefined : "a list of at least one port";
   for (const port of value as ReadonlyArray<unknown>) {
-    if (typeof port !== "number" || !Number.isInteger(port) || port < 1 || port > 65_535)
-      return `ports from 1 to 65535, not ${String(port)}`;
-    const use = reserved[port];
-    if (use !== undefined) return `port ${port} is reserved by t3flare for ${use}`;
+    if (!isPort(port)) return `ports from 1 to 65535, not ${String(port)}`;
+    const use = reserved[Number(port)];
+    if (use !== undefined) return `port ${Number(port)} is reserved by t3flare for ${use}`;
   }
   if (new Set(value).size !== value.length) return "each port once";
   return value.length > maxCount ? `at most ${maxCount} ports` : undefined;
