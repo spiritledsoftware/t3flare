@@ -8,6 +8,7 @@ import {
   type AuthorizationServerMetadata,
   discoverOAuthServerInfo,
   exchangeAuthorizationCode,
+  isTimeoutError,
   type OAuthClientInformationMixed,
   type OAuthTokens,
   refreshAuthorization,
@@ -54,24 +55,19 @@ export interface TokenInput {
 }
 
 /**
- * A method's answer. A failure that was a request's time limit (`AbortSignal.timeout`'s `TimeoutError`, as thrown or as
- * the cause of what the SDK threw) says so with `timedOut` (SPI-1432): this Worker has no harness registry, so the
- * Environment, which passed the limit, names it and its value.
+ * A method's answer. A failure that was a request's time limit (`AbortSignal.timeout`'s `TimeoutError`, as thrown or in
+ * the `cause` chain of what the SDK threw: `isTimeoutError`) says so with `timedOut` (SPI-1432): this Worker has no
+ * harness registry, so the Environment, which passed the limit, names it and its value. The Environment's `Answer`
+ * repeats this shape: it binds this entrypoint over RPC and does not import the Worker.
  */
 export type OAuthAnswer<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly error: string; readonly timedOut?: true };
 
-const timedOut = (error: unknown): boolean => {
-  for (let link = error, depth = 0; link instanceof Error && depth < 8; link = link.cause, depth += 1)
-    if (link.name === "TimeoutError") return true;
-  return false;
-};
-
 const failed = (error: unknown): { readonly ok: false; readonly error: string; readonly timedOut?: true } => ({
   ok: false,
   error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
-  ...(timedOut(error) ? { timedOut: true as const } : {}),
+  ...(isTimeoutError(error) ? { timedOut: true as const } : {}),
 });
 
 type Fetcher = (input: string | URL, init?: RequestInit) => Promise<Response>;

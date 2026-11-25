@@ -12,9 +12,23 @@
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import type { AuthorizationServerMetadata } from "@earendil-works/pi-mcp/oauth";
-import { basicAuthorization, boundedText, OAUTH_FETCH_TIMEOUT_MS, type OAuthFetch } from "./oauth-http.ts";
+import {
+  basicAuthorization,
+  boundedText,
+  isTimeoutError,
+  OAUTH_FETCH_TIMEOUT_MS,
+  type OAuthFetch,
+  outsideRequestTimedOut,
+} from "./oauth-http.ts";
 
-export { boundedText, MAX_METADATA_BYTES, OAUTH_FETCH_TIMEOUT_MS, type OAuthFetch, scrubbed } from "./oauth-http.ts";
+export {
+  boundedText,
+  isTimeoutError,
+  MAX_METADATA_BYTES,
+  OAUTH_FETCH_TIMEOUT_MS,
+  type OAuthFetch,
+  scrubbed,
+} from "./oauth-http.ts";
 
 export * from "./client-assertion.ts";
 
@@ -244,12 +258,12 @@ const revoke = async (
 
     return { token: kind, status: "failed", reason: await refusalReason(response) };
   } catch (error) {
-    const timedOut = error instanceof Error && error.name === "TimeoutError";
+    const timedOut = isTimeoutError(error);
 
     return {
       token: kind,
       status: "failed",
-      reason: timedOut ? `timed out after ${timeoutMs / 1000} s` : "network error",
+      reason: timedOut ? `the revocation endpoint ${outsideRequestTimedOut(timeoutMs)}` : "network error",
     };
   }
 };

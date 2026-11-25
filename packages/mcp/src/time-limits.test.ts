@@ -51,7 +51,7 @@ describe("a timeout names its limit", () => {
       }),
     );
 
-    expect(outcome).toEqual(failedWith(TimedOut, { limit: "list", ms: 300 }));
+    expect(outcome).toEqual(failedWith(TimedOut, { limit: "list", ms: 300, listed: "tools" }));
   }, 10_000);
 
   it("the call's, when a tool call outlives it", async () => {
@@ -102,8 +102,8 @@ describe("a timeout names its limit", () => {
     expect(decode({ _tag: "TimedOut", message: "The server did not answer in time" })).toEqual(
       TimedOut.make({ message: "The server did not answer in time" }),
     );
-    expect(decode({ _tag: "TimedOut", message: "Late", limit: "list", ms: 120_000 })).toEqual(
-      TimedOut.make({ message: "Late", limit: "list", ms: 120_000 }),
+    expect(decode({ _tag: "TimedOut", message: "Late", limit: "list", ms: 120_000, listed: "tools" })).toEqual(
+      TimedOut.make({ message: "Late", limit: "list", ms: 120_000, listed: "tools" }),
     );
   });
 });

@@ -99,8 +99,15 @@ describe("an MCP time limit, hit, names itself (SPI-1432)", () => {
   it("a tool call past the off deadline while the call time limit is off: that deadline, which no setting raises", async () => {
     const host = setup({ error: timedOut({ limit: "call", ms: OFF_DEADLINE_MS }), callTimeoutMs: 0 });
     expect(await call(host)).toMatchObject({
-      message: `The MCP call failed: fs did not answer in 604,800 s, the most t3flare lets an MCP call run while the MCP call time limit is off. ${MAY_HAVE_RUN}`,
+      message: `The MCP call failed: fs did not answer in a week (604,800 s), the most t3flare lets an MCP call run while the MCP call time limit (${CALL_PLACE}) is off. ${MAY_HAVE_RUN}`,
     });
+  });
+
+  it("a call time limit set to its maximum, a week, is set, not off: a call and a read name it with where to change it", async () => {
+    const host = setup({ error: timedOut({ limit: "call", ms: OFF_DEADLINE_MS }), callTimeoutMs: OFF_DEADLINE_MS });
+    const set = `fs did not answer within its 604,800-second time limit; change it under ${CALL_PLACE}`;
+    expect(await call(host)).toMatchObject({ message: `The MCP call failed: ${set}. ${MAY_HAVE_RUN}` });
+    expect(await read(host)).toEqual({ kind: "refused", message: `The read failed: ${set}.` });
   });
 
   it("a call whose connection outlives the connect time limit names that limit", async () => {
@@ -137,7 +144,13 @@ describe("an MCP time limit, hit, names itself (SPI-1432)", () => {
 
   it("a listing past the listing time limit stores an inventory error that names it", async () => {
     const walk = await setup({
-      discoverError: { _tag: "TimedOut", message: "Listing tools took over 120 s", limit: "list", ms: 120_000 },
+      discoverError: {
+        _tag: "TimedOut",
+        message: "Listing tools took over 120 s",
+        limit: "list",
+        ms: 120_000,
+        listed: "tools",
+      },
     }).list("fs");
     expect(walk).toMatchObject({
       error:

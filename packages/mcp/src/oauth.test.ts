@@ -15,6 +15,7 @@ import {
   revocationEndpoint,
   revokeTokens,
   sameIssuer,
+  isTimeoutError,
 } from "./oauth.ts";
 
 const REFRESH = "refresh-token-9f2c";
@@ -207,7 +208,13 @@ describe("revokeTokens", () => {
     });
 
     // The reason names the time limit's value (SPI-1432).
-    expect(timedOut).toEqual([{ token: "refresh_token", status: "failed", reason: "timed out after 30 s" }]);
+    expect(timedOut).toEqual([
+      {
+        token: "refresh_token",
+        status: "failed",
+        reason: "the revocation endpoint did not answer in 30 s, t3flare's fixed outside request time limit",
+      },
+    ]);
   });
 
   it("never lets a token reach a result, whatever the server says", async () => {
@@ -285,5 +292,22 @@ describe("boundedText", () => {
     const declared = new Response("hi", { headers: { "content-length": "99" } });
 
     expect(await boundedText(declared, 5)).toBeUndefined();
+  });
+});
+
+describe("isTimeoutError (SPI-1432)", () => {
+  it("finds a TimeoutError by name, thrown or in the cause chain, Error or not", () => {
+    expect(isTimeoutError(new DOMException("late", "TimeoutError"))).toBe(true);
+    // workerd's DOMException need not be an Error: the name alone decides.
+    expect(isTimeoutError({ name: "TimeoutError" })).toBe(true);
+    expect(isTimeoutError(new Error("wrapped", { cause: { cause: { name: "TimeoutError" } } }))).toBe(true);
+    expect(isTimeoutError(new TypeError("fetch failed"))).toBe(false);
+    expect(isTimeoutError("TimeoutError")).toBe(false);
+  });
+
+  it("stops on a cause chain that loops", () => {
+    const looped: { name: string; cause?: unknown } = { name: "Error" };
+    looped.cause = looped;
+    expect(isTimeoutError(looped)).toBe(false);
   });
 });

@@ -210,11 +210,12 @@ describe("OAuth sign-ins (review M4)", () => {
 
   it("names the fixed outside request time limit and its value when a Worker request times out (SPI-1432)", async () => {
     const named = "the authorization server did not answer in 30 s, t3flare's fixed outside request time limit";
+    // A start's discovery reads the MCP server's resource metadata too, so it names the step, not a host.
     expect(
       await setup({ requestMs: () => 30_000, timesOut: ["begin"] }).oauth.begin("srv", "https://srv.example/mcp"),
     ).toEqual({
       ok: false,
-      error: named,
+      error: "a discovery or registration request did not answer in 30 s, t3flare's fixed outside request time limit",
     });
 
     const h = setup({ expiresIn: 120, requestMs: () => 30_000, timesOut: ["exchange"] });

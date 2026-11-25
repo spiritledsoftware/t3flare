@@ -502,11 +502,23 @@ export const isTimeout = (error: unknown): boolean =>
   typeof error === "object" && error !== null && (error as { readonly name?: unknown }).name === "TimeoutError";
 
 /**
+ * A wait that was not answered, to the end of its sentence (ADR-0049 §4, SPI-1432): "did not answer in 270 s, `what`",
+ * `what` naming the limit that ended it. `span` names the wait in words before its seconds: "a week (604,800 s)".
+ */
+export const didNotAnswerIn = (ms: number, what: string, span?: string): string => {
+  const seconds = `${(ms / 1000).toLocaleString("en-US")} s`;
+  return `did not answer in ${span === undefined ? seconds : `${span} (${seconds})`}, ${what}`;
+};
+
+/** A fixed limit of t3flare's own, hit: "did not answer in 30 s, t3flare's fixed outside request time limit". */
+export const fixedLimitHit = (ms: number, limit: string): string => didNotAnswerIn(ms, `t3flare's fixed ${limit}`);
+
+/**
  * The outside request time limit, hit (ADR-0049 §4): "did not answer in 30 s, t3flare's fixed outside request time
  * limit", for a request that waited `ms`.
  */
 export const outsideRequestTimedOut = (ms: number = OUTSIDE_REQUEST_MS): string =>
-  `did not answer in ${(ms / 1000).toLocaleString("en-US")} s, t3flare's fixed outside request time limit`;
+  fixedLimitHit(ms, "outside request time limit");
 
 /**
  * A clause for a message that says an outside request failed: " (it did not answer in 30 s, …)" when `error` is its

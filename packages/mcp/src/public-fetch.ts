@@ -11,7 +11,7 @@
 // @effect-diagnostics asyncFunction:off globalFetch:off missingPipeableSignature:off preferEffectArray:off -- the read is a Promise over `fetch`, its Schemas plain values.
 import * as Record from "effect/Record";
 import * as Schema from "effect/Schema";
-import { boundedText, MAX_METADATA_BYTES, OAUTH_FETCH_TIMEOUT_MS } from "./oauth-http.ts";
+import { boundedText, MAX_METADATA_BYTES, OAUTH_FETCH_TIMEOUT_MS, outsideRequestTimedOut } from "./oauth-http.ts";
 
 /** The request headers a public read passes on: content negotiation alone, never a credential or a cookie. */
 export const PUBLIC_FETCH_HEADERS: ReadonlyArray<string> = ["accept", "mcp-protocol-version"];
@@ -131,6 +131,6 @@ export const fetchPublic = async (
 
     return { status: "fetched", code: response.status, headers, body };
   } catch {
-    return refused(signal.aborted ? `The request timed out after ${timeoutMs / 1000} s` : "The request failed");
+    return refused(signal.aborted ? `The server ${outsideRequestTimedOut(timeoutMs)}` : "The request failed");
   }
 };

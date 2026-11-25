@@ -814,20 +814,27 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
     ties,
   );
 
+  /**
+   * `cause` as a `Failure`: `mayHaveRun` (a `tools/call` was sent), `tasksDeclared` (the request declared the tasks
+   * extension) and `timeLimit` (the limit it was sent with, which a timeout names; a request's other than a call when
+   * absent).
+   */
   const failure = (
     cause: unknown,
-    mayHaveRun = false,
-    tasksDeclared = false,
-    timeLimit: McpTimeLimitHit = limits.request,
+    options: {
+      readonly mayHaveRun?: boolean;
+      readonly tasksDeclared?: boolean;
+      readonly timeLimit?: McpTimeLimitHit | undefined;
+    } = {},
   ) =>
     classify(cause, {
-      mayHaveRun,
+      mayHaveRun: options.mayHaveRun ?? false,
       tokenSent: auth.tokenSent(),
       challenge,
       verdicts,
       serverName: target.name,
-      tasksDeclared,
-      timeLimit,
+      tasksDeclared: options.tasksDeclared ?? false,
+      timeLimit: options.timeLimit ?? limits.request,
     });
 
   /** Notifications still being sent, which a close would abort: a Legacy `notifications/cancelled` above all. */
@@ -1175,7 +1182,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
 
           return client.connect(transport, options);
         },
-        catch: (cause) => failure(cause, false, false, limits.connect),
+        catch: (cause) => failure(cause, { timeLimit: limits.connect }),
       }).pipe(Effect.tapError(() => closeClient(client)));
 
       return { client, transport };
@@ -1334,7 +1341,8 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
 
       return Effect.tryPromise({
         try: (signal) => send(client, signal),
-        catch: (cause) => failure(cause, mayHaveRun, policy.declared?.() ?? false, policy.limit),
+        catch: (cause) =>
+          failure(cause, { mayHaveRun, tasksDeclared: policy.declared?.() ?? false, timeLimit: policy.limit }),
       });
     });
 
@@ -1411,7 +1419,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
           // A page has no deadline of its own: the walk's, below, ends a hung one.
           (client, signal) => listPage(client, params, { signal, timeout: walkMs }),
           false,
-          { limit: limits.list },
+          { limit: { ...limits.list, listed: kind } },
         );
 
         hints ??= Option.getOrUndefined(decodeCacheHints(page.result));
@@ -1440,7 +1448,9 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
       Effect.timeoutOrElse({
         duration: Duration.millis(walkMs),
         orElse: () =>
-          Effect.fail(TimedOut.make({ message: `Listing ${kind} took over ${walkMs / 1000} s`, ...limits.list })),
+          Effect.fail(
+            TimedOut.make({ message: `Listing ${kind} took over ${walkMs / 1000} s`, ...limits.list, listed: kind }),
+          ),
       }),
     );
 

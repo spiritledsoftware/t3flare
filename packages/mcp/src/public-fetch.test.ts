@@ -133,7 +133,7 @@ describe("fetchPublic", () => {
     expect(await fetchPublic({ url: URL_OF, timeoutMs: 10 }, fetch)).toEqual({
       status: "refused",
       // The value of the limit it gave up at (SPI-1432).
-      message: "The request timed out after 0.01 s",
+      message: "The server did not answer in 0.01 s, t3flare's fixed outside request time limit",
     });
   });
 });

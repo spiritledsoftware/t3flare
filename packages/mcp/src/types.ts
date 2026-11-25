@@ -334,20 +334,26 @@ export class TooLarge extends Schema.TaggedError<TooLarge, { readonly brand: uni
  */
 export const McpTimeLimit = Schema.Literals(["call", "request", "connect", "list"]);
 
-/** A time limit as a request carries it: which, and its value in ms as the engine applied it. */
+/**
+ * A time limit as a request carries it: which, its value in ms as the engine applied it, and for a listing what it
+ * listed (`tools`, `prompts`, `resources`, `resources/templates`).
+ */
 export interface McpTimeLimitHit {
   readonly limit: typeof McpTimeLimit.Type;
   readonly ms: number;
+  readonly listed?: string;
 }
 
 /**
  * No answer within the request's timeout: with which limit it was and its value (`limit`, `ms`) where the engine set it,
- * so the host can name it. Both optional, so a host and an engine of different versions still decode each other's.
+ * and for a listing what it listed (`listed`), so the host can name it. All optional, so a host and an engine of
+ * different versions still decode each other's.
  */
 export class TimedOut extends Schema.TaggedError<TimedOut, { readonly brand: unique symbol }>()("TimedOut", {
   message: Schema.String,
   limit: Schema.optionalKey(McpTimeLimit),
   ms: Schema.optionalKey(Schema.Int),
+  listed: Schema.optionalKey(Schema.String),
 }) {}
 
 /**
