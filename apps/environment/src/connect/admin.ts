@@ -15,6 +15,7 @@
 //
 // Mutations are owner-only on prod (review finding 6): the Worker says which caller it admitted, and only the owner's
 // own Access identity passes, never the stage's service token, which CI also holds.
+import { isTimeout, outsideRequestTimedOut } from "@t3flare/harness-registry";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import type * as CliTokenManager from "t3/src/cloud/CliTokenManager.ts";
@@ -71,25 +72,27 @@ export const adminDeadline = (request: Request, timeoutMs: number): AbortSignal 
 
 /**
  * The probe, each of its fetches bounded by a `deadline()` of its own (`adminDeadline`): a relay that never answers
- * leaves the device authorization its whole time limit (SPI-1379).
+ * leaves the device authorization its whole time limit (SPI-1379). `deadlineMs` is that time limit, named by a fetch
+ * that runs out of it (SPI-1434).
  */
-export const probe = Effect.fn("probe")(function* (deadline: () => AbortSignal) {
+export const probe = Effect.fn("probe")(function* (deadline: () => AbortSignal, deadlineMs: number) {
   const relayUrl = yield* relayUrlConfig;
   const oauth = yield* cloudCliOAuthConfig;
   return yield* Effect.promise(async () => {
-    const timed = async (run: () => Promise<Response>) => {
+    const timed = async (what: string, run: () => Promise<Response>) => {
       const started = Date.now();
       try {
         const response = await run();
         const body = await response.text();
         return { status: response.status, ms: Date.now() - started, body };
       } catch (error) {
-        return { status: 0, ms: Date.now() - started, body: String(error) };
+        const body = isTimeout(error) ? `${what} ${outsideRequestTimedOut(deadlineMs)}` : String(error);
+        return { status: 0, ms: Date.now() - started, body };
       }
     };
-    const health = await timed(() => fetch(`${relayUrl}/health`, { signal: deadline() }));
+    const health = await timed("the relay", () => fetch(`${relayUrl}/health`, { signal: deadline() }));
     // A device authorization started and dropped: nobody sees or approves its code.
-    const device = await timed(() =>
+    const device = await timed("the device authorization", () =>
       fetch(oauth.deviceAuthorizationEndpoint, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -108,7 +111,8 @@ export const probe = Effect.fn("probe")(function* (deadline: () => AbortSignal) 
         status: device.status,
         ms: device.ms,
         fields: deviceFields,
-        error: device.status >= 400 ? device.body : null,
+        // Its refusal, or why it got no answer.
+        error: device.status === 0 || device.status >= 400 ? device.body : null,
       },
     };
   });
@@ -164,8 +168,10 @@ export const handleConnectAdmin = async (request: Request, environment: Environm
     case "POST /_t3flare/connect/fault/relay-unlink":
       if (!environment.connectServiceTokenAllowed) return json({ error: "stages only" }, 404);
       return answer((service) => Effect.map(service.relayUnlinkOnly, (relay) => ({ relay })));
-    case "POST /_t3flare/connect/probe":
-      return json(await runtime.run(probe(() => adminDeadline(request, environment.outsideRequestMs()))));
+    case "POST /_t3flare/connect/probe": {
+      const deadlineMs = environment.outsideRequestMs();
+      return json(await runtime.run(probe(() => adminDeadline(request, deadlineMs), deadlineMs)));
+    }
     case "POST /_t3flare/check/connect-refusals": {
       // Past the DO's own 404 (environmentDO.ts): what t3's app answers, which must be a refusal, not a credential.
       const results: Record<string, { status: number; body: string }> = {};

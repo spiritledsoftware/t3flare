@@ -771,4 +771,115 @@ describe("GitHubApp", () => {
       "GitHub did not answer in 0.02 s, t3flare's fixed outside request time limit",
     );
   });
+
+  describe("says when it asks GitHub again after a refusal (SPI-1434)", () => {
+    const NOON = Date.UTC(2026, 10, 25, 12);
+    /** An app at `now()` over a GitHub that answers every request with `answer()`, and the requests it made. */
+    const refusedApp = (now: () => number, answer: () => Response, retryMs?: () => number) => {
+      const asked: string[] = [];
+      const app = new GitHubApp({
+        appId: "1",
+        privateKey: KEYS.privateKey,
+        fetch: (url) => {
+          asked.push(url);
+          return Promise.resolve(answer());
+        },
+        now,
+        retryMs,
+      });
+      return { app, asked };
+    };
+    const rateLimited = (headers: Record<string, string>) => () =>
+      Response.json({ message: "API rate limit exceeded" }, { status: 403, headers });
+    const LIMITED = "GitHub refused the GitHub App's request (403: API rate limit exceeded)";
+
+    it("at the time GitHub named in retry-after, the same when told again from its cache", async () => {
+      let now = NOON;
+      const { app, asked } = refusedApp(() => now, rateLimited({ "retry-after": "300" }));
+      const said = `${LIMITED}; t3flare asks GitHub again at 2026-11-25 12:05 UTC, the time GitHub named.`;
+
+      await expect(app.token()).rejects.toThrow(said);
+      const before = asked.length;
+      now += 60_000;
+      await expect(app.token()).rejects.toThrow(said);
+      expect(asked).toHaveLength(before);
+      expect(await app.token().catch((error: unknown) => error)).toMatchObject({
+        status: 403,
+        retryAt: NOON + 300_000,
+      });
+    });
+
+    it("at an exhausted rate limit's reset", async () => {
+      const reset = (NOON + 30 * MINUTE + 15_000) / 1000;
+      const { app } = refusedApp(
+        () => NOON,
+        rateLimited({ "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(reset) }),
+      );
+
+      await expect(app.token()).rejects.toThrow(
+        `${LIMITED}; t3flare asks GitHub again at 2026-11-25 12:30:15 UTC, the time GitHub named.`,
+      );
+    });
+
+    it("after its fixed back-off when GitHub named no time: in the wait first, at its end when told again", async () => {
+      let now = NOON;
+      const { app, asked } = refusedApp(
+        () => now,
+        () => Response.json({ message: "Server Error" }, { status: 500 }),
+      );
+      const refused = "GitHub refused the GitHub App's request (500: Server Error)";
+      const wait = "its fixed GitHub retry wait (1 minute, doubling to 15 minutes)";
+
+      await expect(app.token()).rejects.toThrow(`${refused}; t3flare asks GitHub again in 1 minute, ${wait}.`);
+      now += 30_000;
+      const cached = await app.token().catch((error: unknown) => error);
+      expect(cached).toBeInstanceOf(GitHubRefused);
+      expect(cached).toMatchObject({
+        status: 500,
+        retryAt: undefined,
+        message: `${refused}; t3flare asks GitHub again at 2026-11-25 12:01 UTC, when ${wait} ends.`,
+      });
+      // The wait doubles with the next failure in a row.
+      now = NOON + MINUTE;
+      const before = asked.length;
+      await expect(app.token()).rejects.toThrow(`${refused}; t3flare asks GitHub again in 2 minutes, ${wait}.`);
+      expect(asked.length).toBeGreaterThan(before);
+      await expect(app.token()).rejects.toThrow(
+        `${refused}; t3flare asks GitHub again at 2026-11-25 12:03 UTC, when ${wait} ends.`,
+      );
+    });
+
+    it("keeps a 401's credential advice before when it asks again", async () => {
+      const { app } = refusedApp(
+        () => NOON,
+        () => Response.json({ message: "Bad credentials" }, { status: 401 }),
+      );
+
+      await expect(app.token()).rejects.toThrow(
+        "GitHub refused the GitHub App (401: Bad credentials): check T3FLARE_GITHUB_APP_ID and T3FLARE_GITHUB_APP_PRIVATE_KEY; t3flare asks GitHub again in 1 minute, its fixed GitHub retry wait (1 minute, doubling to 15 minutes).",
+      );
+    });
+
+    it("agrees with forget: a time GitHub named still stands after it, a back-off does not", async () => {
+      const { app, asked } = refusedApp(() => NOON, rateLimited({ "retry-after": "300" }));
+
+      // An account named: the installations' list is what fails, which `forget` forgets.
+      await expect(app.token("ian-pascoe")).rejects.toThrow("again at 2026-11-25 12:05 UTC, the time GitHub named.");
+      app.forget("ian-pascoe");
+      const before = asked.length;
+      await expect(app.token("ian-pascoe")).rejects.toThrow("again at 2026-11-25 12:05 UTC, the time GitHub named.");
+      expect(asked).toHaveLength(before);
+
+      const backedOff = refusedApp(
+        () => NOON,
+        () => Response.json({ message: "Server Error" }, { status: 500 }),
+      );
+      await expect(backedOff.app.token("ian-pascoe")).rejects.toThrow("again in 1 minute");
+      backedOff.app.forget("ian-pascoe");
+      const asking = backedOff.asked.length;
+      // Asked again at once, its back-off started over.
+      await expect(backedOff.app.token("ian-pascoe")).rejects.toThrow("again in 1 minute,");
+      expect(backedOff.asked.length).toBeGreaterThan(asking);
+    });
+  });
 });

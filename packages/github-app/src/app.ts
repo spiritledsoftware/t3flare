@@ -4,6 +4,7 @@
 // @effect-diagnostics extendsNativeError:off -- WebCrypto and `fetch` are Promise APIs, over native arrays. `GitHubNotInstalled` and `GitHubRefused` are thrown from that Promise code, kept by `#once` and thrown again to every caller in its wait, and read with `instanceof` by the callers that act on them (the hooks client's codes): plain `Error`s, as every failure `#once` keeps is.
 
 import type { GitHubPermissions } from "./permissions.ts";
+import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
@@ -292,15 +293,38 @@ type Answer =
   | { readonly ok: true; readonly value: unknown; readonly next?: string | undefined }
   | { readonly ok: false; readonly status: number; readonly message: string; readonly retryAt?: number | undefined };
 
-/** What a refusal is told as, with when GitHub said to ask again. */
+/** `ms` since the epoch as GitHub's clock time: "2026-11-25 14:05 UTC", with its seconds when it has some. */
+const utcText = (ms: number): string => {
+  const iso = DateTime.formatIso(DateTime.makeUnsafe(ms));
+
+  return `${iso.slice(0, 10)} ${iso.slice(11, iso.slice(17, 19) === "00" ? 16 : 19)} UTC`;
+};
+
+/** A wait of `ms`, in whole minutes where it is some ("2 minutes"), else in seconds ("10 s"). */
+const waitText = (ms: number): string => {
+  const minutes = ms / 60_000;
+
+  return Number.isInteger(minutes)
+    ? `${minutes} minute${minutes === 1 ? "" : "s"}`
+    : `${(ms / 1000).toLocaleString("en-US")} s`;
+};
+
+/**
+ * What a refusal is told as (SPI-1434): why GitHub refused, then, when GitHub said to ask again, that time. A refusal
+ * it named no time for gets its back-off from `#once`, which alone knows it.
+ */
 const refusal = (status: number, said: string, retryAt?: number): GitHubRefused => {
   const why = said === "" ? `${status}` : `${status}: ${said}`;
+  const refused =
+    status === 401
+      ? `GitHub refused the GitHub App (${why}): check T3FLARE_GITHUB_APP_ID and T3FLARE_GITHUB_APP_PRIVATE_KEY`
+      : `GitHub refused the GitHub App's request (${why})`;
 
   return new GitHubRefused(
     status,
-    status === 401
-      ? `GitHub refused the GitHub App (${why}): check T3FLARE_GITHUB_APP_ID and T3FLARE_GITHUB_APP_PRIVATE_KEY`
-      : `GitHub refused the GitHub App's request (${why})`,
+    retryAt === undefined
+      ? refused
+      : `${refused}; t3flare asks GitHub again at ${utcText(retryAt)}, the time GitHub named.`,
     retryAt,
   );
 };
@@ -483,9 +507,22 @@ export class GitHubApp implements GitHubTokens {
             // GitHub's own time, when it named one, is kept whatever it is (SPI-1366): asking sooner meets the limit again.
             const named = error instanceof GitHubRefused ? error.retryAt : undefined;
 
-            this.#failed.set(key, { error, until: named ?? this.#options.now() + wait, count });
+            if (named !== undefined || !(error instanceof GitHubRefused)) {
+              this.#failed.set(key, { error, until: named ?? this.#options.now() + wait, count });
 
-            throw error;
+              throw error;
+            }
+
+            // A refusal says when it is asked again (SPI-1434): in the wait now, and at its end when told again from
+            // here, so the text does not go stale.
+            const until = this.#options.now() + wait;
+            const fixed = `its fixed GitHub retry wait (${waitText(first)}, doubling to ${waitText(first * RETRY_GROWTH)})`;
+            const said = (when: string) =>
+              new GitHubRefused(error.status, `${error.message}; t3flare asks GitHub again ${when}.`);
+
+            this.#failed.set(key, { error: said(`at ${utcText(until)}, when ${fixed} ends`), until, count });
+
+            throw said(`in ${waitText(wait)}, ${fixed}`);
           },
         )
         .finally(() => {
