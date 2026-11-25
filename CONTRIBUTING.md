@@ -64,8 +64,8 @@ failed, with its error, and list the tasks vp stopped because of it as stopped, 
 failing]` are t3's own, which the typecheck reports and passes.
 
 The check caps each of its Vitest runs at 2 workers, through Vitest's own `VITEST_MAX_WORKERS`: it starts them all at
-once, one per package with tests, beside the typechecks and lints. Set `VITEST_MAX_WORKERS` yourself to run it with another cap. A test file run
-alone keeps Vitest's default, one worker for each core less one.
+once, one per package with tests, beside the typechecks and lints. Set `VITEST_MAX_WORKERS` yourself to run it with
+another cap. A test file run alone keeps Vitest's default, one worker for each core less one.
 
 To check a change while you work, run only the checks it touches, from the root:
 
