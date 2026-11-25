@@ -190,16 +190,17 @@ export const purgeNow = async (
     );
     for (const thread of threads) taken.add(thread.threadId);
     const report = await deps.purge(row.id, threads);
+    // The Sessions it destroyed are recorded even when it failed, so the Sweep's retry of its `deleting` row does not
+    // destroy them again; that retry's `sweep.purge` entry counts them, from the row (SPI-1379, ADR-0044 §4).
+    for (const threadId of report.sessionsDestroyed) deps.sweptSessions?.add(threadId);
     if (!report.destroyed) {
-      // Its Sessions stay unrecorded: the retry of its `deleting` row destroys and counts them (ADR-0044 §4).
       failed = report;
       break;
     }
-    for (const threadId of report.sessionsDestroyed) deps.sweptSessions?.add(threadId);
     purged.push(report);
   }
   const ids = purged.map((report) => report.id);
-  const sessions = purged.reduce((sum, report) => sum + report.sessionsDestroyed.length, 0);
+  const sessions = purged.reduce((sum, report) => sum + report.sessions, 0);
   deps.audit(
     auditWorkspace({
       at: deps.now(),

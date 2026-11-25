@@ -291,9 +291,25 @@ describe("the publish-only link step against a fake relay", () => {
     );
     // A Request whose signal never aborts: as workerd hands one without `enable_request_signal`.
     const request = new Request("https://env.example/_t3flare/connect/probe", { method: "POST" });
-    const answer = await Effect.runPromise(probe(adminDeadline(request, 20)));
+    const answer = await Effect.runPromise(probe(() => adminDeadline(request, 20)));
     expect(answer.relay.status).toBe(0);
     expect(answer.deviceAuthorization.status).toBe(0);
+  });
+
+  it("gives the probe's device authorization its own deadline: a relay that never answers leaves it tried (SPI-1379)", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      if (init?.signal?.aborted === true) return Promise.reject(init.signal.reason);
+      // The probe fetches by URL string.
+      if (typeof input === "string" && input.endsWith("/health"))
+        return new Promise((_resolve, reject) =>
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
+        );
+      return Promise.resolve(Response.json({ device_code: "d", user_code: "u" }));
+    });
+    const request = new Request("https://env.example/_t3flare/connect/probe", { method: "POST" });
+    const answer = await Effect.runPromise(probe(() => adminDeadline(request, 20)));
+    expect(answer.relay.status).toBe(0);
+    expect(answer.deviceAuthorization).toMatchObject({ status: 200, fields: ["device_code", "user_code"] });
   });
 
   it("signs out: the relay's link, ours and the token go", async () => {

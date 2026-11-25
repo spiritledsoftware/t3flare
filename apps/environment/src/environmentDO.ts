@@ -1392,7 +1392,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
             actor: { caller: "sweep" },
             action: "sweep.purge",
             target: purged.id,
-            after: { purged: [purged.id], sessions: purged.sessionsDestroyed.length, why },
+            after: { purged: [purged.id], sessions: purged.sessions, why },
           }),
         ),
     );

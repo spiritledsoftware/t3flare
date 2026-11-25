@@ -69,8 +69,11 @@ const parseToken = (body: unknown): CliTokenManager.PersistedToken | undefined =
 export const adminDeadline = (request: Request, timeoutMs: number): AbortSignal =>
   AbortSignal.any([request.signal, AbortSignal.timeout(timeoutMs)]);
 
-/** The probe, bounded by `signal` (`adminDeadline`). */
-export const probe = Effect.fn("probe")(function* (signal: AbortSignal) {
+/**
+ * The probe, each of its fetches bounded by a `deadline()` of its own (`adminDeadline`): a relay that never answers
+ * leaves the device authorization its whole time limit (SPI-1379).
+ */
+export const probe = Effect.fn("probe")(function* (deadline: () => AbortSignal) {
   const relayUrl = yield* relayUrlConfig;
   const oauth = yield* cloudCliOAuthConfig;
   return yield* Effect.promise(async () => {
@@ -84,14 +87,14 @@ export const probe = Effect.fn("probe")(function* (signal: AbortSignal) {
         return { status: 0, ms: Date.now() - started, body: String(error) };
       }
     };
-    const health = await timed(() => fetch(`${relayUrl}/health`, { signal }));
+    const health = await timed(() => fetch(`${relayUrl}/health`, { signal: deadline() }));
     // A device authorization started and dropped: nobody sees or approves its code.
     const device = await timed(() =>
       fetch(oauth.deviceAuthorizationEndpoint, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ client_id: oauth.clientId, scope: oauth.scopes.join(" ") }),
-        signal,
+        signal: deadline(),
       }),
     );
     // Not a JSON object: the status says enough.
@@ -162,7 +165,7 @@ export const handleConnectAdmin = async (request: Request, environment: Environm
       if (!environment.connectServiceTokenAllowed) return json({ error: "stages only" }, 404);
       return answer((service) => Effect.map(service.relayUnlinkOnly, (relay) => ({ relay })));
     case "POST /_t3flare/connect/probe":
-      return json(await runtime.run(probe(adminDeadline(request, environment.outsideRequestMs()))));
+      return json(await runtime.run(probe(() => adminDeadline(request, environment.outsideRequestMs()))));
     case "POST /_t3flare/check/connect-refusals": {
       // Past the DO's own 404 (environmentDO.ts): what t3's app answers, which must be a refusal, not a credential.
       const results: Record<string, { status: number; body: string }> = {};

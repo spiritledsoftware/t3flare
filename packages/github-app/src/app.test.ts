@@ -114,6 +114,24 @@ const fakeGitHub = (options: {
   return { fetch, seen };
 };
 
+/**
+ * An app at the fixed time `now` over a GitHub whose installations are `installations` (pushed to as the test goes),
+ * retrying after 10 s, and how many times it listed them.
+ */
+const appAt = (now: number, installations: Array<{ readonly id: number; readonly login: string }>) => {
+  const github = fakeGitHub({ now: () => now, installations });
+  const app = new GitHubApp({
+    appId: "1",
+    privateKey: KEYS.privateKey,
+    fetch: github.fetch,
+    now: () => now,
+    retryMs: () => 10_000,
+  });
+  const listed = () => github.seen.filter(({ url }) => url.includes("/app/installations?")).length;
+
+  return { app, listed };
+};
+
 describe("GitHubApp", () => {
   it("names its own bot account from the app's slug, asked once", async () => {
     const now = Date.UTC(2026, 0, 1, 12);
@@ -626,16 +644,47 @@ describe("GitHubApp", () => {
 
     expect(await app.token()).toBe("ghs_token1");
     expect(listed()).toBe(1);
-    // An account it is not installed on, asked for again and again: no list more than once a retry.
+    // An account it is not installed on, asked for again and again: listed again once for it, then no more than once a
+    // retry (SPI-1379: the gate is that account's own).
     for (let ask = 0; ask < 5; ask++) await expect(app.token("someone-else")).rejects.toThrow(/not installed/);
-    expect(listed()).toBe(1);
+    expect(listed()).toBe(2);
     now += 10_000;
     await expect(app.token("someone-else")).rejects.toThrow(/not installed/);
-    expect(listed()).toBe(2);
+    expect(listed()).toBe(3);
     // Installed since on another account: found once a retry has passed, not five minutes later.
     installations.push({ id: 43, login: "spiritledsoftware" });
     now += 10_000;
     expect(await app.token("spiritledsoftware")).toBe("ghs_token2");
+  });
+
+  it("keeps the relist gate per account: one account's relist does not hold back another's (SPI-1379)", async () => {
+    const installations = [{ id: 42, login: "ian-pascoe" }];
+    const { app, listed } = appAt(Date.UTC(2026, 0, 1, 12), installations);
+
+    expect(await app.token()).toBe("ghs_token1");
+    // Owner A, not installed: listed again for A.
+    await expect(app.token("owner-a")).rejects.toThrow(/not installed/);
+    expect(listed()).toBe(2);
+    // Owner B, installed just after: listed again for B within the same retry, and found.
+    installations.push({ id: 43, login: "owner-b" });
+    expect(await app.token("owner-b")).toBe("ghs_token2");
+    expect(listed()).toBe(3);
+    // A's gate holds until a retry has passed, or until the owner says A changed.
+    await expect(app.token("owner-a")).rejects.toThrow(/not installed/);
+    expect(listed()).toBe(3);
+    installations.push({ id: 44, login: "owner-a" });
+    app.forget("Owner-A");
+    expect(await app.token("owner-a")).toBe("ghs_token3");
+    expect(listed()).toBe(4);
+  });
+
+  it("does not list twice in one call for an account the first list of the app already missed (SPI-1379)", async () => {
+    const { app, listed } = appAt(Date.UTC(2026, 0, 1, 12), [{ id: 42, login: "ian-pascoe" }]);
+
+    await expect(app.token("owner-a")).rejects.toThrow(/not installed/);
+    expect(listed()).toBe(1);
+    await expect(app.token("owner-a")).rejects.toThrow(/not installed/);
+    expect(listed()).toBe(1);
   });
 
   it("waits GitHub's own named time, else the retry setting doubling up to 15 times it (SPI-1366)", async () => {

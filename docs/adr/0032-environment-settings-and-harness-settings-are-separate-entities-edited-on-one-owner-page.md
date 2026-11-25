@@ -581,7 +581,8 @@ SPI-1323 refinement above, and widens SPI-1365's Outside request time limit.
 
   (Superseded for `textGenerationSeconds`: 180 by default since the SPI-1386 refinement below.)
   - The GitHub App's back-off doubles to 15 times `githubRetrySeconds`; GitHub's own named time is always kept; an
-    account it is not installed on is listed again at most once a retry.
+    account it is not installed on is listed again at most once a retry. (Extended by the SPI-1379 refinement below:
+    that retry is each account's own.)
   - The agents Worker ends text generation at `textGenerationSeconds`, and the Environment waits
     `TEXT_GENERATION_MARGIN_MS` more, today's 120 s.
   - `mcpSignInMinutes` also deletes abandoned sign-in states. `pageTokenHours`: the page asks for a new token when its
@@ -593,7 +594,7 @@ SPI-1323 refinement above, and widens SPI-1365's Outside request time limit.
 
 - **The Sweep at the platform's limit.** Each Session destroy is one RPC, and a Workers invocation makes at most 10,000
   subrequests. Past the limit the Session pass stops, records what it destroyed, skips the cost guard, and comes back
-  a minute later, not a day.
+  a minute later, not a day. (Extended by the SPI-1379 refinement below to the Sweep's purges.)
 - **Derived.** A new Environment's first Sweep comes one Sweep cadence after its first look, not an hour.
 - **Kept.** The stage-only process check's parameters and the preview spike's CDP command wait are diagnostics' own,
   not the Owner's.
@@ -1091,3 +1092,27 @@ Owner's (2026-11-24).
   to 100, the sanity bound `maxToolRounds` has (ADR-0048).
 - The Settings page loses those rows: Tool output's and every listed extension's Advanced fields, termctrl's ten
   settings and the Project context's one. The Settings server's descriptions and the Change tiers follow the registry.
+
+## Refinement (SPI-1379, 2026-11-25): the Sweep's purges at the subrequest limit, the probe's deadlines, the relist gate
+
+Extends the SPI-1366 refinement's "The Sweep at the platform's limit" and its GitHub App relist.
+
+- **The purges stop at the limit too.** The Sessions a Workspace purge destroyed are recorded even when the purge
+  fails, by the Sweep and by Purge now alike; a failed Sweep purge lists them in the run's Sessions. Before, they were
+  recorded only when the Workspace went, so a Workspace with more deleted threads than one invocation's subrequests
+  destroyed the same Sessions at every Sweep and was never purged. A purge that meets the limit ends the Sweep's purges,
+  its Session pass and its cost guard (no budget read past the limit); marks are still written, and the next Sweep
+  comes a minute later.
+- **The audit counts every Session.** The Workspace's `deleting` row keeps the count of the Sessions its failed purges
+  destroyed (`sessions_purged`), and the purge that finishes counts them with its own: its `sweep.purge` or
+  `workspace.purge` entry counts every Session destroyed for the Workspace (ADR-0044 §4).
+- **Both messages.** The limit is recognised by "Too many subrequests", the message Cloudflare documents, and by "Too
+  many API requests by single worker invocation", which is not on Cloudflare's pages; community reports give it for
+  binding and Durable Object calls, as the Sweep's destroys are. A false match costs only an early stop and a run a
+  minute later.
+- **Each probe fetch has its own deadline.** The admin probe's relay `/health` and its device authorization each get
+  the Outside request time limit, with the caller's signal: a relay that never answers no longer leaves the device
+  authorization no time.
+- **The relist gate is per account.** An account missing from the GitHub App's installations is listed again at most
+  once a retry for that account; one account's relist no longer holds back another's, newly installed. `forget(account)`
+  clears that account's gate.
