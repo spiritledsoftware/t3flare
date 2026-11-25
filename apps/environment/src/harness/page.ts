@@ -999,10 +999,10 @@ const serverCard = (row: McpRow, owner?: OwnerClientsView): string => {
   const refused =
     row.refused.length === 0
       ? ""
-      : `<div class="callout callout-warn" role="note">${icon("warn")}<div><strong>${plural(
-          row.refused.reduce((count, entry) => count + (entry.more ?? 1), 0),
-          "tool",
-          "tools",
+      : // "refused", not "tools refused": the server's instructions can be one of them (SPI-1374).
+        `<div class="callout callout-warn" role="note">${icon("warn")}<div><strong>${row.refused.reduce(
+          (count, entry) => count + (entry.more ?? 1),
+          0,
         )} refused</strong><ul>${row.refused
           .map((r) => `<li><code>${escapeHtml(r.tool)}</code>: ${escapeHtml(r.reason)}</li>`)
           .join("")}</ul></div></div>`;

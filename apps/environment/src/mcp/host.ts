@@ -125,7 +125,10 @@ export interface Inventory {
    * agent (SPI-1374). Absent when it gave none, or when they did not fit the inventory's bytes (`INSTRUCTIONS_REFUSED`).
    */
   readonly instructions?: string;
-  /** The tools refused, by name; a cut list ends with an entry whose `more` counts the rest (`fitRefused`). */
+  /**
+   * The tools refused, by name, after an `INSTRUCTIONS_REFUSED` entry when the instructions were dropped; a cut list ends
+   * with an entry whose `more` counts the rest (`fitRefused`).
+   */
   readonly refused: ReadonlyArray<RefusedTool>;
 }
 
@@ -229,14 +232,17 @@ export const INSTRUCTIONS_REFUSED = "(instructions)";
 /** Why a tool, or a server's instructions, is refused: past the bytes one server's inventory holds, named with its value. */
 const PAST_SCHEMA_BYTES = `past the ${(MAX_SCHEMA_BYTES / 1024 / 1024).toFixed(1)} MiB of tool definitions and instructions one server's inventory holds`;
 
-/** A tool the inventory refused, or (`more`) the closing entry of a cut list, counting the tools past it. */
+/**
+ * A tool the inventory refused, the server's instructions dropped (`tool` is `INSTRUCTIONS_REFUSED`), or (`more`) the
+ * closing entry of a cut list, counting the tools past it.
+ */
 export interface RefusedTool {
   readonly tool: string;
   readonly reason: string;
   readonly more?: number;
 }
 
-/** How many tools `refused` names, the ones past a cut included. */
+/** How many entries `refused` stands for: the tools, the ones past a cut included, and any dropped instructions. */
 export const refusedCount = (refused: ReadonlyArray<RefusedTool>): number =>
   refused.reduce((count, entry) => count + (entry.more ?? 1), 0);
 

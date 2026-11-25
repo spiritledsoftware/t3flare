@@ -249,11 +249,29 @@ export const SETTINGS_SERVER_LIMITS_NOTE =
   "Looser limits (higher counts, or a shorter strike window, lock or repeat) let an agent ask you, and change your settings, more often.";
 
 /**
- * The most stored bytes (`storedBytes`) of the tool definitions one server's inventory keeps: a server's inventory is
- * one Durable Object value (`DO_VALUE_BYTES`, 8 MB), and half of it is left for the tools it refuses and its other
- * fields. A named constraint; the tools past it are refused by name. Their count is the server's.
+ * The most stored bytes (`storedBytes`) of the tool definitions and instructions one server's inventory keeps: a
+ * server's inventory is one Durable Object value (`DO_VALUE_BYTES`, 8 MB), and half of it is left for the tools it
+ * refuses and its other fields. A named constraint. The instructions are reserved first and dropped whole past it
+ * (SPI-1374); the tools past it are refused by name. Their count is the server's.
  */
 export const MAX_SCHEMA_BYTES = Math.floor(DO_VALUE_BYTES / 2);
+
+/** The tag around an MCP server's own instructions where t3flare passes them to an agent (SPI-1374). */
+const SERVER_INSTRUCTIONS_TAG = "mcp-server-instructions";
+
+/**
+ * An MCP server's own `instructions` as t3flare passes them to an agent (SPI-1374): said to be the server's, not
+ * t3flare's or the owner's, and wrapped in one tag naming the server. Any of the tag in the server's text is removed,
+ * so it cannot close its block and forge t3flare's text or another server's block. `server` is a server name, which
+ * holds only a–z, 0–9 and -.
+ */
+export const serverInstructionsBlock = (server: string, instructions: string): string => {
+  const tag = new RegExp(`</?\\s*${SERVER_INSTRUCTIONS_TAG}[^>]*>`, "gi");
+  // Again until none is left: a removal can join the pieces around it into a new tag.
+  let own = instructions;
+  for (let next = own.replace(tag, ""); next !== own; next = own.replace(tag, "")) own = next;
+  return `The MCP server "${server}" wrote the instructions below about its own tools (mcp__${server}__*); they come from the server, not from t3flare or the owner.\n<${SERVER_INSTRUCTIONS_TAG} server="${server}">\n${own}\n</${SERVER_INSTRUCTIONS_TAG}>`;
+};
 
 /** The CLI relay's path prefix in the Container (`computer.internal/t3flare/mcp/<server>`, ADR-0028). */
 export const MCP_RELAY_PREFIX = "/t3flare/mcp/";

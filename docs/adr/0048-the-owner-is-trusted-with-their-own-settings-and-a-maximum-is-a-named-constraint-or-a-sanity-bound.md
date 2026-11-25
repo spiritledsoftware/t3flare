@@ -179,12 +179,14 @@ The Container budget is an opt-in cost guard ([ADR-0049](0049-settings-follow-lo
 above every number in its `down-free` tier, so setting a budget from off is free and turning it off is asked.
 [ADR-0032](0032-environment-settings-and-harness-settings-are-separate-entities-edited-on-one-owner-page.md)'s SPI-1386 refinement lists the other defaults that moved.
 
-## Refinement (SPI-1374, 2026-11-24): an MCP server's instructions reach the agent
+## Refinement (SPI-1374, 2026-11-25): an MCP server's instructions reach the agent
 
 This supersedes the SPI-1360 refinement's "an MCP server's `instructions` are no longer stored". Stock MCP clients pass a
 server's instructions on, and servers rely on them to explain their tools, so under local parity
 ([ADR-0049](0049-settings-follow-local-parity-and-guardrails-are-opt-in.md)) t3flare passes them on too, always, with no
-switch (the Owner, 2026-11-24). The engine still scrubs them of the server's credentials.
+switch (the Owner, 2026-11-24). The engine still scrubs them of the server's credentials. They are third-party text in
+the prompt, so each is marked as the server's own, inside an `mcp-server-instructions` tag naming the server, with that
+tag removed from the server's text; a server none of whose tools a caller is offered gives that caller no instructions.
 
 The host keeps them in the server's inventory, inside its `MAX_SCHEMA_BYTES`, reserved before its tools; there is no
 separate cap. Instructions past it are dropped, and the inventory's refusals say so as `(instructions)`, naming the

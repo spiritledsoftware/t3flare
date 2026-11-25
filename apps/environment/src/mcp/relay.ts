@@ -18,6 +18,7 @@ import {
   cardText,
   decideCall,
   SETTINGS_SERVER,
+  serverInstructionsBlock,
   type McpRelayAnswer,
   type McpRelayInput,
   type ToolClass,
@@ -112,6 +113,12 @@ const offered = (view: McpView, server: string) => {
     : { ...entry, tools: entry.tools.filter((tool) => tool.exposure !== "hidden" && tool.exposure !== "codemode") };
 };
 
+/** What the relay's `initialize` says it serves: tools, and App resources where it can read them. */
+const initializeCapabilities = (deps: RelayDeps) => ({
+  tools: { listChanged: false },
+  ...(deps.readAppResource === undefined ? {} : { resources: {} }),
+});
+
 /** One MCP message from a CLI process (a server other than t3's own). */
 export const relayMessage = async (input: McpRelayInput, deps: RelayDeps): Promise<McpRelayAnswer> => {
   const message = input.message as { jsonrpc?: unknown; id?: unknown; method?: unknown; params?: unknown };
@@ -124,24 +131,25 @@ export const relayMessage = async (input: McpRelayInput, deps: RelayDeps): Promi
       const asked = (message.params as { protocolVersion?: unknown } | undefined)?.protocolVersion;
       const protocolVersion =
         typeof asked === "string" && RELAY_PROTOCOL_VERSIONS.includes(asked) ? asked : RELAY_PROTOCOL_VERSIONS[1]!;
-      // The server's own instructions follow t3flare's sentence, as stock clients pass them on (SPI-1374).
+      if (input.server === SETTINGS_SERVER)
+        return ok(id, {
+          protocolVersion,
+          capabilities: initializeCapabilities(deps),
+          serverInfo: { name: `t3flare-${input.server}`, version: "1" },
+          instructions: settingsInstructions(deps.openPerThread?.()),
+        });
+      // The server's own instructions follow t3flare's sentence, marked as its own, as stock clients pass them on
+      // (SPI-1374); only where the CLI is offered any of its tools, so a hidden server's text stays out of the prompt.
+      const server = offered(await deps.view(), input.server);
       const own =
-        input.server === SETTINGS_SERVER
-          ? undefined
-          : (await deps.view()).servers.find((candidate) => candidate.name === input.server)?.instructions;
+        server === undefined || server.tools.length === 0 || server.instructions === undefined
+          ? ""
+          : `\n\n${serverInstructionsBlock(input.server, server.instructions)}`;
       return ok(id, {
         protocolVersion,
-        capabilities: {
-          tools: { listChanged: false },
-          ...(deps.readAppResource === undefined ? {} : { resources: {} }),
-        },
+        capabilities: initializeCapabilities(deps),
         serverInfo: { name: `t3flare-${input.server}`, version: "1" },
-        instructions:
-          input.server === SETTINGS_SERVER
-            ? settingsInstructions(deps.openPerThread?.())
-            : `Tools of the MCP server "${input.server}" through t3flare. Write tools may wait for the owner's approval on this thread.${
-                own === undefined ? "" : `\n\n${own}`
-              }`,
+        instructions: `Tools of the MCP server "${input.server}" through t3flare. Write tools may wait for the owner's approval on this thread.${own}`,
       });
     }
     case "ping":

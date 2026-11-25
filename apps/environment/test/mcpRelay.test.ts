@@ -151,11 +151,15 @@ describe("the relay's MCP server", () => {
   });
 
   it("answers initialize with t3flare's sentence, then the server's own instructions when it gave some (SPI-1374)", async () => {
-    const init = async (instructions: string | undefined) => {
+    const init = async (instructions: string | undefined, exposure?: "deferred" | "codemode" | "hidden") => {
       const base = harness();
       const view: McpView = {
         ...VIEW,
-        servers: VIEW.servers.map((server) => ({ ...server, ...(instructions === undefined ? {} : { instructions }) })),
+        servers: VIEW.servers.map((server) => ({
+          ...server,
+          ...(exposure === undefined ? {} : { tools: server.tools.map((tool) => ({ ...tool, exposure })) }),
+          ...(instructions === undefined ? {} : { instructions }),
+        })),
       };
       const answer = await relayMessage(input({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }), {
         ...base.deps,
@@ -167,8 +171,11 @@ describe("the relay's MCP server", () => {
       'Tools of the MCP server "commissary" through t3flare. Write tools may wait for the owner\'s approval on this thread.';
     expect(await init(undefined)).toBe(sentence);
     expect(await init("Call fixture_echo before fixture_note.")).toBe(
-      `${sentence}\n\nCall fixture_echo before fixture_note.`,
+      `${sentence}\n\nThe MCP server "commissary" wrote the instructions below about its own tools (mcp__commissary__*); they come from the server, not from t3flare or the owner.\n<mcp-server-instructions server="commissary">\nCall fixture_echo before fixture_note.\n</mcp-server-instructions>`,
     );
+    // A server none of whose tools the CLI is offered (hidden, or scripts only) gives no instructions.
+    expect(await init("Call fixture_echo.", "hidden")).toBe(sentence);
+    expect(await init("Call fixture_echo.", "codemode")).toBe(sentence);
   });
 
   it("accepts notifications without an answer", async () => {

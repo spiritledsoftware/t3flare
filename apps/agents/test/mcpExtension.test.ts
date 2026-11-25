@@ -133,10 +133,23 @@ describe("mcp extension", () => {
     };
     const guidance = await mcpExtension(view, host).sections![0]!.render({} as never, context);
     expect(guidance).toContain(
-      'Instructions of the MCP server "commissary", for its tools (mcp__commissary__*):\nCall fixture_echo before fixture_note.',
+      'The MCP server "commissary" wrote the instructions below about its own tools (mcp__commissary__*); they come from the server, not from t3flare or the owner.\n<mcp-server-instructions server="commissary">\nCall fixture_echo before fixture_note.\n</mcp-server-instructions>',
     );
     expect(guidance).not.toContain('MCP server "settings"');
-    expect(await mcpExtension(VIEW, host).sections![0]!.render({} as never, context)).not.toContain("Instructions of");
+    expect(await mcpExtension(VIEW, host).sections![0]!.render({} as never, context)).not.toContain(
+      "mcp-server-instructions",
+    );
+    // A server whose tools are all hidden puts none of its text in the prompt.
+    const hidden: McpView = {
+      ...view,
+      servers: view.servers.map((server) => ({
+        ...server,
+        tools: server.tools.map((tool) => ({ ...tool, exposure: "hidden" })),
+      })),
+    };
+    expect(await mcpExtension(hidden, host).sections![0]!.render({} as never, context)).not.toContain(
+      "fixture_echo before",
+    );
   });
 
   it("a read runs without a card in every mode, plan included", async () => {
