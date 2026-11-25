@@ -146,8 +146,6 @@ export const CLAUDE_PINNED_EMPTY: ReadonlyArray<string> = [
   "ALL_PROXY",
   "NO_PROXY",
   "NODE_EXTRA_CA_CERTS",
-  "SSL_CERT_FILE",
-  "SSL_CERT_DIR",
   "NODE_TLS_REJECT_UNAUTHORIZED",
   "CLAUDE_CODE_CLIENT_CERT",
   "CLAUDE_CODE_CLIENT_KEY",
@@ -172,6 +170,15 @@ export const CLAUDE_PINNED_EMPTY: ReadonlyArray<string> = [
   "ANTHROPIC_MODEL",
   "ANTHROPIC_SMALL_FAST_MODEL",
 ];
+
+/**
+ * The CA store variables, pinned as `CLAUDE_PINNED_EMPTY` is but to the image's own store (Ubuntu's `ca-certificates`):
+ * Claude Code's commands inherit the managed `env`, and an empty one is a file OpenSSL and rustls fail to load.
+ */
+export const CLAUDE_PINNED_CA_STORE: Readonly<Record<string, string>> = {
+  SSL_CERT_FILE: "/etc/ssl/certs/ca-certificates.crt",
+  SSL_CERT_DIR: "/etc/ssl/certs",
+};
 
 /**
  * Where Claude Code gets its models (SPI-1168): the model relay's routed URL, the endpoints' slugs and the handle helper,
@@ -259,7 +266,11 @@ export const claudeManagedSettings = (
   // (it reads no version from a slug), a dated one the endpoint refuses, so the open failed; a managed `model` outranks
   // the Owner's.
   ...openingModelOf(mode),
-  env: { ...Object.fromEntries(CLAUDE_PINNED_EMPTY.map((name) => [name, ""])), ...claudeSwitches(mode) },
+  env: {
+    ...Object.fromEntries(CLAUDE_PINNED_EMPTY.map((name) => [name, ""])),
+    ...CLAUDE_PINNED_CA_STORE,
+    ...claudeSwitches(mode),
+  },
   skipWebFetchPreflight: true,
   disableClaudeAiConnectors: true,
   // Claude Code deletes, at its start, sessions not written to for this many days; unset, its own default.

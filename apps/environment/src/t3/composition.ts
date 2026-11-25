@@ -195,6 +195,8 @@ import * as WorkspaceLayers from "../workspace/layers.ts";
 import * as WorkspaceCheckpoints from "../workspace/checkpoints.ts";
 import * as DoSql from "../platform/sql.ts";
 import * as SecretStore from "../platform/secretStore.ts";
+import { threadWorkspaceFrom } from "../preview/portDiscovery.ts";
+import { workspaceRpc } from "../agents/workspaceClient.ts";
 import * as RedactingConsole from "../host/redactingConsole.ts";
 import { environmentServices } from "../agents/bindings.ts";
 import { webhookBaseUrl } from "./webhookOrigin.ts";
@@ -320,7 +322,13 @@ export const make = (options: CompositionOptions) => {
     Layer.provideMerge(DoSql.layer(options.storage)),
   );
 
-  const layerSecretStore = SecretStore.layer(options.storage).pipe(Layer.provide(layerPlatformServices));
+  // t3flare: a thread's secret files go to its Workspace, where its commands run (patch 0011).
+  const layerSecretStore = SecretStore.layer(options.storage, (threadId) => {
+    const id = threadWorkspaceFrom(environmentServices().sql)(threadId);
+    return id === undefined || environmentServices().workspaces.resolve(id) === undefined
+      ? undefined
+      : workspaceRpc(id);
+  }).pipe(Layer.provide(layerPlatformServices));
 
   const layerResourceAttribution = ResourceAttribution.layer;
   // t3flare: no event-loop monitor (perf_hooks.monitorEventLoopDelay is not in workerd);

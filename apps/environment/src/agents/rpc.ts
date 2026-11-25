@@ -170,6 +170,14 @@ export interface WorkspaceRpc {
     hash: string,
   ): Promise<{ readonly taken: boolean; readonly hash: string; readonly error?: string; readonly container?: unknown }>;
   writeText(path: string, text: string): Promise<void>;
+  /**
+   * Patch 0011: t3's secret file `name`, where the Container's commands read it (`secretFiles.ts`): its path when there,
+   * else written from `text`; `missing` when it is not there and no `text` was given.
+   */
+  placeSecretFile(input: {
+    readonly name: string;
+    readonly text?: string;
+  }): Promise<{ readonly path: string } | { readonly missing: true } | { readonly refused: string }>;
   worktreeClone(input: {
     readonly id: string;
     readonly url: string | null;
