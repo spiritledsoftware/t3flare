@@ -24,11 +24,12 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
+import * as Schedule from "effect/Schedule";
 
 import { environmentServices } from "../agents/bindings.ts";
 import { purgeWorkspace, referencesFrom } from "../agents/deletion.ts";
 import { dropScratchDir, isScratchDir, makeScratchDir } from "../agents/scratch.ts";
-import { locate, type Located } from "../agents/workspaceClient.ts";
+import { locate, workspaceRpc, type Located } from "../agents/workspaceClient.ts";
 import type { FsOp } from "../agents/rpc.ts";
 import * as DoFileSystem from "./fileSystem.ts";
 
@@ -51,8 +52,8 @@ const notFound = (method: string, path: string) =>
 const readOnly = (method: string, path: string) =>
   Effect.fail(failure(method, path, "BadResource", "t3flare: not supported in a Workspace"));
 
-/** One Workspace RPC's file answer, its error as a PlatformError. */
-const answered = <A>(
+/** A Workspace RPC's file answer as its value, and its error answer or its throw as a PlatformError. */
+const rpcAnswer = <A>(
   method: string,
   path: string,
   id: string,
@@ -71,7 +72,7 @@ const answered = <A>(
 
 /** One Workspace file operation, its answer's error as a PlatformError. */
 const call = <A>(method: string, path: string, at: Located, op: FsOp): Effect.Effect<A, PlatformError.PlatformError> =>
-  answered(method, path, at.id, () => at.rpc.fs(op));
+  rpcAnswer(method, path, at.id, () => at.rpc.fs(op));
 
 const fileType = (kind: FileStat["kind"]): FileSystem.File.Type =>
   kind === "directory" ? "Directory" : kind === "symlink" ? "SymbolicLink" : "File";
@@ -101,7 +102,8 @@ const info = (stat: {
 /**
  * A registry row of `id` that does not resolve, left before t3 makes the folder again (SPI-1436), cleared as
  * `worktreeAdd` clears a worktree's (processRouter.ts): a purge under way is finished first, so its `destroy()` never
- * lands after the new folder; a failed attempt is removed. A Tombstone holds kept work, so it is refused with a reason.
+ * lands after the new folder; a failed attempt is removed. A Tombstone holds kept work, so it is refused with a reason:
+ * `worktreeAdd` restores one at a worktree's reused path, but a new project folder must not silently bring kept work back.
  */
 const clearLeftover = (path: string, id: string): Effect.Effect<void, PlatformError.PlatformError> =>
   Effect.gen(function* () {
@@ -116,9 +118,11 @@ const clearLeftover = (path: string, id: string): Effect.Effect<void, PlatformEr
         `t3flare: the Workspace ${id} is a Tombstone (its work is kept): restore or purge it before making ${path} again`,
       );
     if (existing.state === "deleting") {
-      const purged = yield* Effect.promise(() =>
-        purgeWorkspace(id, referencesFrom(services.sql).deletedThreads.get(id) ?? []),
-      );
+      const purged = yield* Effect.tryPromise({
+        try: () => purgeWorkspace(id, referencesFrom(services.sql).deletedThreads.get(id) ?? []),
+        catch: (cause) =>
+          failure("makeDirectory", path, "Unknown", `t3flare: the Workspace ${id}'s purge failed: ${String(cause)}`),
+      });
       if (!purged.destroyed)
         return yield* failure(
           "makeDirectory",
@@ -131,10 +135,35 @@ const clearLeftover = (path: string, id: string): Effect.Effect<void, PlatformEr
     if (existing.state === "failed") services.workspaces.remove(id);
   });
 
+/**
+ * `destroy()` restarts the Workspace DO right after it answers (WorkspaceDO.ts: `ctx.abort` with this reason), so a call
+ * that lands on the old object fails with it: a `makeEmpty` straight after a purge this create finished. It is sent
+ * again, each time on a fresh stub. Internal values that only ride out that restart, generous, not settings.
+ */
+const RESTARTED_AFTER_DESTROY = "t3flare: workspace destroyed";
+const RESTART_RETRIES = 5;
+const RESTART_RETRY_MS = 200;
+
+/** The Workspace's empty repo folder, by its provisioning RPC (SPI-1436), sent again while the object restarts. */
+const makeEmpty = (path: string, id: string): Effect.Effect<void, PlatformError.PlatformError> =>
+  rpcAnswer<null>("makeDirectory", path, id, () => workspaceRpc(id).makeEmpty({ id })).pipe(
+    Effect.retry({
+      while: (error) => error.message.includes(RESTARTED_AFTER_DESTROY),
+      times: RESTART_RETRIES,
+      schedule: Schedule.spaced(RESTART_RETRY_MS),
+    }),
+    Effect.asVoid,
+  );
+
 /** t3 hides why a new project folder failed ("Failed to create clone project."): the Environment's log names it. */
 const logCreateFailed = (id: string, reason: string) =>
   // @effect-diagnostics-next-line globalConsole:off -- one JSON line, the Environment's log style (`workspace-purged`)
   console.warn(JSON.stringify({ t3flare: "workspace-create-failed", id, reason }));
+
+const logFailure =
+  (id: string) =>
+  <A>(effect: Effect.Effect<A, PlatformError.PlatformError>): Effect.Effect<A, PlatformError.PlatformError> =>
+    effect.pipe(Effect.tapError((error) => Effect.sync(() => logCreateFailed(id, error.message))));
 
 /**
  * Registers Workspace `id` and makes its repo folder in its Durable Object, by `makeEmpty`: provisioning, so a name
@@ -147,14 +176,13 @@ const createWorkspace = (path: string, id: string): Effect.Effect<void, Platform
       try: () => environmentServices().workspaces.create({ id }),
       catch: (cause) => failure("makeDirectory", path, "BadResource", String(cause)),
     });
-    const at = yield* workspace("makeDirectory", path);
-    yield* answered("makeDirectory", path, id, () => at.rpc.makeEmpty({ id })).pipe(
+    yield* makeEmpty(path, id).pipe(
       Effect.tapError(() => Effect.sync(() => environmentServices().workspaces.remove(id))),
     );
     // An empty project folder is a ready Workspace (a New project's `git init`, or a clone into it later): step 2b's
     // sweep purges `provisioning` rows older than the provisioning time limits (`provisioningLimitMs`).
     environmentServices().workspaces.setState(id, "ready");
-  }).pipe(Effect.tapError((error) => Effect.sync(() => logCreateFailed(id, error.message))));
+  }).pipe(logFailure(id));
 
 const ROOT_INFO = info({ kind: "directory", size: 0, mtimeMs: 0, mode: 0o755 });
 
@@ -297,9 +325,15 @@ export const routing = (local: Impl): Impl => ({
     // The worktree directories exist as long as a worktree does; making them is a no-op (`git worktree add` makes the Workspace).
     if (isVirtual(path)) return Effect.void;
     const target = toWorkspace(path);
-    // A new folder directly in `/w` is a new, empty Workspace (t3's project folder, before a clone or `git init`).
-    if (target !== null && target.inner === REPO_ROOT && locate(path) === undefined)
-      return createWorkspace(path, target.id);
+    if (target !== null && target.inner === REPO_ROOT) {
+      const at = locate(path);
+      // A new folder directly in `/w` is a new, empty Workspace (t3's project folder, before a clone or `git init`).
+      if (at === undefined) return createWorkspace(path, target.id);
+      // A create of the same name under way (its row still `provisioning`) may not have revived a purged Workspace yet,
+      // so this one provisions too: `makeEmpty` is idempotent for a Workspace the Environment registered.
+      if (at.record.kind === "project" && at.record.state === "provisioning" && options?.recursive === true)
+        return makeEmpty(path, at.id).pipe(logFailure(at.id));
+    }
     return Effect.flatMap(workspace("makeDirectory", path), (at) =>
       Effect.asVoid(
         call("makeDirectory", path, at, { op: "mkdir", path: at.inner, recursive: options?.recursive === true }),

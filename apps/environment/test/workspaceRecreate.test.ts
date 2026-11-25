@@ -34,16 +34,28 @@ type FsOp = { readonly op: string; readonly path: string };
 
 /**
  * Workspace DOs whose files are a set of directories each. `destroyed` names the ones a purge `destroy()`ed: their `fs`
- * throws until `makeEmpty` provisions them again. `calls` is every RPC, in order, as `<id>.<method>[:<op>]`.
+ * throws until `makeEmpty` provisions them again. `destroy()` restarts the object, as WorkspaceDO's does: the next
+ * `restartFailures` calls (1 by default) fail with its abort reason. `calls` is every RPC, in order, as
+ * `<id>.<method>[:<op>]`.
  */
-const fakeWorkspaceDOs = (options: { destroyed?: Iterable<string>; refuseMakeEmpty?: string } = {}) => {
+const fakeWorkspaceDOs = (
+  options: { destroyed?: Iterable<string>; refuseMakeEmpty?: string; restartFailures?: number } = {},
+) => {
   const destroyed = new Set(options.destroyed);
+  const restarting = new Map<string, number>();
+  const restarted = (id: string) => {
+    const left = restarting.get(id) ?? 0;
+    if (left === 0) return;
+    restarting.set(id, left - 1);
+    throw new Error("t3flare: workspace destroyed");
+  };
   const dirs = new Map<string, Set<string>>();
   const calls: Array<string> = [];
   const dirsOf = (id: string) => dirs.get(id) ?? dirs.set(id, new Set()).get(id)!;
   const stub = (id: string) => ({
     fs: async (op: FsOp) => {
       calls.push(`${id}.fs:${op.op}`);
+      restarted(id);
       if (destroyed.has(id)) throw new Error("t3flare: this Workspace was deleted");
       if (op.op === "mkdir") return (dirsOf(id).add(op.path), { ok: null });
       if (op.op === "stat")
@@ -56,6 +68,7 @@ const fakeWorkspaceDOs = (options: { destroyed?: Iterable<string>; refuseMakeEmp
     },
     makeEmpty: async (input: { id: string }) => {
       calls.push(`${id}.makeEmpty`);
+      restarted(id);
       expect(input.id).toBe(id);
       if (options.refuseMakeEmpty === id) return { error: "EIO", message: "EIO: the disk said no" };
       destroyed.delete(id);
@@ -66,6 +79,7 @@ const fakeWorkspaceDOs = (options: { destroyed?: Iterable<string>; refuseMakeEmp
       calls.push(`${id}.destroy`);
       destroyed.add(id);
       dirs.delete(id);
+      restarting.set(id, options.restartFailures ?? 1);
       return { destroyed: true };
     },
   });
@@ -194,16 +208,57 @@ describe("a new project folder at a purged Workspace's name (SPI-1436)", () => {
     expect(registry.get("t3flare")?.state).toBe("ready");
   });
 
-  it("finishes a purge left `deleting` before it makes the folder", async () => {
+  it("finishes a purge left `deleting` before it makes the folder, riding out the object's restart", async () => {
     const dos = fakeWorkspaceDOs();
     const registry = bind("deleting", dos);
     expect(await attempt("~/t3flare")).toEqual({ ok: true });
     const destroyAt = dos.calls.indexOf("t3flare.destroy");
     expect(destroyAt).toBeGreaterThanOrEqual(0);
-    expect(dos.calls.indexOf("t3flare.makeEmpty")).toBeGreaterThan(destroyAt);
+    // The first makeEmpty lands on the restarting object and fails; it is sent again.
+    expect(dos.calls.slice(destroyAt + 1, destroyAt + 3)).toEqual(["t3flare.makeEmpty", "t3flare.makeEmpty"]);
     expect(logged(log, "workspace-purged")).toEqual([{ t3flare: "workspace-purged", id: "t3flare", sessions: 0 }]);
     // A new row: the old one's repository is gone with it.
     expect(registry.get("t3flare")).toMatchObject({ state: "ready", host: null });
+  });
+
+  it("gives up on an object that keeps restarting, logs it, and leaves no row", async () => {
+    const dos = fakeWorkspaceDOs({ restartFailures: 100 });
+    const registry = bind("deleting", dos);
+    expect((await attempt("~/t3flare")).ok).toBe(false);
+    expect(dos.calls.filter((call) => call === "t3flare.makeEmpty")).toHaveLength(6);
+    expect(registry.get("t3flare")).toBeUndefined();
+    expect(logged(warn, "workspace-create-failed")).toEqual([
+      { t3flare: "workspace-create-failed", id: "t3flare", reason: expect.stringContaining("workspace destroyed") },
+    ]);
+  });
+
+  it("logs a purge that throws instead of losing the line", async () => {
+    const dos = fakeWorkspaceDOs();
+    const registry = bind("deleting", dos);
+    bindEnvironmentServices({
+      workspaces: registry,
+      sql: {
+        exec: () => {
+          throw new Error("no such table");
+        },
+      },
+      agents: dos,
+    } as unknown as EnvironmentServices);
+    expect((await attempt("~/t3flare")).ok).toBe(false);
+    expect(logged(warn, "workspace-create-failed")).toEqual([
+      { t3flare: "workspace-create-failed", id: "t3flare", reason: expect.stringContaining("purge failed") },
+    ]);
+  });
+
+  it("provisions for a create of the same name still under way (its row `provisioning`)", async () => {
+    const dos = fakeWorkspaceDOs({ destroyed: ["t3flare"] });
+    const registry = bind(null, dos);
+    registry.create({ id: "t3flare" });
+    const exit = await Effect.runPromiseExit(
+      routing({} as Parameters<typeof routing>[0]).makeDirectory("/w/t3flare", { recursive: true }),
+    );
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(dos.calls).toEqual(["t3flare.makeEmpty"]);
   });
 
   it("replaces a `failed` row", async () => {
