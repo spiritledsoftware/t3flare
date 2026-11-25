@@ -69,12 +69,17 @@ const mergeFile = (ours: string, base: string, theirs: string, args: ReadonlyArr
   }
 };
 
+// The ticket of a `## Refinement (SPI-<n>, …)` heading, whatever its date or wording: a revised copy of a refinement
+// keeps its ticket.
+const refinementTicket = (line: string): Array<string> => /^## Refinement \(([A-Z]+-\d+)\b/.exec(line)?.slice(1) ?? [];
+
 /**
  * Joins the one conflict hunk of a diff3 merge when it is two appends at the file's end: its base is empty, nothing
- * but blank lines follows it, and its sides share no non-blank line (a shared line means one side already has the
- * other's text, as a stacked branch after a squash-merge has, and a join would write it twice). The join is ours, a
- * blank line unless one side already brings one, then theirs. Undefined for anything else, which stays a conflict. The
- * markers are `markerSize` long, longer than any marker-like run in the inputs, so every marker line is git's.
+ * but blank lines follows it, its sides share no non-blank line, and no ticket's refinement heading is on both (either
+ * means one side already has the other's text, as a stacked branch after a squash-merge has, and a join would write it
+ * twice). The join is ours, a blank line unless one side already brings one, then theirs. Undefined for anything else,
+ * which stays a conflict. The markers are `markerSize` long, longer than any marker-like run in the inputs, so every
+ * marker line is git's.
  */
 export const joinAppends = (diff3: string, markerSize: number): string | undefined => {
   const marker = (char: string) => (line: string) =>
@@ -99,7 +104,9 @@ export const joinAppends = (diff3: string, markerSize: number): string | undefin
       if (hunk.base.length > 0) return undefined;
       const oursLines = new Set(hunk.ours.filter((text) => text.trim() !== ""));
       if (hunk.theirs.some((text) => oursLines.has(text))) return undefined;
-      const blank = hunk.ours.at(-1) === "" || hunk.theirs[0] === "" || hunk.ours.length === 0;
+      const oursTickets = new Set(hunk.ours.flatMap(refinementTicket));
+      if (hunk.theirs.flatMap(refinementTicket).some((ticket) => oursTickets.has(ticket))) return undefined;
+      const blank = hunk.ours.at(-1) === "" || hunk.theirs[0] === "";
       out.push(...hunk.ours, ...(blank ? [] : [""]), ...hunk.theirs);
       [hunk, joined] = [undefined, true];
     } else hunk[side].push(line);
@@ -110,8 +117,8 @@ export const joinAppends = (diff3: string, markerSize: number): string | undefin
 
 /**
  * Merges the three texts of an ADR. Clean as git merges it: git's merge. Two different appends at its end (see
- * joinAppends): joined, with no marker line the inputs did not have. Anything else: git's own conflict output, in `conflictStyle` with
- * `labels` and `markerSize`.
+ * joinAppends): joined, with no marker line the inputs did not have. Anything else: git's own conflict output, in
+ * `conflictStyle` with `labels` and `markerSize`.
  */
 export const adrMerge = (
   ours: string,

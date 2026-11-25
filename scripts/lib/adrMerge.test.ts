@@ -104,6 +104,11 @@ void describe("adrMerge", () => {
     assert.match(text, /^<<<<<<< ours$/m);
   });
 
+  void it("conflicts on a stacked branch whose refinement was revised throughout, heading included", () => {
+    const revised = "\n## Refinement (SPI-1, 2026-11-26): revised\n\nNew wording throughout.\n";
+    conflict(adrMerge(ADR + revised, ADR, ADR + refinement(1) + refinement(2)));
+  });
+
   void it("conflicts when theirs already holds ours' append and adds another", () => {
     conflict(adrMerge(ADR + refinement(1), ADR, ADR + refinement(1) + refinement(2)));
     conflict(adrMerge(ADR + refinement(1) + refinement(2), ADR, ADR + refinement(1)));

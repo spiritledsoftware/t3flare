@@ -171,13 +171,14 @@ doesn't; a bare `tsc --noEmit` runs neither, and fails on t3code's `schemaClassM
 ADRs are append-only, so concurrent tickets that each append a `## Refinement` to one ADR conflicted at its end on every
 rebase: more than eight times in one run, and once a diff3 `|||||||` line leaked into an ADR. `.gitattributes` now maps
 `docs/adr/*.md` to the `adr-append` merge driver, `scripts/adr-merge.ts` (logic in `scripts/lib/adrMerge.ts`). It joins
-one conflict hunk with an empty base at the file's end, ours then theirs, when its sides share no non-blank line; on a
-rebase ours is the upstream, so that is landing order. Anything else, an edit both sides made, an insertion in the
-middle, one side already holding the other's text, an add/add, is written as git's own conflict in the repository's
-`merge.conflictStyle`, and a merge never writes a marker line the inputs lacked. `scripts/worktree-setup.ts` now has a
-second job after the SPI-1335 repair: it sets `merge.adr-append.name` and `.driver` in the repository config
-(`scripts/lib/adrMergeDriver.ts`), silently when already set, printing one `ADR merge driver:` line when it sets them,
-and exiting 1 when it cannot. The driver runs the worktree's own `scripts/adr-merge.ts` from its top level and falls
-back to `git merge-file` where that file is missing, so a checkout without the config or the script merges as git
-always has. GitHub's mergeability check and squash-merge never run the driver; the landing flow rebases locally first.
-Rejected (the Owner chose the driver): one file per refinement, and `merge=union`, which can duplicate text silently.
+one conflict hunk with an empty base at the file's end, ours then theirs, when its sides share no non-blank line and no
+ticket's `## Refinement` heading; on a rebase ours is the upstream, so that is landing order. Anything else, an edit
+both sides made, an insertion in the middle, one side already holding the other's text, an add/add, is written as git's
+own conflict in the repository's `merge.conflictStyle`, and a merge never writes a marker line the inputs lacked.
+`scripts/worktree-setup.ts` now has a second job after the SPI-1335 repair: it sets `merge.adr-append.name` and
+`.driver` in the repository config (`scripts/lib/adrMergeDriver.ts`), silently when already set, printing one `ADR merge
+driver:` line when it sets them, and exiting 1 when it cannot. The driver runs the worktree's own `scripts/adr-merge.ts`
+from its top level and falls back to `git merge-file` where that file is missing, so a checkout without the config or
+the script merges as git always has. GitHub's mergeability check and squash-merge never run the driver; the landing flow
+rebases locally first. Rejected (the Owner chose the driver): one file per refinement, and `merge=union`, which can
+duplicate text silently.
