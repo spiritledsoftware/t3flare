@@ -218,6 +218,30 @@
       "literal": "? stderrTail.join(\" \")",
       "ourFile": "apps/environment/scripts/lib/socketRetry.ts",
       "entry": "U98"
+    },
+    {
+      "file": "packages/source-control-github/src/server/GitHubRequestPolicy.ts",
+      "literal": "const pinned = yield* PinnedGitHubCredential;",
+      "ourFile": "apps/environment/src/t3/repositoryLookup.ts",
+      "entry": "U109"
+    },
+    {
+      "file": "apps/server/src/sourceControl/SourceControlRepositoryService.ts",
+      "literal": "?? \"The source control operation could not be completed.\"",
+      "ourFile": "apps/environment/src/t3/repositoryLookup.ts",
+      "entry": "U109"
+    },
+    {
+      "file": "apps/server/src/sourceControl/SourceControlRepositoryService.ts",
+      "literal": "const urls = yield* provider.getRepositoryCloneUrls({",
+      "ourFile": "apps/environment/src/t3/repositoryLookup.ts",
+      "entry": "U109"
+    },
+    {
+      "file": "packages/source-control-github/src/server/GitHubSourceControlProvider.ts",
+      "literal": "detail: error.detail,",
+      "ourFile": "apps/environment/src/t3/repositoryLookup.ts",
+      "entry": "U109"
     }
   ],
   "files": {
@@ -232,6 +256,7 @@
     "packages/contracts/src/peerLink.ts": "0d72b978e26090bf4aad445c8eddf7f51fcf7b64",
     "packages/source-control-github/src/server/GitHubCredentials.ts": "a490da112a28eeffc5b0d1eb8ec60ce257df8c21",
     "packages/source-control-github/src/server/GitHubHttpClient.ts": "ed394d1d49c4a5cb515cc143065d6e4d2c057bbd",
+    "packages/source-control-github/src/server/GitHubRequestPolicy.ts": "63394779ea76bb967ac6a357e98fda10e90fc4ba",
     "packages/source-control-github/src/server/GitHubSourceControlProvider.ts": "f69e06fedc663dbc2b4744654b1a83995e1bb985",
     "packages/source-control-github/src/server/gitHubAuthStatus.ts": "2766d305a014d71607ce0bf5baa7d21c04de2e4e"
   }

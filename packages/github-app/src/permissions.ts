@@ -55,6 +55,15 @@ export const ENVIRONMENT_GITHUB_PERMISSIONS = {
 } as const satisfies GitHubPermissions;
 
 /**
+ * The Environment DO's token for t3's lookup of a repository a Project is added from (SPI-1398): that one repo's
+ * metadata, for its clone URLs, and nothing else. Minted per lookup, used for its requests and dropped; never a
+ * Container's or a Session's.
+ */
+export const REPOSITORY_LOOKUP_GITHUB_PERMISSIONS = {
+  metadata: "read",
+} as const satisfies GitHubPermissions;
+
+/**
  * The Environment DO's token for reading Environment skills from GitHub (SPI-1148, ADR-0033): one repo's contents, read
  * only, used for the fetch's own requests and dropped. Scoped to an installed repo, it also reads public repos outside
  * the installation (docs-archive-1:docs/steps/spi-1001-env-plan.md §1, R1).
