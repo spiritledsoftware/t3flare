@@ -55,8 +55,8 @@ export const LINK_ORIGIN = "http://127.0.0.1:443";
 export const SIGN_IN_HOLD = Idle.CONNECT_SIGN_IN_HOLD;
 
 /**
- * Why a request to the relay that waited up to `ms` got no answer (SPI-1434): the outside request time limit, named with
- * its value, when that is what ended it; else what failed.
+ * Why a request to the relay that waited up to `ms` got no answer (SPI-1434): the outside request time limit, named
+ * with its value, when that is what ended it; else what failed.
  */
 export const relayUnanswered = (cause: unknown, ms: number): string =>
   isTimeout(cause) ? `the relay ${outsideRequestTimedOut(ms)}` : `the relay request failed: ${redact(String(cause))}`;

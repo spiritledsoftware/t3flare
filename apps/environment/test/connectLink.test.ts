@@ -184,9 +184,10 @@ const run = <A, E>(
   return Effect.runPromise(Effect.flatMap(ConnectService.Connect, use).pipe(Effect.provide(layer), Effect.scoped));
 };
 
-const STAGE = { keepAccountToken: true };
 /** The outside request time limit, hit, as a test's 20 ms one names itself (SPI-1434). */
 const NAMED_20MS = "did not answer in 0.02 s, t3flare's fixed outside request time limit";
+
+const STAGE = { keepAccountToken: true };
 const PROD = { keepAccountToken: false };
 
 describe("the publish-only link step against a fake relay", () => {
