@@ -1,5 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off -- WebCrypto and `fetch` are Promise APIs; node:crypto makes the test keys.
-import { generateKeyPairSync } from "node:crypto";
+import { createPrivateKey, generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { GitHubApp, githubAppKeyProblem, GitHubRefused, type MintedToken } from "./app.ts";
 
@@ -581,11 +581,8 @@ describe("GitHubApp", () => {
   it("takes the key as PKCS#8 too, and with its line breaks written as \\n", async () => {
     const now = Date.UTC(2026, 0, 1, 12);
 
-    const pkcs8 = generateKeyPairSync("rsa", {
-      modulusLength: 2048,
-      privateKeyEncoding: { type: "pkcs8", format: "pem" },
-      publicKeyEncoding: { type: "spki", format: "pem" },
-    }).privateKey;
+    // The app's own key, as PKCS#8: no second key made inside the test, whose RSA prime search is slow on a loaded core.
+    const pkcs8 = createPrivateKey(KEYS.privateKey).export({ type: "pkcs8", format: "pem" }).toString();
 
     for (const privateKey of [pkcs8, KEYS.privateKey.replaceAll("\n", "\\n")]) {
       const app = new GitHubApp({
