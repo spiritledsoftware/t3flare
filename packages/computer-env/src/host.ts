@@ -103,6 +103,7 @@ const itemBytes = (item: unknown): number => encoder.encode(JSON.stringify(item)
  * carry at the smallest an item can be, so a call's `limit` (pi's own: no cap) never has the Workspace DO collect more
  * than its answer could hold. Derived from the bounds; no value of its own.
  */
+const MOST_ENTRIES = Math.floor(LISTING_BYTES / itemBytes({ name: "", isDirectory: false, isSymbolicLink: false }));
 const MOST_FOUND = Math.floor(LISTING_BYTES / itemBytes({ path: "/", type: "dir" }));
 const MOST_MATCHES = Math.floor(GREP_OUTPUT_BYTES / itemBytes({ path: "/", line: 0, text: "" }));
 
@@ -538,17 +539,19 @@ export class WorkspaceEnvHost {
       // Each answer within the byte bound the Container's scripts keep (`LISTING_BYTES`, `GREP_OUTPUT_BYTES`), which also
       // bounds what `@cloudflare/computer` collects: a search asks for no more items than the bound could carry.
       readdir: (path) =>
-        attempt(path, async () =>
-          withinBytes(
-            (await fs.readdir(path)).map((entry) => ({
+        attempt(path, async () => {
+          const entries = await fs.readdir(path, { limit: MOST_ENTRIES });
+
+          return withinBytes(
+            entries.map((entry) => ({
               name: entry.name,
               isDirectory: entry.isDirectory,
               isSymbolicLink: entry.isSymbolicLink,
             })),
             LISTING_BYTES,
-            undefined,
-          ),
-        ),
+            entries.length >= MOST_ENTRIES ? MOST_ENTRIES : undefined,
+          );
+        }),
       find: (directory, pattern, options) =>
         attempt(directory, async () => {
           const limit = Math.min(options.limit, MOST_FOUND);

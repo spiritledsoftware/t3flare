@@ -150,8 +150,8 @@ describe("a result cut at the Tool output limit names it (SPI-1388)", () => {
     await until(async () => (await results()).length === 2, "both results");
     for (const result of await results()) {
       const text = result.content.map((block) => ("text" in block ? block.text : "")).join("");
-      expect(text).toContain("Output truncated");
-      expect(text).toContain(`[warn] ${NOTE}`);
+      // The tool's diagnostics come first, pi-durable's own truncation last.
+      expect(text).toContain(`[warn] ${NOTE}\n[warn] Output truncated`);
     }
   });
 });

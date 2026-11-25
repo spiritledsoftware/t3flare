@@ -62,26 +62,28 @@ describe("project_context (SPI-1321, SPI-1388)", () => {
     expect(out).toContain(leftOut(`${ROOT}/pkg/AGENTS.md`, "Error: RPC failed"));
   });
 
-  it("takes a file that fits the project files' share of the prompt's Session row, and names one that does not", async () => {
+  it("takes a file while the whole section fits its share of the prompt's Session row, and names one that does not", async () => {
     expect(PROJECT_CONTEXT_BYTES).toBe((8_000_000 - 64 * 1024) / 2);
-    // Each file's stored size is its part's JSON bytes: its heading, and its text with JSON's escapes.
-    const sized = (path: string, bytes: number, character: string) => {
-      const head = jsonTextBytes(`## ${path}\n\n`);
-      return character.repeat(Math.floor((bytes - head) / jsonTextBytes(character)));
-    };
+    // The section's stored size counts its opening line, each file's part with the join before it, and any notes.
+    const opening = await render({}, ROOT);
+    const room = PROJECT_CONTEXT_BYTES - jsonTextBytes(opening);
     const path = `${ROOT}/AGENTS.md`;
-    // Just under: 7-byte escapes (a control character takes six), so fewer characters fill it.
-    const under = sized(path, PROJECT_CONTEXT_BYTES, "\u0001");
-    expect(jsonTextBytes(`## ${path}\n\n${under}`)).toBeLessThanOrEqual(PROJECT_CONTEXT_BYTES);
-    expect(await render({ [path]: `${under}` }, ROOT)).toContain(`## ${path}\n\n${under}`);
+    const partBytes = (text: string) => jsonTextBytes(`\n\n## ${path}\n\n${text}`);
+    const filling = (character: string) =>
+      character.repeat(Math.floor((room - partBytes("")) / jsonTextBytes(character)));
+    // Just under: 6-byte escapes (a control character), so fewer characters fill it.
+    const under = filling("\u0001");
+    const whole = await render({ [path]: under }, ROOT);
+    expect(whole).toContain(`## ${path}\n\n${under}`);
+    expect(jsonTextBytes(whole)).toBeLessThanOrEqual(PROJECT_CONTEXT_BYTES);
     // Just over, by one plain character: named in its place with its size, and CLAUDE.md read instead.
-    const over = `${sized(path, PROJECT_CONTEXT_BYTES, "a")}aa`;
-    const bytes = jsonTextBytes(`## ${path}\n\n${over}`);
-    expect(bytes).toBeGreaterThan(PROJECT_CONTEXT_BYTES);
+    const over = `${filling("a")}a`;
+    const bytes = partBytes(over);
+    expect(bytes).toBe(room + 1);
     const out = await render({ [path]: over, [`${ROOT}/CLAUDE.md`]: "small" }, ROOT);
-    expect(out).toContain(leftOut(path, tooLarge(bytes, PROJECT_CONTEXT_BYTES)));
+    expect(out).toContain(leftOut(path, tooLarge(bytes, room)));
     expect(out).toContain(
-      "past the 3,967,232 left of the 3,967,232 the project files may take of the prompt's one Session row, which Cloudflare refuses past 8 MB",
+      `past the ${room.toLocaleString("en-US")} left of the 3,967,232 the project files may take of the prompt's one Session row, which Cloudflare refuses past 8 MB`,
     );
     expect(out).not.toContain(over);
     expect(out).toContain(`## ${ROOT}/CLAUDE.md\n\nsmall`);

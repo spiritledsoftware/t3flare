@@ -14,6 +14,13 @@ export type ComputerFilesOptions = {
   readonly reachContainer?: boolean;
 };
 
+/**
+ * An answer as `Listed`: a Workspace DO deployed before SPI-1388 answers a bare array, which the Session, deployed
+ * first or after, takes as it is.
+ */
+const listedOf = <T>(value: Listed<T> | readonly T[]): Listed<T> =>
+  Array.isArray(value) ? { items: value } : (value as Listed<T>);
+
 /** File search over a Workspace DO stub. */
 export class ComputerFiles {
   readonly #call: Call;
@@ -28,7 +35,7 @@ export class ComputerFiles {
 
     if (!listed.ok) throw listed.error;
 
-    return listed.value;
+    return listedOf(listed.value);
   }
 
   async find(directory: string, pattern: string, options: FindOptions): Promise<Listed<FoundEntry>> {
@@ -36,7 +43,7 @@ export class ComputerFiles {
 
     if (!found.ok) throw found.error;
 
-    return found.value;
+    return listedOf(found.value);
   }
 
   async grep(pattern: string, path: string, options: GrepOptions): Promise<Listed<GrepMatch>> {
@@ -44,6 +51,6 @@ export class ComputerFiles {
 
     if (!matched.ok) throw matched.error;
 
-    return matched.value;
+    return listedOf(matched.value);
   }
 }

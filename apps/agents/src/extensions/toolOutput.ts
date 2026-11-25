@@ -57,8 +57,9 @@ export const outputSize = (limits: ToolOutputLimits): string =>
 const OUTPUT_KIB: SettingRef = { extension: TOOL_OUTPUT_EXTENSION, key: "outputKiB" };
 
 /**
- * What a result the Harness cut says after pi-durable's own "Output truncated…" (ADR-0049 §4): the limits it was cut
- * at, with their values, and where the Owner changes the KiB. A tool that names its own limits says they are its own.
+ * What a result the Harness cut says (ADR-0049 §4), as a diagnostic just before pi-durable's own "Output truncated…",
+ * which pi-durable adds after the tool's diagnostics: the limits it was cut at, with their values, and where the Owner
+ * changes the KiB. A tool that names its own limits says they are its own.
  */
 export const outputCutNote = (cutAt: ToolOutputLimits, limits: ToolOutputLimits): string =>
   cutAt.maxBytes === limits.maxBytes && cutAt.maxLines === limits.maxLines

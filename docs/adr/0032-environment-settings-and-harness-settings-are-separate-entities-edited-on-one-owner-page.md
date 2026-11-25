@@ -1063,7 +1063,7 @@ Owner's (2026-11-24).
   against pi-coding-agent 1.5.2), and, as in pi, a call's own `limit` may be larger: no cap of t3flare's remains, and
   the Tool output limit bounds what the model reads. A result stopped at its limit says so, with the value and how to
   ask for more, as pi's does. A `limit` is a whole number from 1 up to a safe integer; any other is refused. On the
-  Workspace DO, a search asks `@cloudflare/computer` for no more items than its answer's byte bound could carry, and
+  Workspace DO, a listing or search asks `@cloudflare/computer` for no more items than its answer's byte bound could carry, and
   the answer stays within the bound the Container's scripts keep (`LISTING_BYTES`, 1 MiB; `GREP_OUTPUT_BYTES`, 4 MiB),
   saying so when it stopped short.
 - **Derived:** the scrolled-off lines' bytes are half the Tool output limit's KiB (25 at its default 50).
@@ -1079,8 +1079,8 @@ Owner's (2026-11-24).
 - **A stored value** for any of these keys is dropped on resolve, never refused, and a change beside it is taken; a
   change that sets one is refused as an unknown setting. The agent Terminal requests no longer carry a quiet or a
   grace: the Workspace uses the constants.
-- **Every limit names itself when hit**, with its value: a result cut at the Tool output limit (after pi-durable's own
-  "Output truncated", a note naming the fixed 2,000 lines and the KiB setting and where to change it),
+- **Every limit names itself when hit**, with its value: a result cut at the Tool output limit (just before pi-durable's
+  own "Output truncated", which pi-durable adds last, a note naming the fixed 2,000 lines and the KiB setting and where to change it),
   `web_fetch`'s size limit, redirects and default time limit,
   `web_search`'s time limit, answer limit and summary tokens, a cut of the scrolled-off lines, a stop that outlived
   the grace (on its exit), a cut of a batch call's arguments and the evidence budget (in the Guardian's Review), the

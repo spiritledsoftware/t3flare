@@ -5,6 +5,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { getOrThrow } from "@earendil-works/pi-durable/env";
 import { describe, expect, it } from "vitest";
 import { type ContainerAccess, GREP_OUTPUT_BYTES, LISTING_BYTES } from "./container-files.ts";
+import { ComputerFiles } from "./files.ts";
 import { DEFAULT_STALE_TEMP_MS, TEMP_DIR, WorkspaceEnvHost } from "./host.ts";
 import type { EnvRequest } from "./wire.ts";
 
@@ -186,8 +187,13 @@ describe("WorkspaceEnvHost's searches on the Workspace (SPI-1388)", () => {
     // SAFETY: `readdir`, `find` and `grep` use only the same-named `fs` methods, which the fake answers.
     const workspace = {
       fs: {
-        readdir: async () =>
-          Array.from({ length: count }, (_, at) => ({ name: `${at}`.padEnd(width, "x"), isDirectory: false })),
+        readdir: async (_path: string, options: { limit: number }) => {
+          asked.push(options.limit);
+          return Array.from({ length: Math.min(count, options.limit) }, (_, at) => ({
+            name: `${at}`.padEnd(width, "x"),
+            isDirectory: false,
+          }));
+        },
         find: async (_directory: string, _pattern: string, options: { limit: number }) => {
           asked.push(options.limit);
           return Array.from({ length: Math.min(count, options.limit) }, (_, at) => ({
@@ -249,6 +255,17 @@ describe("WorkspaceEnvHost's searches on the Workspace (SPI-1388)", () => {
     expect(value.cut).toMatch(/the Workspace's fixed 1 MiB answer limit/);
   });
 
+  it("asks for no more entries than LISTING_BYTES carries, and names the stop", async () => {
+    const { host, asked } = searching(10_000_000, 1);
+    const answer = await host.handle(request({ op: "readdir", args: ["/workspace/repo"] }));
+    if (!answer.ok) throw new Error("refused");
+    const value = answer.value as { items: unknown[]; cut?: string };
+    expect(asked[0]).toBeLessThan(LISTING_BYTES / 40);
+    expect(asked[0]).toBeGreaterThan(LISTING_BYTES / 60);
+    expect(answerBytes(value.items)).toBeLessThanOrEqual(LISTING_BYTES);
+    expect(value.cut).toMatch(/the Workspace's fixed 1 MiB answer limit/);
+  });
+
   it("cuts a directory listing at LISTING_BYTES", async () => {
     const { host } = searching(5_000, 1_000);
     const answer = await host.handle(request({ op: "readdir", args: ["/workspace/repo"] }));
@@ -256,6 +273,31 @@ describe("WorkspaceEnvHost's searches on the Workspace (SPI-1388)", () => {
     const value = answer.value as { items: unknown[]; cut?: string };
     expect(answerBytes(value.items)).toBeLessThanOrEqual(LISTING_BYTES);
     expect(value.cut).toMatch(/more found past the Workspace's fixed 1 MiB answer limit$/);
+  });
+});
+
+describe("ComputerFiles across a deploy (SPI-1388)", () => {
+  it("takes a Workspace DO's bare array from before the bound as the whole answer, and a Listed one as it is", async () => {
+    const answering = (value: unknown) => new ComputerFiles({ fileOperation: async () => ({ ok: true, value }) });
+    const entry = { name: "a", isDirectory: false, isSymbolicLink: false };
+    expect(await answering([entry]).readdir("/workspace/repo")).toEqual({ items: [entry] });
+    expect(await answering({ items: [entry], cut: "why" }).readdir("/workspace/repo")).toEqual({
+      items: [entry],
+      cut: "why",
+    });
+    const found = { path: "/a", type: "file" };
+    expect(await answering([found]).find("/", "*", { limit: 1, exclude: [] })).toEqual({ items: [found] });
+    const match = { path: "/a", line: 1, text: "x" };
+    expect(
+      await answering([match]).grep("x", "/", {
+        ignoreCase: false,
+        regex: true,
+        context: 0,
+        limit: 1,
+        include: undefined,
+        exclude: [],
+      }),
+    ).toEqual({ items: [match] });
   });
 });
 

@@ -19,12 +19,18 @@ const NAMES = ["AGENTS.md", "CLAUDE.md"] as const;
 const ABSENT = new Set(["not_found", "is_directory", "not_directory"]);
 
 /**
- * The most bytes the project files take of the `pi.system` row, stored (UTF-8 with JSON's escapes, `jsonTextBytes`).
+ * The most bytes the section takes of the `pi.system` row, stored (UTF-8 with JSON's escapes, `jsonTextBytes`): its
+ * opening line, the files, the joins between them and any notes. A file that would take it past this is left out, named.
  * A named constraint, derived from Cloudflare's 8 MB row (`SESSION_ROW_BYTES`, less its record): a baseline entry holds
  * every section and every tool declaration together, so the files take half, as a tool result's text does
- * (`MAX_TOOL_OUTPUT_KIB`), and the rest of the prompt the other half.
+ * (`MAX_TOOL_OUTPUT_KIB`), and the rest of the prompt the other half. About 3.97 MB is roughly a million tokens, at or
+ * above a model's own context limit but for 2M-token models, so a file this bound refuses would fail locally too (the
+ * Owner's choice, 2026-11-25).
  */
 export const PROJECT_CONTEXT_BYTES = Math.floor((SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES) / 2);
+
+/** The bytes `part` adds to the section, stored: itself, and the `"\n\n"` that joins it to the part before. */
+const jsonPartBytes = (part: string, join = "\n\n"): number => jsonTextBytes(`${join}${part}`);
 
 /** The directories from `root` down to `cwd` (just `root` when `cwd` is outside it). */
 const chain = (root: string, cwd: string): ReadonlyArray<string> => {
@@ -52,7 +58,13 @@ export const projectContext = (root: string): Extension =>
         const parts: Array<string> = [
           `You work in a git repository at ${root}, the owner's project. Its files are yours to read and change; the owner reviews your changes as a diff.`,
         ];
-        let used = 0;
+        // The whole section, stored: its opening line, each part, the joins between them, and the notes of files left
+        // out, so a file is taken only while the section stays within `PROJECT_CONTEXT_BYTES`.
+        let used = jsonPartBytes(parts[0]!, "");
+        const note = (text: string) => {
+          used += jsonPartBytes(text);
+          parts.push(text);
+        };
         for (const directory of chain(root, env.cwd)) {
           for (const name of NAMES) {
             const path = `${directory}/${name}`;
@@ -60,13 +72,13 @@ export const projectContext = (root: string): Extension =>
               .readTextFile(path, context)
               .catch((error: unknown) => ({ ok: false as const, error: { code: "unknown", message: String(error) } }));
             if (!read.ok) {
-              if (!ABSENT.has(read.error.code)) parts.push(leftOut(path, read.error.message));
+              if (!ABSENT.has(read.error.code)) note(leftOut(path, read.error.message));
               continue;
             }
             const part = `## ${path}\n\n${read.value.trim()}`;
-            const bytes = jsonTextBytes(part);
+            const bytes = jsonPartBytes(part);
             if (used + bytes > PROJECT_CONTEXT_BYTES) {
-              parts.push(leftOut(path, tooLarge(bytes, PROJECT_CONTEXT_BYTES - used)));
+              note(leftOut(path, tooLarge(bytes, PROJECT_CONTEXT_BYTES - used)));
               continue;
             }
             used += bytes;
