@@ -241,17 +241,21 @@ describe("the Advisor", () => {
 
   it("names Tool rounds per Review, its value and where to change it, when a Review uses its rounds without a report (SPI-1433)", async () => {
     expect(toolRoundsText(8)).toBe(
-      "the Review stopped at its 8-round Tool rounds per Review limit without a report; change it under Extensions › Advisor › Advanced › Tool rounds per Review",
+      "the Review used its 8-round Tool rounds per Review limit and called tools again instead of reporting; change it under Extensions › Advisor › Advanced › Tool rounds per Review",
     );
     const read = (id: string) =>
       fauxAssistantMessage([fauxToolCall("read", { path: "CHANGELOG.md" }, { id })], { stopReason: "toolUse" });
-    const { entries, status, observer } = await run(
+    const { entries, status, observer, advisorRequests } = await run(
       { ...SETTINGS, reviewEvery: "request", maxToolRounds: 1 },
       [bash("ls", "c1"), fauxAssistantMessage("Listed.")],
       [read("r1"), read("r2"), read("r3")],
     );
     expect(status.status).toBe("done");
     expect(observer.paused).toBe(toolRoundsText(1));
+    // Its one round, then the turn left for its report, which it spent on tools: pi-durable runs that round's tools, then
+    // ends the Review. The Advisor was told its rounds.
+    expect(advisorRequests).toHaveLength(2);
+    expect(JSON.stringify(advisorRequests[0]?.transcript)).toContain("in at most 1 rounds of tool calls");
     const notice = entries.find((entry) => entry.kind === ADVICE_ENTRY);
     expect(notice?.data).toEqual({
       severity: "paused",
@@ -300,7 +304,7 @@ describe("the Advisor", () => {
   it("delivers at most maxFindings per Review, and its prompts ask for at most that many (SPI-1320)", async () => {
     expect(SETTINGS.maxFindings).toBe(4);
     const logged = vi.spyOn(console, "log");
-    expect(advisorPrompt(1)).toContain("at most 1 findings");
+    expect(advisorPrompt(1, SETTINGS.maxToolRounds)).toContain("at most 1 findings");
     const { entries, advisorPrompts } = await run(
       { ...SETTINGS, reviewEvery: "request", maxFindings: 1 },
       [bash("rm CHANGELOG.md", "c1"), fauxAssistantMessage("Updated the changelog.")],

@@ -19,7 +19,9 @@ export type OmittedLine = (omitted: number, repoSkills: number | undefined) => s
 
 const omittedCount: OmittedLine = (omitted) => `${omitted} more skills in this repository are not listed.`;
 
-/** The listing of `discovery`'s skills, `omittedLine` saying what the cap left out; empty when there is nothing to list. */
+/**
+ * The listing of `discovery`'s skills, `omittedLine` saying what the cap left out; empty when there is nothing to list.
+ */
 export const formatSkills = (
   discovery: Pick<SkillDiscovery, "skills" | "omitted" | "repoSkills">,
   omittedLine: OmittedLine = omittedCount,

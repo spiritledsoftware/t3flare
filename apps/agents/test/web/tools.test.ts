@@ -334,9 +334,14 @@ describe("web_search", () => {
     const line =
       "The search model stopped at its 3-search Searches per call limit; change it under Tools › Web tools › Advanced › Searches per call.";
     const tool = (transport: WebTransport) => webSearchTool(transport, endpoint, limits({ searchesPerCall: 3 }));
-    const found = textOf(await run(tool(capped(answer.content).transport), { query: "q" }));
+    const outcome = await run(tool(capped(answer.content).transport), { query: "q" });
+    const found = textOf(outcome);
     expect(found).toContain("Title: One");
     expect(found.endsWith(`\n\n${line}`)).toBe(true);
+    // A code mode script reads the structured result: its content ends with the line too.
+    const structured = outcome.ok ? (outcome.result.structuredOutput as { content: string }) : undefined;
+    expect(structured?.content).toContain("Title: One");
+    expect(structured?.content.endsWith(`\n\n${line}`)).toBe(true);
     // No results: the answer says so, then the limit; not a failed search.
     const none = textOf(await run(tool(capped([]).transport), { query: "q" }));
     expect(none).not.toContain("Unable to search");
@@ -353,8 +358,9 @@ describe("web_search", () => {
       `Unable to search the web for q: the search failed (too_many_requests). ${line}`,
     );
     // Without the cut, nothing.
-    const whole = textOf(await run(tool(network(() => Response.json(answer)).transport), { query: "q" }));
-    expect(whole).not.toContain("Searches per call");
+    const uncut = await run(tool(network(() => Response.json(answer)).transport), { query: "q" });
+    expect(textOf(uncut)).not.toContain("Searches per call");
+    expect(JSON.stringify(uncut.ok && uncut.result.structuredOutput)).not.toContain("Searches per call");
   });
 
   it("keeps the Searches per call line when the Tool output limit cuts the results (SPI-1433)", async () => {

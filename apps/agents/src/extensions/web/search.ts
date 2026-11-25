@@ -153,7 +153,7 @@ const outputSchema = (characters: number) => ({
     provider: { type: "string", description: "Who searched: the Model endpoint's search-capable model" },
     content: {
       type: "string",
-      description: `The results and summary, trimmed to numResults and cut at contextMaxCharacters (default ${characters.toLocaleString("en-US")}), then at 1 MiB of JSON`,
+      description: `The results and summary, trimmed to numResults and cut at contextMaxCharacters (default ${characters.toLocaleString("en-US")}), then at 1 MiB of JSON; when the search model stopped at its Searches per call limit, a last line saying so`,
     },
     truncated: {
       type: "boolean",
@@ -266,6 +266,18 @@ export const searchesCappedText = (searches: number): string =>
     extension: "web",
     key: "searchesPerCall",
   });
+
+/** What sets a limit's line apart from the results before it: a blank line. */
+const LIMIT_LINE_SEPARATOR = "\n\n";
+
+/** `output` less what `line` (the separator and a limit's line, or nothing) takes, so the results fit beside it. */
+const withRoomFor = (line: string, output: ToolOutputLimits): ToolOutputLimits =>
+  line === ""
+    ? output
+    : {
+        maxBytes: output.maxBytes - new TextEncoder().encode(line).length,
+        maxLines: output.maxLines - (line.split("\n").length - 1),
+      };
 
 /** The results in Exa's `Title:`/`URL:` shape (so `limitSearchText` shares its budget), then the summary. */
 export const resultText = (results: ReadonlyArray<SearchResult>, summary: string): string => {
@@ -404,24 +416,23 @@ export const webSearchTool = (
         results.length === 0 && read.summary === ""
           ? NO_SEARCH_RESULTS
           : limitSearchText(resultText(results, read.summary), args.contextMaxCharacters, characters);
-      // The limit's line follows the results, outside the fit, so a cut never drops it: the fit leaves it room.
-      const line = capped === undefined ? "" : `\n\n${capped}`;
+      // The limit's line follows the results, in the model's text and a script's alike, outside each cut, so a cut never
+      // drops it: each cut leaves it room.
+      const line = capped === undefined ? "" : `${LIMIT_LINE_SEPARATOR}${capped}`;
       const fitted = fitOutput(
         content,
         "Lower contextMaxCharacters or narrow the query to read less per search.",
-        line === ""
-          ? output
-          : { maxBytes: output.maxBytes - new TextEncoder().encode(line).length, maxLines: output.maxLines - 2 },
+        withRoomFor(line, output),
       );
       const usage = usageOf(read.usage);
       // Cut in JSON bytes, as the row holds it: escapes can take six bytes for one of text.
-      const structured = content.slice(0, jsonTextPrefix(content, STRUCTURED_MAX_BYTES));
+      const kept = jsonTextPrefix(content, STRUCTURED_MAX_BYTES - jsonTextBytes(line));
       return {
         output: [{ type: "text" as const, text: `${fitted.content}${line}` }],
         structuredOutput: {
           provider: `model-endpoint:${target.slug}`,
-          content: structured,
-          truncated: structured.length < content.length || results.length < asked.length,
+          content: `${content.slice(0, kept)}${line}`,
+          truncated: kept < content.length || results.length < asked.length,
           results: results.map(programOf),
         },
         // What t3's web item shows (the differ): the query and each page found, its snippet whole.

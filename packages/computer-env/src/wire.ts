@@ -39,8 +39,8 @@ export type WireSkill = {
 
 /**
  * The Workspace DO's answer to `skills` (SPI-1147): the skills found, those skipped and why, how many the cap left out,
- * and the cap when it left any out (SPI-1433). It restates `@t3flare/skills`' `SkillDiscovery` rather than importing it, as `WireSkill` does, so this package
- * keeps no dependency on the discovery code (and its YAML parser).
+ * and the cap when it left any out (SPI-1433). It restates `@t3flare/skills`' `SkillDiscovery` rather than importing
+ * it, as `WireSkill` does, so this package keeps no dependency on the discovery code (and its YAML parser).
  */
 export type WireSkillDiscovery = {
   readonly skills: ReadonlyArray<WireSkill>;
