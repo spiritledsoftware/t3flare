@@ -6,7 +6,14 @@
 // cards came this way until the back-to-stock cut, owner 2026-11-12.)
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { MessageId, ProviderDriverKind, ProviderInstanceId, ProviderSessionId, ThreadId } from "@t3tools/contracts";
+import {
+  MessageId,
+  type OrchestrationV2RuntimeRequest,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ProviderSessionId,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
 import { makeAcpAdapterV2, type AcpAdapterV2RuntimeInput } from "@t3tools/provider-acp/server/adapter";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -36,7 +43,11 @@ import {
   cliQuestionAsker,
   registerCliAsker,
 } from "../src/provider/cli/cliAsk.ts";
-import { type CliSessions, PARKED_CALL_TEXT, wrapCliAdapter, type WrapOptions } from "../src/provider/cli/wrapper.ts";
+import { type CliSessions, wrapCliAdapter, type WrapOptions } from "../src/provider/cli/wrapper.ts";
+import { parkedCallText } from "../src/provider/cli/park.ts";
+import { nativeCallRecorder } from "../src/provider/cli/nativeCalls.ts";
+import { argsHashOf } from "../src/mcp/canonical.ts";
+import { PARKED_OWNER_ONLY_REFUSAL, refuseOwnerOnly } from "../src/mcp/ownerOnly.ts";
 import type { ChannelProcess } from "../src/agents/processChannel.ts";
 import { parkedCards } from "../src/provider/cli/parked.ts";
 import { nodeSqlStorage } from "./nodeSqlStorage.ts";
@@ -81,10 +92,50 @@ const HOLD = {
   request: {
     method: "session/request_permission",
     params: {
-      toolCall: { toolCallId: "tc-hold", kind: "execute", title: "execute ls", locations: [], rawInput: {} },
+      toolCall: {
+        toolCallId: "tc-hold",
+        kind: "execute",
+        title: "execute ls",
+        locations: [],
+        rawInput: { command: "ls" },
+      },
       options: OPTIONS,
     },
   },
+};
+/** Another command under the same title (SPI-1389): a parked `ls`'s allowance must not let it through. */
+const HOLD_OTHER = {
+  request: {
+    method: "session/request_permission",
+    params: {
+      toolCall: {
+        toolCallId: "tc-other",
+        kind: "execute",
+        title: "execute ls",
+        locations: [],
+        rawInput: { command: "rm -rf /" },
+      },
+      options: OPTIONS,
+    },
+  },
+};
+
+/**
+ * The CLI's own requests' whole calls as the spawner reads them off the agent's stdout (`nativeCalls.ts`): the scripted
+ * agent's requests, given to the real recorder as the agent writes them.
+ */
+const scriptedNativeCalls = () => {
+  const recorder = nativeCallRecorder("acp");
+  for (const step of [HOLD, HOLD_OTHER])
+    recorder.observe(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: step.request.method,
+        params: { sessionId: "s", ...step.request.params },
+      }),
+    );
+  return (_session: unknown, nativeId: string) => recorder.callOf(nativeId);
 };
 
 const layerTest = Layer.mergeAll(
@@ -235,8 +286,7 @@ const ask = (harness: Harness, askId: string) =>
       title: "Allow fixture: fixture_note?",
       summary: 'fixture_note {"line":"x"}',
       detail: "fixture: fixture_note",
-      tool: "fixture/fixture_note",
-      argsHash: "h1",
+      call: { tool: "fixture/fixture_note", argsHash: "h1" },
     }),
   );
 
@@ -481,8 +531,7 @@ describe("a CLI card waits until it is answered (SPI-1389)", () => {
       title: "t",
       summary: "s",
       detail: "",
-      tool: "srv/t",
-      argsHash: "h",
+      call: { tool: "srv/t", argsHash: "h" },
     });
 
   it("arms no timer: a tool card's signal is only the agent's going away", async () => {
@@ -490,7 +539,7 @@ describe("a CLI card waits until it is answered (SPI-1389)", () => {
     const pending = approve("wait-thread-1");
     await Promise.resolve();
     expect(silent.asked[0]!.signal.aborted).toBe(false);
-    expect(silent.asked[0]!.ask.park).toEqual({ kind: "tool", tool: "srv/t", argsHash: "h" });
+    expect(silent.asked[0]!.ask.park).toEqual({ kind: "tool", call: { tool: "srv/t", argsHash: "h" } });
     cancelCliAsk("ask-wait-thread-1");
     expect(await pending).toEqual({ approved: false, reason: "the agent went away" });
     silent.unregister();
@@ -503,11 +552,12 @@ describe("a CLI card waits until it is answered (SPI-1389)", () => {
     expect(await cliQuestionAsker("wait-thread-2").ask(question)).toEqual({
       decision: "cancel",
       reason: PARKED_REASON,
+      parked: "Parked.",
     });
-    expect(parked.asked[1]!.ask.park).toEqual({ kind: "question", tool: "fixture", argsHash: "" });
+    expect(parked.asked[1]!.ask.park).toEqual({ kind: "question", server: "fixture" });
     // The Settings server's card names its Open change: its park keeps the change.
     await cliQuestionAsker("wait-thread-2").ask({ ...question, server: "settings", changeId: "chg_1" });
-    expect(parked.asked[2]!.ask.park).toEqual({ kind: "change", tool: "settings", argsHash: "", changeId: "chg_1" });
+    expect(parked.asked[2]!.ask.park).toEqual({ kind: "change", server: "settings", changeId: "chg_1" });
     parked.unregister();
   });
 });
@@ -530,119 +580,197 @@ describe("a CLI agent's turn parks after Park after, and its answer resumes it (
     event.runtimeRequest.id.includes(":t3flare-park:") &&
     event.runtimeRequest.status === "pending";
 
-  it("raises each open card again as a question, answers the held call parked, cancels the CLI's own request, keeps both, and ends the turn and the process; each answer allows its call once", () =>
+  it("raises each open card again as an owner-only question, answers the held calls parked, cancels the CLI's own request, keeps all three, and ends the turn and the process; each answer resumes, and an allow lets its whole call run once", () =>
     test(
       Effect.gen(function* () {
         const store = parkedCards(nodeSqlStorage());
         let parkMs = 150;
-        const harness = yield* session({ parkAfterMs: () => parkMs, parked: () => store }, [[HOLD], [HOLD], [HOLD]]);
+        const changes: Array<[string, boolean]> = [];
+        const harness = yield* session(
+          {
+            parkAfterMs: () => parkMs,
+            parked: () => store,
+            nativeCallOf: scriptedNativeCalls(),
+            answerParkedChange: async (changeId, approve) => {
+              changes.push([changeId, approve]);
+              return "Applied: the owner approved it on the card.";
+            },
+          },
+          [[HOLD], [HOLD], [HOLD], [HOLD_OTHER]],
+        );
         const process = fakeProcess(harness);
         yield* startTurn(harness);
         const held = yield* ask(harness, "ask-park").pipe(Effect.forkScoped);
-        const first = yield* harness.until(isPark);
-        const second = yield* harness.until(isPark);
-        const parks = [first, second].flatMap((event) =>
-          event.type === "runtime_request.updated" ? [event.runtimeRequest] : [],
-        );
+        const change = yield* Effect.promise(() =>
+          cliQuestionAsker(harness.threadId).ask({
+            id: "t3flare-elicit-change-1",
+            kind: "approval",
+            server: "settings",
+            title: "settings: change_environment?",
+            prompt: "An agent asks to change the Environment settings.",
+            options: [
+              { decision: "accept", label: "Approve" },
+              { decision: "decline", label: "Decline" },
+            ],
+            changeId: "chg_1",
+          }),
+        ).pipe(Effect.forkScoped);
+        const parks: Array<OrchestrationV2RuntimeRequest> = [];
+        for (let index = 0; index < 3; index++) {
+          const event = yield* harness.until(isPark);
+          if (event.type === "runtime_request.updated") parks.push(event.runtimeRequest);
+        }
         // Non-blocking questions: t3 sends their answers as messages, and they outlive the turn.
         for (const request of parks) {
           expect(request.kind).toBe("user_input");
           expect(request.responseCapability).toEqual({ type: "message" });
         }
-        expect(yield* Fiber.join(held)).toEqual({ approved: false, parked: PARKED_CALL_TEXT });
+        // The held calls' answers name the limit, its value and where to change it.
+        const heldAnswer = yield* Fiber.join(held);
+        expect(heldAnswer).toEqual({
+          approved: false,
+          parked: parkedCallText({ by: "park", minutes: 150 / 60_000 }, "tool"),
+        });
+        expect(heldAnswer.parked).toContain("Park after, its 1-minute time limit; change it under");
+        expect(heldAnswer.parked).toContain("Park after (minutes)");
+        const changeAnswer = yield* Fiber.join(change);
+        expect(changeAnswer).toMatchObject({ decision: "cancel", reason: PARKED_REASON });
+        expect(changeAnswer.parked).toContain("The change stays open");
         yield* harness.until((event) => event.type === "turn.terminal");
         expect(process.kill).toBe(1);
         // The CLI's own request was cancelled, never allowed.
-        expect(
+        const outcomes = () =>
           harness
             .agentLog()
-            .filter((entry) => (entry as { answered?: string }).answered === "session/request_permission"),
-        ).toEqual([{ answered: "session/request_permission", result: { outcome: { outcome: "cancelled" } } }]);
+            .filter((entry) => (entry as { answered?: string }).answered === "session/request_permission")
+            .map((entry) => (entry as { result?: { outcome?: unknown } }).result?.outcome);
+        expect(outcomes()).toEqual([{ outcome: "cancelled" }]);
         const records = parks.map((request) => store.get(request.id)!);
-        expect(
-          records.map((record) => [record.kind, record.thread]).toSorted(([a], [b]) => a!.localeCompare(b!)),
-        ).toEqual([
-          ["native", harness.threadId],
-          ["tool", harness.threadId],
-        ]);
-        const tool = records.find((record) => record.kind === "tool")!;
-        const native = records.find((record) => record.kind === "native")!;
-        expect([tool.tool, tool.argsHash, tool.title]).toEqual([
-          "fixture/fixture_note",
-          "h1",
+        const byKind = (kind: string) => records.find((record) => record.kind === kind)!;
+        const tool = byKind("tool");
+        const native = byKind("native");
+        const parkedChange = byKind("change");
+        expect(records.every((record) => record.thread === harness.threadId)).toBe(true);
+        expect([tool.call, tool.title]).toEqual([
+          { tool: "fixture/fixture_note", argsHash: "h1" },
           "Allow fixture: fixture_note?",
         ]);
+        expect(parkedChange).toMatchObject({ server: "settings", changeId: "chg_1" });
+        // The native request's call is its whole raw input, as the process sent it.
+        expect(native.call).toEqual({
+          tool: "command",
+          argsHash: yield* Effect.promise(() => argsHashOf({ kind: "execute", rawInput: { command: "ls" } })),
+        });
+        // Only the Owner answers a parked question: an agent's t3_pending_request on one is refused.
+        for (const parkedCard of [tool, parkedChange])
+          expect(
+            refuseOwnerOnly(
+              yield* encodeJson({
+                jsonrpc: "2.0",
+                id: 1,
+                method: "tools/call",
+                params: {
+                  name: "t3_pending_request",
+                  arguments: { action: "respond", requestId: parkedCard.id, answers: { decision: "Allow" } },
+                },
+              }),
+            ),
+          ).toContain(PARKED_OWNER_ONLY_REFUSAL);
         // The question says it parked and where Park after is changed.
-        const item = harness.seen.find(
-          (event) =>
-            event.type === "turn_item.updated" &&
-            event.turnItem.type === "user_input_request" &&
-            event.turnItem.requestId === tool.id,
+        const questionOf = (id: string) => {
+          const item = harness.seen.find(
+            (event) =>
+              event.type === "turn_item.updated" &&
+              event.turnItem.type === "user_input_request" &&
+              event.turnItem.requestId === id,
+          );
+          if (item?.type !== "turn_item.updated" || item.turnItem.type !== "user_input_request")
+            throw new Error("expected the park question's item");
+          return item.turnItem.questions[0]!;
+        };
+        expect(questionOf(tool.id).question).toContain(
+          "The turn parked: the card waited Park after, its 1-minute time limit; change it under",
         );
-        if (item?.type !== "turn_item.updated" || item.turnItem.type !== "user_input_request")
-          throw new Error("expected the park question's item");
-        expect(item.turnItem.questions[0]!.question).toContain(
-          "The turn parked: this card reached its 1-minute time limit; change it under",
-        );
-        expect(item.turnItem.questions[0]!.question).toContain("Park after (minutes)");
-        expect(item.turnItem.questions[0]!.options.map((option) => option.label)).toEqual([
+        expect(questionOf(tool.id).options.map((option) => option.label)).toEqual([
           "Allow",
           "Allow for this session",
           "Decline",
         ]);
+        expect(questionOf(parkedChange.id).options.map((option) => option.label)).toEqual(["Approve", "Decline"]);
 
         // The tool's answer: a new turn that tells the agent what to repeat, with a one-time allowance for that call.
         parkMs = 0;
         // Its prompt asks the same request again, which still waits (its own answer is not in yet).
         const again = yield* startTurn(harness, {
           messageId: `async-answer:${tool.id}`,
-          text: `${item.turnItem.questions[0]!.question}\nAllow`,
+          text: `${questionOf(tool.id).question}\nAllow`,
           ordinal: 2,
         });
-        const prompts = harness.agentLog().filter((entry) => entry.received === "session/prompt");
-        expect(yield* encodeJson(prompts.at(-1)!.params)).toContain(
-          "Repeat that call now with exactly the same arguments",
-        );
+        const lastPrompt = () =>
+          encodeJson(
+            harness
+              .agentLog()
+              .filter((entry) => entry.received === "session/prompt")
+              .at(-1)!.params,
+          );
+        expect(yield* lastPrompt()).toContain("Repeat it now exactly as before: it runs once without asking.");
         expect(store.get(tool.id)).toBeUndefined();
-        expect(store.take(harness.threadId, "tool", "fixture/fixture_note", "h2")).toBeUndefined();
-        expect(store.take(harness.threadId, "tool", "fixture/fixture_note", "h1")).toEqual({ forSession: false });
-        expect(store.take(harness.threadId, "tool", "fixture/fixture_note", "h1")).toBeUndefined();
+        expect(store.take(harness.threadId, "tool", { tool: "fixture/fixture_note", argsHash: "h2" })).toBeUndefined();
+        expect(store.take(harness.threadId, "tool", { tool: "fixture/fixture_note", argsHash: "h1" })).toEqual({
+          forSession: false,
+        });
+        expect(store.take(harness.threadId, "tool", { tool: "fixture/fixture_note", argsHash: "h1" })).toBeUndefined();
         yield* harness.runtime.respondToRuntimeRequest({ requestId: again.id, decision: "decline" });
         yield* harness.until((event) => event.type === "turn.terminal");
 
-        // The native request's answer: its repeat is allowed once, by the wrapper, without the Owner.
-        yield* harness.runtime.startTurn({
-          ...makeTurnInput({
-            threadId: harness.threadId,
-            providerThread: harness.providerThread,
-            instanceId: harness.instanceId,
-            runtimePolicy: harness.runtimePolicy,
-            now: yield* DateTime.now,
-            modelSelection: harness.modelSelection,
-            ordinal: 3,
-            messageText: "Parked\nAllow",
-          }),
-          message: {
-            messageId: MessageId.make(`async-answer:${native.id}`),
-            text: "Parked\nAllow",
-            attachments: [],
-            createdBy: "user",
-            creationSource: "server",
-          },
+        // The change's answer: the Open change is answered as the card would, and the agent told the outcome.
+        const answerTurn = Effect.fn("answerTurn")(function* (id: string, reply: string, ordinal: number) {
+          yield* harness.runtime.startTurn({
+            ...makeTurnInput({
+              threadId: harness.threadId,
+              providerThread: harness.providerThread,
+              instanceId: harness.instanceId,
+              runtimePolicy: harness.runtimePolicy,
+              now: yield* DateTime.now,
+              modelSelection: harness.modelSelection,
+              ordinal,
+              messageText: reply,
+            }),
+            message: {
+              messageId: MessageId.make(`async-answer:${id}`),
+              text: reply,
+              attachments: [],
+              createdBy: "user",
+              creationSource: "server",
+            },
+          });
         });
+        // The native request's answer: its repeat, the same whole call, is allowed once by the wrapper.
+        yield* answerTurn(native.id, "Parked\nAllow", 3);
         const done = yield* harness.until((event) => event.type === "turn.terminal");
         expect(done.type === "turn.terminal" && done.status).toBe("completed");
-        expect(
-          harness
-            .agentLog()
-            .filter((entry) => (entry as { answered?: string }).answered === "session/request_permission")
-            .map((entry) => (entry as { result?: { outcome?: unknown } }).result?.outcome),
-        ).toEqual([
+        expect(outcomes()).toEqual([
           { outcome: "cancelled" },
           { outcome: "selected", optionId: "reject" },
           { outcome: "selected", optionId: "allow-once" },
         ]);
-        expect(store.threads()).toEqual([]);
+        // Another command under the same title does not match an allowance for `ls`: the Owner is asked again.
+        store.park({ ...native, id: `${native.id}-2` });
+        store.answer(`${native.id}-2`, "accept");
+        yield* answerTurn(parkedChange.id, "Parked\nApprove", 4);
+        const other = yield* harness.until(
+          (event) =>
+            event.type === "runtime_request.updated" &&
+            event.runtimeRequest.status === "pending" &&
+            !event.runtimeRequest.id.includes(":t3flare-"),
+        );
+        expect(changes).toEqual([["chg_1", true]]);
+        expect(yield* lastPrompt()).toContain("Applied: the owner approved it on the card.");
+        if (other.type !== "runtime_request.updated") throw new Error("expected the agent's request");
+        yield* harness.runtime.respondToRuntimeRequest({ requestId: other.runtimeRequest.id, decision: "decline" });
+        yield* harness.until((event) => event.type === "turn.terminal");
+        expect(outcomes().at(-1)).toEqual({ outcome: "selected", optionId: "reject" });
+        expect(store.nativeSessions()).toEqual([]);
       }),
     ));
 
@@ -663,7 +791,7 @@ describe("a CLI agent's turn parks after Park after, and its answer resumes it (
           item?.type === "turn_item.updated" &&
             item.turnItem.type === "user_input_request" &&
             item.turnItem.questions[0]!.question,
-        ).toContain("The turn parked: it reached the Turn limit, its 1-minute time limit");
+        ).toContain("The turn parked: the card waited the Turn limit, its 1-minute time limit");
         yield* harness.until((event) => event.type === "turn.terminal");
         expect(process.kill).toBe(1);
       }),

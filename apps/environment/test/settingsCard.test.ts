@@ -246,7 +246,7 @@ describe("the asked change's wait (SPI-1316, SPI-1389)", () => {
 
   it("records expiresAt = createdAt + the wait, and closes unanswered after it, saying how long it waited", async () => {
     // The real path: no cardWaitMs, so the call's timer is the record's own expiresAt - createdAt.
-    fixture = settingsFixture({ answer: open, answerMs: () => 40 });
+    fixture = settingsFixture({ answer: open, changeWaitMs: () => 40 });
     const run = fixture;
     const answer = await run.call(run.durable(), "change_environment", ASKED);
     expect(structured(answer)).toMatchObject({ status: "expired" });
@@ -256,7 +256,10 @@ describe("the asked change's wait (SPI-1316, SPI-1389)", () => {
   });
 
   it("at one minute, an Open change records createdAt + 60,000, and its expired text names a minute", async () => {
-    fixture = settingsFixture({ answer: { decision: "cancel", reason: "no answer in time" }, answerMs: () => 60_000 });
+    fixture = settingsFixture({
+      answer: { decision: "cancel", reason: "no answer in time" },
+      changeWaitMs: () => 60_000,
+    });
     const run = fixture;
     await run.call(run.durable(), "change_environment", ASKED);
     const record = opened(run)!;

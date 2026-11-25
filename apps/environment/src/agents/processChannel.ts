@@ -13,6 +13,7 @@
 // - The Workspace DO's epoch (its boot counter) is the one its start answered; another in any answer, or the key
 //   unknown, ends the process with 129: the Workspace restarted and its processes went with it.
 // - pids are synthetic and unique per instance (> 1: t3's `signalProcessGroup` refuses `pid <= 1`).
+import type { NativeCallRecorder } from "../provider/cli/nativeCalls.ts";
 import type { EndpointFailureRecord } from "@t3flare/session-protocol";
 import type {
   ProcessAnswer,
@@ -154,6 +155,8 @@ export class ChannelProcess {
   readonly cli: ProcessCli;
   /** Park after as it was spawned with, in ms (`ChannelStart.parkAfterMs`, SPI-1389). */
   parkAfterMs: number | undefined;
+  /** The CLI's own approval requests read off its stdout (SPI-1389), set by the spawner. */
+  nativeCalls: NativeCallRecorder | undefined;
   readonly stdout = new ByteQueue(QUEUE_BYTES, "wait");
   readonly stderr = new ByteQueue(QUEUE_BYTES, "drop-oldest");
   readonly exit: Promise<number>;
@@ -325,6 +328,8 @@ export interface ChannelStart {
   readonly files?: ProcessStartInput["files"];
   readonly links?: ProcessStartInput["links"];
   readonly prune?: ProcessStartInput["prune"];
+  /** SPI-1389: parked sessions kept from pruning (`ProcessStartInput.keep`). */
+  readonly keep?: ProcessStartInput["keep"];
   readonly thread?: string;
   /** The process's tool handle for the MCP relay (ADR-0028). */
   readonly toolHandle?: string;
@@ -405,6 +410,7 @@ export class ProcessChannel {
         ...(input.files === undefined ? {} : { files: input.files }),
         ...(input.links === undefined ? {} : { links: input.links }),
         ...(input.prune === undefined ? {} : { prune: input.prune }),
+        ...(input.keep === undefined ? {} : { keep: input.keep }),
         ...(input.thread === undefined ? {} : { thread: input.thread }),
         ...(input.toolHandle === undefined ? {} : { toolHandle: input.toolHandle }),
         ...(input.modelRelay === undefined ? {} : { modelRelay: input.modelRelay }),

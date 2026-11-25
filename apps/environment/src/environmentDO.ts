@@ -36,7 +36,7 @@ import {
 } from "@t3flare/harness-registry";
 
 import { bindEnvironmentServices, environmentServices } from "./agents/bindings.ts";
-import { parkedCards } from "./provider/cli/parked.ts";
+import { type ParkedCall, parkedCards } from "./provider/cli/parked.ts";
 import { graceMoved, ownerSweep, SweepWake } from "./agents/sweepWake.ts";
 import { GitHubTokens } from "./agents/github.ts";
 import { deliverPush } from "./agents/sessionSink.ts";
@@ -774,15 +774,11 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
           : caller.agent === DURABLE_AGENT
             ? durableModes(caller.thread)
             : cliThreadState(caller.thread),
-      changes: settingsChanges(
-        this.ctx.storage.sql,
-        Date.now,
-        (event) => console.log(JSON.stringify(event)),
-        // SPI-1389: an asked change waits until it is answered (`CARD_WAIT_MS`).
-        undefined,
+      changes: settingsChanges(this.ctx.storage.sql, {
+        log: (event) => console.log(JSON.stringify(event)),
         // SPI-1322: the Settings server's limits as stored now, which a closed row's keeping covers.
-        () => settingsServerLimitsOf(store.load()),
-      ),
+        limits: () => settingsServerLimitsOf(store.load()),
+      }),
       origin: () =>
         this.env.T3FLARE_HOST === undefined && this.#host === undefined
           ? undefined
@@ -961,8 +957,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         ...(parked === undefined
           ? {}
           : {
-              allowance: (thread: string, tool: string, argsHash: string) =>
-                parked.take(thread, "tool", tool, argsHash),
+              allowance: (thread: string, call: ParkedCall) => parked.take(thread, "tool", call),
             }),
         openPerThread: () => settingsServerLimitsOf(harnessStore(this.ctx.storage.kv).load()).openPerThread,
         accepted: {

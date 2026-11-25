@@ -132,26 +132,16 @@ const answeredOf = (api, parsed) => {
         : last?.type === "function_call_output";
 };
 
-/** The shell tool's name a request offers, if it offers one and its last message is not a tool result (a new turn). */
+/**
+ * The shell tool's name a request offers, if it offers one and its last message (past Claude Code's system notes) is not a
+ * tool result (a new turn).
+ */
 const shellToolOf = (api, parsed) => {
   const names =
     api === "google"
       ? (parsed.tools ?? []).flatMap((tool) => (tool.functionDeclarations ?? []).map((declaration) => declaration.name))
       : (parsed.tools ?? []).map((tool) => tool.name ?? tool.function?.name);
-  const last =
-    api === "responses"
-      ? (Array.isArray(parsed.input) ? parsed.input : []).at(-1)
-      : api === "google"
-        ? (parsed.contents ?? []).at(-1)
-        : (parsed.messages ?? []).at(-1);
-  const answered =
-    api === "messages"
-      ? Array.isArray(last?.content) && last.content.some((block) => block.type === "tool_result")
-      : api === "completions"
-        ? last?.role === "tool"
-        : api === "google"
-          ? (last?.parts ?? []).some((part) => part.functionResponse !== undefined)
-          : last?.type === "function_call_output";
+  const answered = answeredOf(api, parsed);
   return answered ? undefined : names.find((name) => SHELL_TOOLS.has(name));
 };
 

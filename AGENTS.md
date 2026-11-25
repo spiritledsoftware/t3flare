@@ -9,7 +9,7 @@
 - Credential files stay unread and unprinted: `~/.config/t3flare/dev.env`, `~/.alchemy/**`, `apps/environment/.alchemy/stages/*`, the gh config.
 - A Deployment's values (emails, domains, account and zone ids, repository names) stay out of the source: they are Deployment settings ([ADR-0038](docs/adr/0038-a-deployment-is-configured-outside-the-source-tree.md)).
 - Settings follow local parity ([ADR-0049](docs/adr/0049-settings-follow-local-parity-and-guardrails-are-opt-in.md)): out of the box t3flare behaves like stock t3 and agents on the Owner's machine, so a limit with a local equivalent defaults to the local behaviour, usually none.
-- A cloud-only cost or safety guardrail is off until the Owner turns it on; the Terminal holds and the setup time limits are on by default.
+- A cloud-only cost or safety guardrail is off until the Owner turns it on; the Terminal holds, the setup time limits and Park after are on by default (Park after keeps a CLI agent's card up while its Container stops, so the agent meets no limit).
 - A value is a setting only where the Owner would choose it: cost, size, what agents may do, setup, retention. Each setting's disclosure is visible, contextual or Advanced. A value that only guards t3flare's own machinery is a named, generous constant, with a comment saying what it guards.
 - Every limit names itself and its value when hit; a contextual or Advanced setting's message also says where to change it. A limit Cloudflare forces stays, names itself, and gets a follow-up to engineer it away.
 - Limit values are the Owner's to approve: use the values a ticket names, and never invent or change one silently.

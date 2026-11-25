@@ -580,7 +580,7 @@ const environmentSection = (
   const entries = Object.entries(ENVIRONMENT_SETTINGS as Readonly<Record<string, EnvironmentSettingEntry>>).filter(
     ([key]) => !(SWEEP_SETTING_KEYS as ReadonlyArray<string>).includes(key),
   );
-  // The scalar settings share the Containers row. The agents' settings (SPI-1315: the Turn limit, the Answer wait) share
+  // The scalar settings share the Containers row. The agents' settings (SPI-1315: the Turn limit; SPI-1389: Park after) share
   // an Agents row, the MCP calls' time limit (SPI-1359) an MCP calls row, the MCP servers' connect and listing time limits
   // (SPI-1363) an MCP servers row, the text generation time limit (SPI-1366) a Text generation row, the Sleep and wake
   // settings (SPI-1366) a row of their own, the commands' limits (SPI-1364) a Commands row, the Container previews' ports

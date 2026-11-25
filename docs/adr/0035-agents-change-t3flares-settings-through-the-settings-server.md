@@ -174,7 +174,8 @@ the applied, asked, read and network-read caps per hour, and the open changes pe
 sets them in a Limits form on the Settings server's card. As every change to that entry, a change to them is asked in
 either direction (§3, plan D5). Each applies at the caller's next request, and the counts already recorded are judged by
 the new values. The strike window keeps the SPI-1316 refinement's run-based widening, with the strikes and the window in
-place of the constants.
+place of the constants. (Superseded for the widening: see the SPI-1389 refinement below; the window is the setting's
+alone.)
 
 Fixed: the Environment-wide bound on open changes (16, a storage bound: every access to the changes table reads every
 open row, and it is the most either open count may be), and the hour each per-hour cap counts over.

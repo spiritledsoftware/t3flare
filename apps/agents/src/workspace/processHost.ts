@@ -328,6 +328,7 @@ export class ProcessHost {
         ...(input.files === undefined ? {} : { files: input.files }),
         ...(input.links === undefined ? {} : { links: input.links }),
         ...(input.prune === undefined ? {} : { prune: input.prune }),
+        ...(input.keep === undefined ? {} : { keep: input.keep }),
       });
     } catch (error) {
       return refuse(String(error instanceof Error ? error.message : error));

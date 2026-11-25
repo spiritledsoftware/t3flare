@@ -6,16 +6,16 @@
 //
 // t3's adapter, and with it the CLI wrapper that times a park, raises the question and reads the answer message, is not
 // in this harness (the drivers speak each CLI's own protocol): `cliCard.test.ts` covers it. Here the park is what the
-// wrapper does to the CLI: the held relay call answered with `PARKED_CALL_TEXT`, the card's record kept as the wrapper
+// wrapper does to the CLI: the held relay call answered with the parked text (`parkedCallText`), the card's record kept as the wrapper
 // keeps it, and the process killed. The answer turn is a new process, given the text the wrapper gives it
-// (`answerTurnText`). What is the CLI's own, and checked here:
+// (`answerTurnText`, `park.ts`). What is the CLI's own, and checked here:
 // - it calls the relayed tool through the relay, and takes the parked answer as a complete tool result (the model sees
 //   it, and the turn goes on);
 // - after the kill, a new process's repeated call reaches the relay with the same arguments' hash, so the allowance
 //   lets it run once without a card; the next repeat asks again;
 // - (Claude Code, OpenCode, Codex) the CLI's own approval request, cancelled as a park cancels it, comes back in the
-//   answer turn's process the same (the tool call's title, kind and raw input; Codex's method and command), which the
-//   wrapper's allowance matches by. pi has none of its own.
+//   answer turn's process the same; its whole call, read off each process's lines by the wrapper's own recorder
+//   (`nativeCalls.ts`), takes the parked call's allowance once. pi has none of its own.
 // Not driven here: an MCP server's question and an Open change. Both are cards the Environment raises during a relayed
 // call (the MCP host's elicitation, the Settings server's change), which this harness's relay has neither of; to the CLI
 // each is the same held relay call answered "parked", which the relay card's test covers. Their own parks are tested
@@ -23,6 +23,7 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import * as path from "node:path";
@@ -32,9 +33,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { relayUrl } from "../../src/agents/cliProfiles.ts";
 import type { McpView } from "../../src/mcp/host.ts";
+import { argsHashOf } from "../../src/mcp/canonical.ts";
 import { relayMessage } from "../../src/mcp/relay.ts";
+import { nativeCallRecorder, nativeProtocolOf } from "../../src/provider/cli/nativeCalls.ts";
+import { answerTurnText, parkedCallText } from "../../src/provider/cli/park.ts";
 import { parkedCards, type ParkedCard } from "../../src/provider/cli/parked.ts";
-import { answerTurnText, PARKED_CALL_TEXT } from "../../src/provider/cli/wrapper.ts";
 import { nodeSqlStorage } from "../nodeSqlStorage.ts";
 import {
   type Cli,
@@ -120,23 +123,22 @@ const relayHost = () => {
         },
         state: () => ({ runtimeMode: "approval-required", interactionMode: "default" }),
         ask: async (ask) => {
-          asks.push({ tool: ask.tool, argsHash: ask.argsHash });
+          asks.push({ tool: ask.call.tool, argsHash: ask.call.argsHash });
           if (owner === "decline") return { approved: false, reason: "decline" };
           // The park: the card's record, as the wrapper keeps it, then the held call's answer.
           const card: ParkedCard = {
             id: `runtime-request:${cli}:t3flare-park:${randomUUID()}`,
             thread: THREAD,
             kind: "tool",
-            tool: ask.tool,
-            argsHash: ask.argsHash,
+            call: ask.call,
             title: ask.title,
             parkedAt: Date.now(),
           };
           store.park(card);
           parked.push(card);
-          return { approved: false, parked: PARKED_CALL_TEXT };
+          return { approved: false, parked: parkedCallText({ by: "park", minutes: 10 }, "tool") };
         },
-        allowance: (thread, tool, argsHash) => store.take(thread, "tool", tool, argsHash),
+        allowance: (thread, call) => store.take(thread, "tool", call),
         accepted: {
           has: (thread, key) => accepted.get(thread)?.has(key) === true,
           add: (thread, key) => void accepted.set(thread, new Set([...(accepted.get(thread) ?? []), key])),
@@ -361,7 +363,7 @@ describe.each<Cli>(["claude", "codex", "opencode", "pi"])(
         expect(relay.ran, text()).toEqual([]);
         expect(parkedSeen, text()).toBe(true);
         const card = relay.parked[0]!;
-        expect(card.tool, text()).toBe(`${SERVER}/${TOOL}`);
+        expect(card.call?.tool, text()).toBe(`${SERVER}/${TOOL}`);
 
         // The answer: allowed once. A new process takes the answer turn, then one more prompt in the same session.
         relay.store.answer(card.id, "accept");
@@ -391,7 +393,7 @@ describe.each<Cli>(["claude", "codex", "opencode", "pi"])(
         expect(relay.ran, text()).toEqual([ARGS]);
         expect(relay.asks.length, text()).toBe(2);
         expect(relay.asks[1], text()).toEqual(relay.asks[0]);
-        expect(relay.store.take(THREAD, "tool", card.tool, card.argsHash), text()).toBeUndefined();
+        expect(relay.store.take(THREAD, "tool", card.call!), text()).toBeUndefined();
       } finally {
         const left = docker(["ps", "-aq", "--filter", `name=${NAME}-proc-`], { quiet: true }).stdout.split("\n");
         if (left.some((id) => id !== "")) docker(["rm", "-f", ...left.filter((id) => id !== "")], { quiet: true });
@@ -436,55 +438,85 @@ describe("a CLI's own approval request, cancelled by a park, comes back the same
         }))
       : (summary.permissions ?? []);
 
+  /**
+   * The CLI's first approval request in a driver's log, and its whole call as the wrapper reads it off the process
+   * (`nativeCalls.ts`, by the native id t3 gives the request): every line the CLI wrote, through the real recorder.
+   */
+  const firstCallOf = (cli: Cli, log: string): { readonly nativeId: string; readonly call: unknown } | undefined => {
+    const recorder = nativeCallRecorder(nativeProtocolOf(cli === "claude" ? "claude-agent-acp" : cli));
+    let nativeId: string | undefined;
+    for (const line of fs.readFileSync(log, "utf8").split("\n")) {
+      if (line.trim() === "") continue;
+      const entry = JSON.parse(line) as { dir: string; msg: { method?: string; params?: Record<string, any> } };
+      if (entry.dir !== "in") continue;
+      recorder.observe(JSON.stringify(entry.msg));
+      const { method, params } = entry.msg;
+      if (nativeId !== undefined || params === undefined) continue;
+      if (method === "session/request_permission") nativeId = params.toolCall?.toolCallId;
+      else if (method?.endsWith("/requestApproval")) nativeId = params.approvalId ?? params.itemId;
+    }
+    return nativeId === undefined ? undefined : { nativeId, call: recorder.callOf(nativeId) };
+  };
+
   it.each<Cli>(["claude", "opencode", "codex"])("%s", async (cli) => {
     const workspace = workspaceFor(`.park-native-${cli}-`);
+    const logs = fs.mkdtempSync(path.join(os.tmpdir(), `park-native-${cli}-`));
     const report: Record<string, unknown> = { cli };
     try {
       const firstMarker = `proc-${randomUUID()}`;
       const first = processOf(cli, firstMarker, workspace, ["Write your environment to a file."], "cancel", native);
-      const firstSummary = await driveAsync(
-        first.driver,
-        first.scenario,
-        first.command,
-        `/tmp/park-native-${cli}-1.log`,
-      );
+      const firstSummary = await driveAsync(first.driver, first.scenario, first.command, path.join(logs, "1.log"));
       // The park ends the process; its turn already ended on the cancel.
       docker(["kill", `${NAME}-${firstMarker}`], { quiet: true });
-      const answer: ParkedCard = {
+      // The park's record: the cancelled request's whole call, as the wrapper reads it and keeps it.
+      const cancelled = firstCallOf(cli, path.join(logs, "1.log"));
+      const store = parkedCards(nodeSqlStorage());
+      const parkedCall =
+        cancelled?.call === undefined ? undefined : { tool: "native", argsHash: await argsHashOf(cancelled.call) };
+      const card: ParkedCard = {
         id: "runtime-request:native:t3flare-park:1",
         thread: THREAD,
         kind: "native",
-        tool: "execute",
-        argsHash: "",
         title: "env > /workspace/shell-env.txt",
+        ...(parkedCall === undefined ? {} : { call: parkedCall }),
         parkedAt: Date.now(),
       };
+      store.park(card);
+      store.answer(card.id, "accept");
       const second = processOf(
         cli,
         `proc-${randomUUID()}`,
         workspace,
-        [answerTurnText(answer, "accept", "Allow", undefined)],
+        [answerTurnText(card, "accept", "Allow", undefined)],
         undefined,
         native,
       );
-      const secondSummary = await driveAsync(
-        second.driver,
-        second.scenario,
-        second.command,
-        `/tmp/park-native-${cli}-2.log`,
-      );
-      report.first = { requests: requestsOf(cli, firstSummary), summary: JSON.stringify(firstSummary).slice(0, 1200) };
+      const secondSummary = await driveAsync(second.driver, second.scenario, second.command, path.join(logs, "2.log"));
+      const repeated = firstCallOf(cli, path.join(logs, "2.log"));
+      report.first = {
+        requests: requestsOf(cli, firstSummary),
+        call: cancelled ?? null,
+        summary: JSON.stringify(firstSummary).slice(0, 1200),
+      };
       report.second = {
         requests: requestsOf(cli, secondSummary),
+        call: repeated ?? null,
         summary: JSON.stringify(secondSummary).slice(0, 1200),
       };
       const text = JSON.stringify(report);
       expect(requestsOf(cli, firstSummary).length, text).toBeGreaterThan(0);
       expect(requestsOf(cli, secondSummary)[0], text).toEqual(requestsOf(cli, firstSummary)[0]);
+      // The wrapper's allowance check: the repeat's whole call takes the allowance, once.
+      expect(parkedCall, text).toBeDefined();
+      expect(repeated?.call, text).toBeDefined();
+      const repeat = { tool: "native", argsHash: await argsHashOf(repeated!.call) };
+      expect(store.take(THREAD, "native", repeat), text).toEqual({ forSession: false });
+      expect(store.take(THREAD, "native", repeat), text).toBeUndefined();
     } finally {
       const left = docker(["ps", "-aq", "--filter", `name=${NAME}-proc-`], { quiet: true }).stdout.split("\n");
       if (left.some((id) => id !== "")) docker(["rm", "-f", ...left.filter((id) => id !== "")], { quiet: true });
       removeMounted(workspace);
+      fs.rmSync(logs, { recursive: true, force: true });
     }
   });
 });

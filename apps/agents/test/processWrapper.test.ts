@@ -46,6 +46,33 @@ echo "exit=$?"`;
     ]);
   }, 180_000);
 
+  it("keeps a parked card's session from the prune by touching its files first; an unsafe id names nothing (SPI-1389)", () => {
+    const launcher = processCommand({
+      marker: "proc-keep",
+      t3Path: "/w/demo",
+      cwd: "/w/demo",
+      argv: ["/bin/bash", "-c", 'echo "left=$(ls /workspace/.t3flare/pi/sessions | tr "\\n" ,)"'],
+      keep: { dirs: ["/workspace/.t3flare/pi/sessions"], sessions: ["parked-1", "x*' ; rm -rf / ; '"] },
+      prune: [{ dir: "/workspace/.t3flare/pi/sessions", days: 60 }],
+    });
+    const script = `set -u
+mkdir -p /workspace/repo /workspace/.t3flare/pi/sessions/sub
+touch -d '90 days ago' /workspace/.t3flare/pi/sessions/2026_parked-1.jsonl /workspace/.t3flare/pi/sessions/sub/old.jsonl
+cat > /tmp/launcher.sh <<'T3FLARE_EOF'
+${launcher}
+T3FLARE_EOF
+T3FLARE_EXEC=proc-keep bash /tmp/launcher.sh 2>/tmp/err
+echo "exit=$?"`;
+    const result = spawnSync("docker", ["run", "--rm", "-i", IMAGE, "bash", "-s"], {
+      input: script,
+      encoding: "utf8",
+      timeout: 120_000,
+    });
+    // The parked session's file was touched before the prune, so only the other old file went.
+    expect(result.stdout.trim().split("\n"), result.stderr).toEqual(["left=2026_parked-1.jsonl,sub,", "exit=0"]);
+    expect(launcher).not.toContain("rm -rf / ;");
+  }, 180_000);
+
   it("runs no program from PATH while the model handle is in its environment, and setsid keeps its name (SPI-1209)", () => {
     // Hostile programs first on PATH, as a project's mise shims would be: each notes that it ran and what handle it saw.
     const SHIMMED = [

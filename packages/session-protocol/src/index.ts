@@ -550,6 +550,12 @@ export interface PendingQuestion {
 /** The marker in every MCP question card's request id: the Environment refuses `t3_pending_request` on such ids. */
 export const MCP_QUESTION_MARKER = "t3flare-elicit";
 
+/**
+ * The marker in every parked card's question id (SPI-1389): only the Owner answers one, as an MCP question's card; the
+ * Environment refuses `t3_pending_request` on such ids, so no agent mints an allowance or approves an Open change.
+ */
+export const PARK_QUESTION_MARKER = "t3flare-park";
+
 /** One question of a form card, in t3's `user_input` question shape. */
 export interface McpCardQuestion {
   readonly id: string;
@@ -588,6 +594,11 @@ export interface McpQuestionAnswer {
   readonly answers?: Readonly<Record<string, unknown>>;
   /** Why no owner answered (no live turn, withdrawn, parked: `PARKED_REASON`). */
   readonly reason?: string;
+  /**
+   * The card's CLI turn parked (SPI-1389): the complete tool result the held call is answered with, naming the limit,
+   * in place of whatever the server answers the cancel with.
+   */
+  readonly parked?: string;
 }
 
 /** The caller's side of an MCP call's questions, passed with the call (Workers RPC carries the functions). */

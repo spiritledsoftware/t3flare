@@ -97,7 +97,7 @@ export interface FixtureOptions {
   readonly environment?: StoredEnvironment;
   readonly cardWaitMs?: number;
   /** How long an asked change waits, as the changes table reads it; `CARD_WAIT_MS` (SPI-1389) without it. */
-  readonly answerMs?: () => number;
+  readonly changeWaitMs?: () => number;
   /** The Workspaces `list_workspaces` and `purge_workspace` act on (ADR-0044 §5). */
   readonly workspaces?: SettingsServerDeps["workspaces"];
   /** `get_status` reads the panel's Status, as the Environment DO wires it, rather than the revision alone. */
@@ -155,14 +155,13 @@ export const settingsFixture = (options: FixtureOptions = {}) => {
   });
   /** A new table over the same SQLite: an Environment reset between the ask and the answer. */
   const changes = () =>
-    settingsChanges(
-      sql,
-      () => now,
-      (event) => void logs.push(event),
-      options.answerMs ?? (() => CARD_WAIT_MS),
+    settingsChanges(sql, {
+      now: () => now,
+      log: (event) => void logs.push(event),
+      cardWaitMs: options.changeWaitMs ?? (() => CARD_WAIT_MS),
       // As the Environment DO wires it (SPI-1322): the Settings server's limits as stored now.
-      () => settingsServerLimitsOf(store.load()),
-    );
+      limits: () => settingsServerLimitsOf(store.load()),
+    });
   /** The Owner clients' modes, over the same SQLite (the panel sets them; the endpoint reads them). */
   const clients = ownerClients(sql, () => now);
   deps = {

@@ -2,16 +2,17 @@
 // and the Environment's own reset; and the one-time allowance the Owner's answer leaves for the repeated call.
 import { describe, expect, it } from "vitest";
 
-import { argsHashOf, parkedCards, type ParkedCard } from "../src/provider/cli/parked.ts";
+import { argsHashOf } from "../src/mcp/canonical.ts";
+import { parkedCards, type ParkedCard } from "../src/provider/cli/parked.ts";
 import { nodeSqlStorage } from "./nodeSqlStorage.ts";
 
+const NOTE = { tool: "fixture/fixture_note", argsHash: "h1" };
 const card = (over: Partial<ParkedCard> = {}): ParkedCard => ({
   id: "runtime-request:claudeAgent:t3flare-park:p1",
   thread: "thread-1",
   kind: "tool",
-  tool: "fixture/fixture_note",
-  argsHash: "h1",
   title: "Allow fixture: fixture_note?",
+  call: NOTE,
   parkedAt: 1000,
   ...over,
 });
@@ -19,47 +20,63 @@ const card = (over: Partial<ParkedCard> = {}): ParkedCard => ({
 describe("the parked cards (SPI-1389)", () => {
   it("keeps a parked card across a new store over the same SQLite (an Environment reset)", () => {
     const sql = nodeSqlStorage();
-    parkedCards(sql).park(card({ changeId: "change-1" }));
-    expect(parkedCards(sql).get(card().id)).toEqual(card({ changeId: "change-1" }));
+    parkedCards(sql).park(card({ nativeSession: "s-1" }));
+    expect(parkedCards(sql).get(card().id)).toEqual(card({ nativeSession: "s-1" }));
     expect(parkedCards(sql).get("other")).toBeUndefined();
-    expect(parkedCards(sql).threads()).toEqual(["thread-1"]);
   });
 
-  it("an allow leaves one allowance for the same tool and arguments on the thread, taken once", () => {
+  it("an allow leaves one allowance for the same call on the thread, taken once", () => {
     const store = parkedCards(nodeSqlStorage());
     store.park(card());
     expect(store.answer(card().id, "accept")).toEqual(card());
     expect(store.get(card().id)).toBeUndefined();
-    expect(store.threads()).toEqual([]);
     // Another argument hash, tool, kind or thread does not match, and does not use it up.
-    expect(store.take("thread-1", "tool", "fixture/fixture_note", "h2")).toBeUndefined();
-    expect(store.take("thread-1", "tool", "fixture/other", "h1")).toBeUndefined();
-    expect(store.take("thread-1", "native", "fixture/fixture_note", "h1")).toBeUndefined();
-    expect(store.take("thread-2", "tool", "fixture/fixture_note", "h1")).toBeUndefined();
-    expect(store.take("thread-1", "tool", "fixture/fixture_note", "h1")).toEqual({ forSession: false });
-    expect(store.take("thread-1", "tool", "fixture/fixture_note", "h1")).toBeUndefined();
+    expect(store.take("thread-1", "tool", { ...NOTE, argsHash: "h2" })).toBeUndefined();
+    expect(store.take("thread-1", "tool", { ...NOTE, tool: "fixture/other" })).toBeUndefined();
+    expect(store.take("thread-1", "native", NOTE)).toBeUndefined();
+    expect(store.take("thread-2", "tool", NOTE)).toBeUndefined();
+    expect(store.take("thread-1", "tool", NOTE)).toEqual({ forSession: false });
+    expect(store.take("thread-1", "tool", NOTE)).toBeUndefined();
   });
 
-  it("allow for the session says so; a decline leaves none; a second answer finds nothing", () => {
+  it("allow for the session says so; a decline, or a card with no call, leaves none; a second answer finds nothing", () => {
     const store = parkedCards(nodeSqlStorage());
     store.park(card());
-    store.park(card({ id: "p2", argsHash: "h2" }));
+    store.park(card({ id: "p2", call: { ...NOTE, argsHash: "h2" } }));
+    const { call: _call, ...uncalled } = card({ id: "p3", kind: "native" });
+    store.park(uncalled);
     store.answer(card().id, "acceptForSession");
     expect(store.answer("p2", "decline")).toMatchObject({ id: "p2" });
     expect(store.answer("p2", "accept")).toBeUndefined();
-    expect(store.take("thread-1", "tool", "fixture/fixture_note", "h2")).toBeUndefined();
-    expect(store.take("thread-1", "tool", "fixture/fixture_note", "h1")).toEqual({ forSession: true });
+    expect(store.answer("p3", "accept")).toMatchObject({ id: "p3" });
+    expect(store.take("thread-1", "tool", { ...NOTE, argsHash: "h2" })).toBeUndefined();
+    expect(store.take("thread-1", "tool", NOTE)).toEqual({ forSession: true });
   });
 
-  it("drops a thread's unused allowances when its answer turn ends", () => {
+  it("drops a thread's unused allowances, and discards a card never shown", () => {
     const store = parkedCards(nodeSqlStorage());
     store.park(card());
     store.park(card({ id: "p3", thread: "thread-3" }));
     store.answer(card().id, "accept");
     store.answer("p3", "accept");
     store.dropAllowances("thread-1");
-    expect(store.take("thread-1", "tool", "fixture/fixture_note", "h1")).toBeUndefined();
-    expect(store.take("thread-3", "tool", "fixture/fixture_note", "h1")).toEqual({ forSession: false });
+    expect(store.take("thread-1", "tool", NOTE)).toBeUndefined();
+    expect(store.take("thread-3", "tool", NOTE)).toEqual({ forSession: false });
+    store.park(card({ id: "p4" }));
+    store.discard("p4");
+    expect(store.get("p4")).toBeUndefined();
+  });
+
+  it("names the CLI sessions parked cards wait on, once each, for session pruning to keep", () => {
+    const store = parkedCards(nodeSqlStorage());
+    store.park(card({ nativeSession: "s-1" }));
+    store.park(card({ id: "p2", nativeSession: "s-1" }));
+    store.park(card({ id: "p3", nativeSession: "s-2" }));
+    store.park(card({ id: "p4" }));
+    expect([...store.nativeSessions()].sort()).toEqual(["s-1", "s-2"]);
+    store.answer(card().id, "decline");
+    store.answer("p2", "decline");
+    expect(store.nativeSessions()).toEqual(["s-2"]);
   });
 
   it("hashes arguments by their canonical JSON: key order does not matter, values do", async () => {

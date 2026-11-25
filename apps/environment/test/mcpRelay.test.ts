@@ -2,13 +2,15 @@
 // judged by the calling thread's own mode, linked threads included; and t3's own entry as stock t3 hands it (SPI-1039).
 // Owner, 2026-11-12, back to stock: no per-call linked rule, no strictest-mode rule, no taint rule, no t3 relay.
 import { cliToolTimeoutSec, type McpRelayInput } from "@t3flare/harness-registry";
+import { PARKED_REASON } from "@t3flare/session-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { McpView } from "../src/mcp/host.ts";
 import { relayMessage, type RelayDeps } from "../src/mcp/relay.ts";
 import { codexRelayOverrides, profileLaunch } from "../src/agents/cliProfiles.ts";
 import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
-import { argsHashOf, parkedCards } from "../src/provider/cli/parked.ts";
+import { argsHashOf } from "../src/mcp/canonical.ts";
+import { parkedCards } from "../src/provider/cli/parked.ts";
 import { nodeSqlStorage } from "./nodeSqlStorage.ts";
 
 const tool = (
@@ -71,7 +73,7 @@ const harness = (
           ? undefined
           : { runtimeMode: modes[thread]!.runtimeMode, interactionMode: modes[thread]!.interactionMode },
       ask: async (input) => {
-        asks.push({ thread: input.thread, title: input.title, tool: input.tool, argsHash: input.argsHash });
+        asks.push({ thread: input.thread, title: input.title, tool: input.call.tool, argsHash: input.call.argsHash });
         return options.answer ?? { approved: true };
       },
       ...(options.allowance === undefined ? {} : { allowance: options.allowance }),
@@ -234,15 +236,14 @@ describe("the relay's MCP server", () => {
       id: "park-1",
       thread: "thread-1",
       kind: "tool",
-      tool: "commissary/fixture_note",
-      argsHash: allowed,
+      call: { tool: "commissary/fixture_note", argsHash: allowed },
       title: "Allow commissary: fixture_note?",
       parkedAt: 1,
     });
     store.answer("park-1", "accept");
     const h = harness({
       answer: { approved: false, reason: "decline" },
-      allowance: (thread, tool, argsHash) => store.take(thread, "tool", tool, argsHash),
+      allowance: (thread, call) => store.take(thread, "tool", call),
     });
     const other = { ...call("fixture_note"), params: { name: "fixture_note", arguments: { text: "bye" } } };
     expect(resultOf(await relayMessage(input(other), h.deps)).isError).toBe(true);
@@ -265,6 +266,32 @@ describe("the relay's MCP server", () => {
     const deps = { ...again.deps, accepted: h.deps.accepted };
     expect(resultOf(await relayMessage(input(call("fixture_note")), deps)).isError).toBe(false);
     expect(again.asks).toEqual([]);
+  });
+
+  it("answers a call whose MCP server's question parked with the parked text, not the server's answer to the cancel (SPI-1389)", async () => {
+    const parked = "Parked: the owner has not answered within Park after, its 10-minute time limit.";
+    const base = harness({ modes: { "thread-1": { runtimeMode: "full-access", interactionMode: "default" } } });
+    const deps: RelayDeps = {
+      ...base.deps,
+      asker: () => ({
+        ask: async () => ({ decision: "cancel", reason: PARKED_REASON, parked }),
+        withdraw: () => undefined,
+      }),
+      call: async (call) => {
+        const answer = await call.asker!.ask({
+          id: "t3flare-elicit-1",
+          kind: "approval",
+          server: "commissary",
+          title: "Sure?",
+          prompt: "Sure?",
+        });
+        return { kind: "result", isError: true, text: `the user ${answer.decision}led` };
+      },
+    };
+    expect(resultOf(await relayMessage(input(call("fixture_note")), deps))).toEqual({
+      content: [{ type: "text", text: parked }],
+      isError: false,
+    });
   });
 
   it("refuses a scripts-only or unknown tool", async () => {

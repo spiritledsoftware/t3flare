@@ -303,9 +303,9 @@ A card itself waits until the Owner answers it.
 _Avoid_: Answer wait (the setting it replaced), question timeout, card TTL, approval timeout
 
 **Parked card**:
-A CLI agent's card whose turn parked: raised again as a non-blocking question, kept in the Environment DO, its call
-answered "parked" and its process ended so the Container can stop. The Owner's answer starts a new turn, and an allow
-lets the repeated call (the same tool and arguments) run once.
+A CLI agent's card whose turn parked: raised again as a non-blocking question only the Owner answers, kept in the
+Environment DO, its call answered "parked" and its process ended so the Container can stop. The Owner's answer starts a
+new turn, and an allow lets the repeated call (the same tool and whole arguments) run once.
 _Avoid_: suspended turn, paused process
 
 **Image setup**:

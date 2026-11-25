@@ -194,7 +194,7 @@ export interface SettingsChanges {
    * How long an asked change waits for its answer, in ms: until it is answered (SPI-1389), so the off deadline,
    * `CARD_WAIT_MS`, which its page token and its row need.
    */
-  answerMs(): number;
+  cardWaitMs(): number;
   /** The Settings server's limits now (SPI-1322), as stored. */
   limits(): SettingsServerLimits;
   /** How long a closed row is kept: `closedKeptMs` of the limits now. */
@@ -311,19 +311,29 @@ export const closedLine = (record: ChangeRecord): Record<string, unknown> => ({
   ...(record.closed?.cut === true ? { cut: true } : {}),
 });
 
-/**
- * The table over `sql`. `log` gets the line of each change the table itself closes (an expiry, or an apply the
- * Environment's restart cut off), since no answerer is there to write it. `answerMs` is how long an asked change waits
- * (SPI-1389: `CARD_WAIT_MS`; a test's is shorter), and `limits` the Settings server's limits now (SPI-1322), which a
- * closed row's keeping covers (`keptMs`).
- */
+/** How the changes table runs: its clock, its log, how long an asked change waits, and the Settings server's limits. */
+export interface SettingsChangesOptions {
+  readonly now?: () => number;
+  /**
+   * Gets the line of each change the table itself closes (an expiry, or an apply the Environment's restart cut off),
+   * since no answerer is there to write it.
+   */
+  readonly log?: (event: Record<string, unknown>) => void;
+  /** How long an asked change waits for its answer (SPI-1389). Default: `CARD_WAIT_MS`; a test's is shorter. */
+  readonly cardWaitMs?: () => number;
+  /** The Settings server's limits now (SPI-1322), which a closed row's keeping covers (`keptMs`). Default: the defaults. */
+  readonly limits?: () => SettingsServerLimits;
+}
+
+/** The table over `sql`. */
 export const settingsChanges = (
   sql: Pick<SqlStorage, "exec">,
-  now: () => number = Date.now,
-  log?: (event: Record<string, unknown>) => void,
-  answerMs: () => number = () => CARD_WAIT_MS,
-  limits: () => SettingsServerLimits = () => DEFAULT_SETTINGS_SERVER_LIMITS,
+  options: SettingsChangesOptions = {},
 ): SettingsChanges => {
+  const now = options.now ?? Date.now;
+  const log = options.log;
+  const cardWaitMs = options.cardWaitMs ?? (() => CARD_WAIT_MS);
+  const limits = options.limits ?? (() => DEFAULT_SETTINGS_SERVER_LIMITS);
   let ready = false;
   const write = (whole: ChangeRecord) => {
     // The callers refuse such a change before it opens or applies; this keeps the table from holding one it cannot close.
@@ -458,7 +468,7 @@ export const settingsChanges = (
       prepare();
       sql.exec(`INSERT INTO ${READS_TABLE} (caller_key, kind, at) VALUES (?, ?, ?)`, key, kind, at);
     },
-    answerMs,
+    cardWaitMs,
     limits,
     keptMs: () => {
       prepare();

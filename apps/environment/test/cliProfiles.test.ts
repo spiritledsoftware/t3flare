@@ -246,6 +246,20 @@ describe("pi's profile", () => {
     expect(DEFAULT_PI_SESSION_RETENTION_DAYS).toBe(0);
   });
 
+  it("keeps the sessions parked cards wait on from pi's prune, none when nothing is parked (SPI-1389)", () => {
+    const keepOf = (parkedSessions?: ReadonlyArray<string>) => {
+      const answer = profileLaunch(
+        { cli: "pi", args: rpc, key: "proc-1", cwd: "/w/demo", env: {}, allowProbe: false },
+        parkedSessions === undefined ? context : { ...context, parkedSessions },
+      );
+      if ("refused" in answer) throw new Error(answer.refused);
+      return answer.keep;
+    };
+    expect(keepOf(["s-1", "s-2"])).toEqual({ dirs: [PI_SESSIONS], sessions: ["s-1", "s-2"] });
+    expect(keepOf([])).toBeUndefined();
+    expect(keepOf()).toBeUndefined();
+  });
+
   it("never lets pi's extension fail open: a missing or unknown mode is approval-required", () => {
     for (const mode of [undefined, "auto", "yolo"]) {
       const answer = launch("pi", rpc, mode === undefined ? {} : { T3_PI_RUNTIME_MODE: mode });

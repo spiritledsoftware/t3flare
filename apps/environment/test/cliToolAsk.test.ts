@@ -25,8 +25,7 @@ const ask = (thread: string, extra: Partial<Parameters<typeof approveCliTool>[0]
     title: "Allow commissary: fixture_note?",
     summary: "s",
     detail: "d",
-    tool: "commissary/fixture_note",
-    argsHash: "h",
+    call: { tool: "commissary/fixture_note", argsHash: "h" },
     ...extra,
   });
 

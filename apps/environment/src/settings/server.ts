@@ -1265,7 +1265,7 @@ const askOnCard = async (
   const closed = new Promise<McpQuestionAnswer>((resolve) => {
     timer = setTimeout(
       () => resolve({ decision: "cancel", reason: "no answer in time" }),
-      deps.cardWaitMs ?? deps.changes.answerMs(),
+      deps.cardWaitMs ?? deps.changes.cardWaitMs(),
     );
     if (signal !== undefined) {
       onAbort = () => resolve({ decision: "cancel", reason: "the call was stopped" });
@@ -1358,11 +1358,11 @@ export const applyOpenChange = async (
 };
 
 /**
- * What a CLI agent's held call is told when its turn parks on an Open change's card (SPI-1389): the change stays open,
- * and the Owner's answer comes to the thread as a message.
+ * What a CLI agent's held call is told when its turn parks on an Open change's card (SPI-1389): the wrapper's parked text,
+ * which names the limit and says the change stays open, and the change's page.
  */
-export const parkedChangeText = (url: string | undefined): string =>
-  `Parked: the owner has not answered yet, so this turn ends here. The change stays open${url === undefined ? "" : ` at ${url}`}, and its outcome comes to this thread as a message when the owner answers. Do not repeat the call.`;
+export const parkedChangeText = (parked: string, url: string | undefined): string =>
+  url === undefined ? parked : `${parked} Its Change page: ${url}`;
 
 /**
  * Answers a parked Open change (SPI-1389) as the Owner did on its parked question, as the card would: approve or decline.
@@ -1688,7 +1688,7 @@ const openAskedChange = async (deps: SettingsServerDeps, input: AskedInput): Pro
     caller,
     createdAt: now,
     // SPI-1389: an asked change waits until it is answered; its page token and its row take the off deadline.
-    expiresAt: now + deps.changes.answerMs(),
+    expiresAt: now + deps.changes.cardWaitMs(),
     state: "open",
   };
   const again = reused();
@@ -1837,7 +1837,11 @@ const ask = async (
       // agent is told its outcome when the Owner answers.
       if (reason === PARKED_REASON) {
         deps.log?.({ t3flare: "settings-change", via: "mcp", door: "own", tool, outcome: "parked", change: id });
-        return written("waiting", parkedChangeText(url), { changeId: id });
+        return written(
+          "waiting",
+          parkedChangeText(event.answer.parked ?? "Parked: the owner has not answered yet.", url),
+          { changeId: id },
+        );
       }
       // A cancel: the owner's on the card; the card withdrawn by the caller's Stop, turn end or going away (`stop`); or the
       // card closing otherwise (no live turn).

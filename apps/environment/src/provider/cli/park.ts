@@ -1,0 +1,512 @@
+// @effect-diagnostics globalTimers:off runEffectInsideEffect:off cryptoRandomUUID:off
+// (The park is armed and run from the relay's promise-based ask, outside any Effect services: a plain timeout, its own
+// run of the park's Effect, and a question id from `crypto`.)
+//
+// Park and resume (SPI-1389): a CLI agent's process holds its Container while its turn waits on a card, so a card that has
+// waited Park after (`parkAfterMinutes`, the value the process was spawned with) parks the turn:
+// - each open card, the relay's and the CLI's own requests alike, is raised again as t3's non-blocking `user_input`
+//   question, whose id carries `PARK_QUESTION_MARKER`: only the Owner answers it (`ownerOnly.ts`);
+// - its record is kept (`parked.ts`) first, all of them or none: a record that cannot be kept leaves every card live;
+// - held relay calls are answered with a complete tool result that names the limit, the CLI's own requests cancelled;
+// - the turn is interrupted and the process ended, so nothing holds the Container. A card or a request raised while
+//   the park ends the turn is parked the same way.
+// t3 sends the Owner's answer as the message `async-answer:<request id>`, which starts a new turn (or is steered into a
+// running one). Its text tells the agent what to repeat, and an allow is a one-time allowance for the same call: the
+// relay's by its tool and arguments' hash (`relay.ts`), the CLI's own request by its whole call read off the process
+// (`nativeCalls.ts`). An allowance lasts until it is used or its answer turn ends (a steered answer's, the turn after
+// the steer's restart). A Turn limit hit while a card is open parks the turn too.
+import { timeLimitHit } from "@t3flare/harness-registry";
+import { PARK_QUESTION_MARKER } from "@t3flare/session-protocol";
+import {
+  type OrchestrationV2RuntimeRequest,
+  type OrchestrationV2UserInputQuestion,
+  RuntimeRequestId,
+} from "@t3tools/contracts";
+import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import * as Effect from "effect/Effect";
+
+import { argsHashOf } from "../../mcp/canonical.ts";
+import { workersLog } from "../../platform/workersLog.ts";
+import { cardOf, type LiveTurn } from "./cardEvents.ts";
+import type { CliAnswer, CliAsk } from "./cliAsk.ts";
+import type { ParkedCall, ParkedCard, ParkedCards, ParkedDecision } from "./parked.ts";
+
+/** t3's runtime request id of a parked card's question: t3 answers it as `async-answer:<id>`. */
+export const parkRequestPrefix = (driver: string) => `runtime-request:${driver}:${PARK_QUESTION_MARKER}:`;
+
+/** The id of the message t3 sends a non-blocking question's answer as (`Orchestrator.ts`, `async-answer:`). */
+const ASYNC_ANSWER = "async-answer:";
+
+/**
+ * How long a park waits for the CLI to end its interrupted turn before it ends the process. Guards only t3flare's own
+ * park, which kills the process after it either way: a named constant, not a setting.
+ */
+export const PARK_INTERRUPT_MS = 5_000;
+
+/** What parked a turn: Park after, or the Turn limit hit while a card was open; and its value in minutes. */
+export interface ParkCause {
+  readonly by: "park" | "turn-limit";
+  readonly minutes: number;
+}
+
+/** The limit a park names, with its value and where to change it (ADR-0049 §4). */
+const limitOf = (cause: ParkCause): string => {
+  const minutes = Math.max(1, Math.round(cause.minutes));
+  return cause.by === "park"
+    ? `Park after, ${timeLimitHit(minutes, "minute", { environment: "parkAfterMinutes" })}`
+    : `the Turn limit, ${timeLimitHit(minutes, "minute", { environment: "turnLimitMinutes" })}`;
+};
+
+/**
+ * What a held call is told when its turn parks: a complete tool result naming the limit. A call that opened an Open
+ * change (`change`) is told the change stays open and its outcome comes as a message.
+ */
+export const parkedCallText = (cause: ParkCause, kind: ParkedCard["kind"]): string =>
+  `Parked: the owner has not answered within ${limitOf(cause)}. This turn ends here${kind === "change" ? "" : " and nothing ran"}. ${
+    kind === "change"
+      ? "The change stays open, and its outcome comes to this thread as a message when the owner answers. Do not repeat the call."
+      : "The owner's answer comes to this thread as a message; repeat this call then if they allow it. Do not try it another way."
+  }`;
+
+/** What the Owner reads on a parked card's question: why it parked, and what an answer does. */
+const parkedNote = (cause: ParkCause): string =>
+  `The turn parked: the card waited ${limitOf(cause)}. The agent's process ended so its Container can stop; your answer starts a new turn.`;
+
+/** A parked approval's answers, as the question offers them. */
+const PARK_OPTIONS: ReadonlyArray<{
+  readonly label: string;
+  readonly description: string;
+  readonly decision: ParkedDecision;
+}> = [
+  { label: "Allow", description: "The agent repeats it in a new turn, and it runs once.", decision: "accept" },
+  {
+    label: "Allow for this session",
+    description: "As Allow, and the tool runs without asking for the rest of the session.",
+    decision: "acceptForSession",
+  },
+  { label: "Decline", description: "The agent is told not to repeat it.", decision: "decline" },
+];
+const CHANGE_OPTIONS: typeof PARK_OPTIONS = [
+  { label: "Approve", description: "The change applies, and the agent is told the outcome.", decision: "accept" },
+  { label: "Decline", description: "The change closes, and the agent is told so.", decision: "decline" },
+];
+
+/** The decision of a parked approval's answer: the last line of t3's reply, an option's label. Anything else declines. */
+export const parkedDecisionOf = (kind: ParkedCard["kind"], reply: string): ParkedDecision => {
+  const answer = reply.trim().split("\n").at(-1)?.trim() ?? "";
+  return (
+    (kind === "change" ? CHANGE_OPTIONS : PARK_OPTIONS).find((option) => option.label === answer)?.decision ?? "decline"
+  );
+};
+
+/** The answer turn's text: what the Owner answered, and what the agent repeats. */
+export const answerTurnText = (
+  card: ParkedCard,
+  decision: ParkedDecision,
+  reply: string,
+  outcome: string | undefined,
+): string => {
+  const repeatOnce =
+    card.call === undefined
+      ? "Repeat it now; it asks again."
+      : "Repeat it now exactly as before: it runs once without asking. Anything else asks again.";
+  switch (card.kind) {
+    case "tool":
+      return decision === "decline"
+        ? `The owner declined your parked call (${card.title}). Do not repeat it.`
+        : `The owner allowed your parked call (${card.title})${decision === "acceptForSession" ? ", and the tool for the rest of the session" : ""}. ${repeatOnce}`;
+    case "native":
+      return decision === "decline"
+        ? `The owner declined the request that parked your turn (${card.title}). Do not repeat it.`
+        : `The owner allowed the request that parked your turn (${card.title}). ${repeatOnce}`;
+    case "change":
+      return `The owner answered the Open change that parked your turn (${card.title}): ${outcome ?? "read the settings to see whether it applied"}. Do not repeat the change.`;
+    case "question":
+      return `While your turn was parked, the owner answered the question of the MCP server ${card.server ?? "?"} (${card.title}):\n${reply.trim()}\nIf the call that asked still needs it, repeat the call; the server may ask again.`;
+  }
+};
+
+/** A new parked card's question id. */
+const newParkId = (driver: string): RuntimeRequestId =>
+  RuntimeRequestId.make(`${parkRequestPrefix(driver)}${crypto.randomUUID()}`);
+
+const decisionQuestion = (
+  text: string,
+  options: ReadonlyArray<{ readonly label: string; readonly description: string }>,
+): OrchestrationV2UserInputQuestion =>
+  ({
+    id: "decision",
+    header: "Parked",
+    question: text,
+    options: options.map(({ label, description }) => ({ label, description })),
+    allowCustomAnswer: false,
+    required: true,
+  }) as OrchestrationV2UserInputQuestion;
+
+/** A card on the live turn, as the park reads it: what was asked. */
+export interface ParkableCard {
+  readonly ask: CliAsk;
+}
+
+/** One of the CLI's own requests pending on the live turn: a park cancels it and raises it again. */
+interface NativeRequest {
+  readonly request: OrchestrationV2RuntimeRequest;
+  title: string | undefined;
+  prompt: string | undefined;
+}
+
+export interface ParkerDeps {
+  readonly driver: ProviderAdapter.ProviderAdapterV2Event["driver"];
+  readonly providerSessionId: string;
+  /** t3's thread of the session. */
+  readonly thread: string;
+  readonly live: () => LiveTurn | undefined;
+  /** The relay's open cards, by request id. */
+  readonly cards: ReadonlyMap<string, ParkableCard>;
+  /** Closes a relay card with `answer` (cancelled for t3); its events. */
+  readonly closeCard: (id: string, answer: CliAnswer) => ReadonlyArray<ProviderAdapter.ProviderAdapterV2Event>;
+  readonly offer: (events: ReadonlyArray<ProviderAdapter.ProviderAdapterV2Event>) => void;
+  readonly runtime: Pick<ProviderAdapter.ProviderAdapterV2SessionRuntime, "respondToRuntimeRequest" | "interruptTurn">;
+  /** Park after in ms (0: never park). */
+  readonly parkAfterMs: () => number;
+  readonly parked: () => ParkedCards | undefined;
+  readonly answerParkedChange: (changeId: string, approve: boolean) => Promise<string>;
+  /** The CLI's own request's whole call by its native id (`nativeCalls.ts`), or undefined. */
+  readonly nativeCallOf: (nativeId: string) => unknown;
+  /** Ends the session's process. */
+  readonly kill: () => void;
+  readonly processKey: () => string | null;
+  readonly now: () => number;
+  /** Whether `id` is one of the wrapper's own requests (a relay card's), never the CLI's. */
+  readonly ours: (id: string) => boolean;
+}
+
+/** The park of one CLI session: its timer, its parks, the CLI's own requests, and the answers that come back. */
+export const parker = (deps: ParkerDeps) => {
+  const natives = new Map<string, NativeRequest>();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  /** The park ending the live turn, if any: what raises a card meanwhile parks it too. */
+  let parking: ParkCause | undefined;
+  /** How many more turn ends drop the thread's allowances (an answer's turn; a steered answer's, the restart's too). */
+  let allowanceTurns = 0;
+
+  const disarm = () => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = undefined;
+  };
+  const disarmIfNone = () => {
+    if (deps.cards.size === 0 && natives.size === 0) disarm();
+  };
+  /** Arms the park at the first open card: the turn parks once a card has waited Park after. Off (0) arms nothing. */
+  const arm = () => {
+    if (timer !== undefined || deps.live() === undefined || parking !== undefined) return;
+    const ms = deps.parkAfterMs();
+    if (ms <= 0) return;
+    timer = setTimeout(() => {
+      timer = undefined;
+      void Effect.runPromise(park({ by: "park", minutes: ms / 60_000 }));
+    }, ms);
+  };
+
+  /** A record of one card, and the question raising it again, not yet shown. */
+  interface Planned {
+    readonly card: ParkedCard;
+    readonly title: string;
+    readonly questions: ReadonlyArray<OrchestrationV2UserInputQuestion>;
+    /** Answers the card or request that parks: closes a relay card, cancels a CLI request. */
+    readonly settle: Effect.Effect<void>;
+  }
+
+  const planCard = (id: string, card: ParkableCard, cause: ParkCause, parkedAt: number, nativeSession?: string) => {
+    const { ask } = card;
+    const note = parkedNote(cause);
+    const body = ask.detail === "" ? ask.summary : `${ask.summary}\n\n${ask.detail}`;
+    const questions =
+      ask.questions !== undefined && ask.questions.length > 0
+        ? ask.questions.map((question, index) =>
+            index === 0 ? { ...question, question: `${question.question}\n\n${note}` } : question,
+          )
+        : [
+            decisionQuestion(
+              `${body}\n\n${note}`,
+              ask.park.kind === "tool"
+                ? PARK_OPTIONS
+                : ask.park.kind === "change"
+                  ? CHANGE_OPTIONS
+                  : ask.options.map((option) => ({ label: option.label, description: option.label })),
+            ),
+          ];
+    const parkedCard: ParkedCard = {
+      id: newParkId(deps.driver),
+      thread: deps.thread,
+      kind: ask.park.kind,
+      title: ask.title,
+      ...(ask.park.kind === "tool" ? { call: ask.park.call } : { server: ask.park.server }),
+      ...(ask.park.kind === "change" ? { changeId: ask.park.changeId } : {}),
+      ...(nativeSession === undefined ? {} : { nativeSession }),
+      parkedAt,
+    };
+    return {
+      card: parkedCard,
+      title: ask.title,
+      questions,
+      settle: Effect.sync(() =>
+        deps.offer(deps.closeCard(id, { approved: false, parked: parkedCallText(cause, ask.park.kind) })),
+      ),
+    } satisfies Planned;
+  };
+
+  const planNative = Effect.fn("Park.planNative")(function* (
+    requestId: string,
+    native: NativeRequest,
+    cause: ParkCause,
+    parkedAt: number,
+    nativeSession?: string,
+  ) {
+    const nativeId = native.request.nativeRequestRef?.nativeId ?? undefined;
+    const whole = nativeId === undefined ? undefined : deps.nativeCallOf(nativeId);
+    const call: ParkedCall | undefined =
+      whole === undefined
+        ? undefined
+        : { tool: native.request.kind, argsHash: yield* Effect.promise(() => argsHashOf(whole)) };
+    const title = native.title ?? `The agent's ${native.request.kind} request`;
+    const prompt = native.prompt ?? "";
+    return {
+      card: {
+        id: newParkId(deps.driver),
+        thread: deps.thread,
+        kind: "native",
+        title,
+        ...(call === undefined ? {} : { call }),
+        ...(nativeSession === undefined ? {} : { nativeSession }),
+        parkedAt,
+      },
+      title,
+      questions: [
+        decisionQuestion(`${prompt === "" ? title : `${title}\n\n${prompt}`}\n\n${parkedNote(cause)}`, PARK_OPTIONS),
+      ],
+      settle: Effect.gen(function* () {
+        natives.delete(requestId);
+        yield* deps.runtime
+          .respondToRuntimeRequest({ requestId: RuntimeRequestId.make(requestId), decision: "cancel" })
+          .pipe(Effect.ignore);
+      }),
+    } satisfies Planned;
+  });
+
+  /**
+   * Keeps every planned record, then shows each question and settles each card; or, when a record cannot be kept,
+   * none of them (the cards stay live) and false.
+   */
+  /** Keeps every planned record, or none: false, and the ones kept are dropped again. */
+  const keepAll = (planned: ReadonlyArray<Planned>): boolean => {
+    const store = deps.parked();
+    const kept: Array<string> = [];
+    try {
+      if (store === undefined) throw new Error("no parked-card store");
+      for (const entry of planned) {
+        store.park(entry.card);
+        kept.push(entry.card.id);
+      }
+      return true;
+    } catch (error) {
+      for (const id of kept) store?.discard(id);
+      workersLog("error", {
+        t3flare: "cli-park-unkept",
+        providerSessionId: deps.providerSessionId,
+        cards: planned.length,
+        error: String(error),
+      });
+      return false;
+    }
+  };
+
+  const commit = Effect.fn("Park.commit")(function* (turn: LiveTurn, planned: ReadonlyArray<Planned>) {
+    if (!keepAll(planned)) return false;
+    for (const entry of planned) {
+      deps.offer(
+        cardOf({
+          driver: deps.driver,
+          turn,
+          id: RuntimeRequestId.make(entry.card.id),
+          title: entry.title,
+          answeredBy: "message",
+          body: { type: "user_input_request", questions: entry.questions },
+        }).events,
+      );
+      yield* entry.settle;
+    }
+    return true;
+  });
+
+  /**
+   * The CLI's session a parked card waits on, as its files are named: Claude Code's native thread id is its session id;
+   * pi's is its session file's path, whose base name (less `.jsonl`) names it.
+   */
+  const nativeSessionOf = (turn: LiveTurn): string | undefined => {
+    const nativeId = turn.providerThread.nativeThreadRef?.nativeId;
+    return nativeId === undefined || nativeId === null
+      ? undefined
+      : nativeId
+          .split("/")
+          .at(-1)!
+          .replace(/\.jsonl$/, "");
+  };
+
+  /**
+   * Parks the live turn: every open card and pending CLI request, then the turn and the process. Nothing is parked when a
+   * record cannot be kept: every card stays live.
+   */
+  const park = Effect.fn("Park.park")(function* (cause: ParkCause) {
+    disarm();
+    const turn = deps.live();
+    if (turn === undefined || parking !== undefined || (deps.cards.size === 0 && natives.size === 0)) return;
+    // From here, a card or request raised before the turn ends is parked too (`cardOpened`, `noteNative`).
+    parking = cause;
+    const parkedAt = deps.now();
+    const session = nativeSessionOf(turn);
+    const planned: Array<Planned> = [...deps.cards].map(([id, card]) => planCard(id, card, cause, parkedAt, session));
+    for (const [requestId, native] of natives)
+      planned.push(yield* planNative(requestId, native, cause, parkedAt, session));
+    if (!(yield* commit(turn, planned))) {
+      parking = undefined;
+      return;
+    }
+    workersLog("log", {
+      t3flare: "cli-parked",
+      by: cause.by,
+      providerSessionId: deps.providerSessionId,
+      key: deps.processKey(),
+      cards: planned.length,
+    });
+    // The turn ends, and the process with it (not after the idle hold), so nothing holds the Container. The
+    // interrupt only lets the CLI end its turn cleanly first; the kill ends it either way.
+    if (turn.providerTurnId !== undefined)
+      yield* deps.runtime
+        .interruptTurn({ providerThread: turn.providerThread, providerTurnId: turn.providerTurnId })
+        .pipe(Effect.timeout(PARK_INTERRUPT_MS), Effect.ignore);
+    deps.kill();
+  });
+
+  /** A card or request raised while the park ends the turn: parked as the others were. */
+  const parkLate = Effect.fn("Park.parkLate")(function* (
+    planned: (turn: LiveTurn, cause: ParkCause) => Effect.Effect<Planned>,
+  ) {
+    const turn = deps.live();
+    const cause = parking;
+    if (turn === undefined || cause === undefined) return;
+    yield* commit(turn, [yield* planned(turn, cause)]);
+  });
+
+  return {
+    park,
+    /** A relay card opened: parked at once while a park ends the turn, else the park's timer armed. */
+    cardOpened: (id: string) => {
+      const card = deps.cards.get(id);
+      if (parking === undefined || card === undefined) return arm();
+      void Effect.runPromise(
+        parkLate((turn, cause) => Effect.succeed(planCard(id, card, cause, deps.now(), nativeSessionOf(turn)))),
+      );
+    },
+    cardClosed: disarmIfNone,
+    /** Whether a card or request is open: a Turn limit then parks instead of only ending the process. */
+    anyOpen: () => deps.cards.size + natives.size > 0,
+    /** Follows the CLI's own requests: a pending one arms the park (or is parked, while a park ends the turn). */
+    noteNative: (event: ProviderAdapter.ProviderAdapterV2Event) => {
+      if (event.type === "runtime_request.updated" && !deps.ours(event.runtimeRequest.id)) {
+        const request = event.runtimeRequest;
+        if (request.status === "pending" && request.responseCapability.type === "live") {
+          const known = natives.get(request.id);
+          const native: NativeRequest = { request, title: known?.title, prompt: known?.prompt };
+          natives.set(request.id, native);
+          if (parking === undefined) arm();
+          else
+            void Effect.runPromise(
+              parkLate((turn, cause) => planNative(request.id, native, cause, deps.now(), nativeSessionOf(turn))),
+            );
+        } else {
+          natives.delete(request.id);
+          disarmIfNone();
+        }
+      }
+      if (
+        event.type === "turn_item.updated" &&
+        event.turnItem.type === "approval_request" &&
+        !deps.ours(event.turnItem.requestId)
+      ) {
+        const native = natives.get(event.turnItem.requestId);
+        if (native !== undefined) {
+          native.title = event.turnItem.title ?? undefined;
+          native.prompt = event.turnItem.prompt;
+        }
+      }
+    },
+    /**
+     * A CLI request the Owner allowed on its parked question: answered as allowed, once, when the repeat's whole call
+     * (read off the process) matches the parked one's. A request whose call cannot be read is the Owner's again.
+     */
+    allowNative: Effect.fn("Park.allowNative")(function* (event: ProviderAdapter.ProviderAdapterV2Event) {
+      if (event.type !== "runtime_request.updated" || deps.ours(event.runtimeRequest.id)) return;
+      const request = event.runtimeRequest;
+      if (request.status !== "pending" || request.responseCapability.type !== "live") return;
+      const nativeId = request.nativeRequestRef?.nativeId ?? undefined;
+      const whole = nativeId === undefined ? undefined : deps.nativeCallOf(nativeId);
+      const store = deps.parked();
+      if (whole === undefined || store === undefined) return;
+      const call: ParkedCall = { tool: request.kind, argsHash: yield* Effect.promise(() => argsHashOf(whole)) };
+      const allowed = store.take(deps.thread, "native", call);
+      if (allowed === undefined) return;
+      workersLog("log", { t3flare: "cli-park-allowance", providerSessionId: deps.providerSessionId, native: true });
+      yield* deps.runtime
+        .respondToRuntimeRequest({
+          requestId: request.id,
+          decision: allowed.forSession ? "acceptForSession" : "accept",
+        })
+        .pipe(Effect.ignore);
+    }),
+    /**
+     * The text an answer message gives the agent: a parked card's answer becomes what to repeat, and its allow a
+     * one-time allowance. Any other message as it is. `steered`: the answer goes into a running turn.
+     */
+    answerText: Effect.fn("Park.answerText")(function* (
+      message: { readonly messageId: string; readonly text: string },
+      steered: boolean,
+    ) {
+      const id = message.messageId.startsWith(ASYNC_ANSWER) ? message.messageId.slice(ASYNC_ANSWER.length) : "";
+      if (!id.startsWith(parkRequestPrefix(deps.driver))) return message.text;
+      const store = deps.parked();
+      const card = store?.get(id);
+      if (store === undefined || card === undefined) return message.text;
+      const decision: ParkedDecision = card.kind === "question" ? "decline" : parkedDecisionOf(card.kind, message.text);
+      store.answer(id, decision);
+      // A steered answer reaches Claude Code and OpenCode as an interrupt and a restart: its allowance outlives the
+      // interrupted turn's end, for the restarted turn.
+      allowanceTurns = Math.max(allowanceTurns, steered ? 2 : 1);
+      const outcome =
+        card.kind === "change" && card.changeId !== undefined
+          ? yield* Effect.promise(() =>
+              deps
+                .answerParkedChange(card.changeId!, decision !== "decline")
+                .catch((error: unknown) => `it could not be answered (${String(error)})`),
+            )
+          : undefined;
+      workersLog("log", { t3flare: "cli-park-answered", kind: card.kind, decision });
+      return answerTurnText(card, decision, message.text, outcome);
+    }),
+    /** The live turn ended: its park is done, and an answer turn's unused allowance goes once its turns are over. */
+    turnEnded: () => {
+      parking = undefined;
+      natives.clear();
+      disarm();
+      if (allowanceTurns === 0) return;
+      allowanceTurns -= 1;
+      if (allowanceTurns > 0) return;
+      try {
+        deps.parked()?.dropAllowances(deps.thread);
+      } catch {
+        // A store that cannot be read drops nothing; the thread's next answer turn's end tries again.
+      }
+    },
+    dispose: disarm,
+  };
+};

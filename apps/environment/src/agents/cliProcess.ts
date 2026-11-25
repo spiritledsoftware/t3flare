@@ -18,6 +18,7 @@ import { traceProtocol } from "./processRouter.ts";
 import { scratchProjectOf } from "./scratch.ts";
 import { type ChannelProcess, type ChannelStart, ProcessRefused } from "./processChannel.ts";
 import { type CliName, profileLaunch } from "./cliProfiles.ts";
+import { nativeCallRecorder, nativeProtocolOf } from "../provider/cli/nativeCalls.ts";
 import { CliSpawn } from "../provider/cli/wrapper.ts";
 import { takeEnvironmentSkillsAt } from "../provider/cli/environmentSkillsTake.ts";
 import { claudeRelayOf } from "../provider/cli/claudeEndpoints.ts";
@@ -61,10 +62,11 @@ const DISPLAY: Readonly<Record<string, string>> = {
 
 /**
  * The process's protocol lines, each mapped on its way: `toCli` on stdin, `fromCli` on stdout (SPI-1170: pi's model
- * names on the relay, `piEndpoints.ts`).
+ * names on the relay, `piEndpoints.ts`; SPI-1389: the CLI's own approval requests read, `nativeCalls.ts`). Without
+ * `toCli`, stdin passes as written.
  */
 export interface LineMaps {
-  readonly toCli: (line: string) => string;
+  readonly toCli?: (line: string) => string;
   readonly fromCli: (line: string) => string;
 }
 
@@ -87,7 +89,7 @@ export const handleOf = (
       Stream.filter((bytes) => bytes.length > 0),
     );
   };
-  const toCli = lines === undefined ? undefined : lineMapper(lines.toCli);
+  const toCli = lines?.toCli === undefined ? undefined : lineMapper(lines.toCli);
   return ChildProcessSpawner.makeHandle({
     pid: ChildProcessSpawner.ProcessId(process.pid),
     exitCode: Effect.map(
@@ -124,6 +126,15 @@ export const handleOf = (
     getOutputFd: () => Stream.empty,
     unref: Effect.succeed(Effect.void),
   });
+};
+
+/** The sessions parked cards wait on (SPI-1389); none when the store cannot be read, and the spawn goes on. */
+const parkedSessionsOf = (services: { readonly parked?: { nativeSessions(): ReadonlyArray<string> } }) => {
+  try {
+    return services.parked?.nativeSessions() ?? [];
+  } catch {
+    return [];
+  }
 };
 
 /**
@@ -197,6 +208,8 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
         dotfiles: services.agentsReadDotfiles?.() ?? true,
         // SPI-1323: how long pi's and Claude Code's sessions are kept, as the Environment says now.
         piSessionRetentionDays: services.piSessionRetentionDays?.() ?? DEFAULT_PI_SESSION_RETENTION_DAYS,
+        // SPI-1389: the sessions parked cards wait on, kept from pruning.
+        parkedSessions: parkedSessionsOf(services),
       },
     );
     if ("refused" in launch) {
@@ -227,6 +240,7 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
       ...(launch.files === undefined ? {} : { files: launch.files }),
       ...(launch.links === undefined ? {} : { links: launch.links }),
       ...(launch.prune === undefined ? {} : { prune: launch.prune }),
+      ...(launch.keep === undefined ? {} : { keep: launch.keep }),
       ...(session !== undefined
         ? { thread: session.thread }
         : launch.thread !== undefined
@@ -261,7 +275,20 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
             fromCli: (line) => piLineFromPi(line, relayEndpointIds),
           }
         : undefined;
-    const handle = handleOf(process, endOnDone, piLineMaps);
+    // SPI-1389: the CLI's own approval requests, read off its stdout for a parked request's allowance.
+    const nativeCalls = nativeCallRecorder(nativeProtocolOf(name));
+    process.nativeCalls = nativeCalls;
+    const lineMaps: LineMaps | undefined =
+      nativeProtocolOf(name) === "none"
+        ? piLineMaps
+        : {
+            ...(piLineMaps === undefined ? {} : { toCli: piLineMaps.toCli }),
+            fromCli: (line) => {
+              nativeCalls.observe(line);
+              return piLineMaps === undefined ? line : piLineMaps.fromCli(line);
+            },
+          };
+    const handle = handleOf(process, endOnDone, lineMaps);
     // A stdin given as a Stream is piped in, as Node's spawner does (t3's `codex exec` prompt, parity G7).
     const input = typeof stdin === "object" && stdin !== null && "stream" in stdin ? stdin.stream : stdin;
     if (Stream.isStream(input))

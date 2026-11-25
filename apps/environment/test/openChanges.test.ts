@@ -61,10 +61,10 @@ const TOKEN: ChangeCaller = { door: "owner", key: "service-token", principal: "s
 const WAIT_MS = 10 * 60_000;
 
 /**
- * A unit world: the table over Node's SQLite, a revision, and an apply that records its calls. `answerMs` is how long
+ * A unit world: the table over Node's SQLite, a revision, and an apply that records its calls. `cardWaitMs` is how long
  * the table and each opened change wait.
  */
-const world = (answerMs = WAIT_MS, set: Partial<SettingsServerLimits> = {}) => {
+const world = (cardWaitMs = WAIT_MS, set: Partial<SettingsServerLimits> = {}) => {
   let now = NOW;
   // The Settings server's limits as stored (SPI-1322): the table's keeping and `capRefusal`'s default read them.
   let limits: SettingsServerLimits = { ...CAPPED_LIMITS, ...set };
@@ -75,13 +75,12 @@ const world = (answerMs = WAIT_MS, set: Partial<SettingsServerLimits> = {}) => {
   // An apply held until a test releases it (an Environment reset cutting it off).
   let gate: Promise<void> | undefined;
   const deps = (): AnswerDeps => ({
-    changes: settingsChanges(
-      sql,
-      () => now,
-      (event) => void logs.push(event),
-      () => answerMs,
-      () => limits,
-    ),
+    changes: settingsChanges(sql, {
+      now: () => now,
+      log: (event) => void logs.push(event),
+      cardWaitMs: () => cardWaitMs,
+      limits: () => limits,
+    }),
     now: () => now,
     revisionOf: () => revision,
     apply: async (record, input) => {
@@ -106,7 +105,7 @@ const world = (answerMs = WAIT_MS, set: Partial<SettingsServerLimits> = {}) => {
       mode: caller.door === "own" ? "card" : "browser",
       caller,
       createdAt: now,
-      expiresAt: now + answerMs,
+      expiresAt: now + cardWaitMs,
       state: "open",
       ...extra,
     };
@@ -216,7 +215,7 @@ describe("expiry and pruning", () => {
   it("survives a new store instance (an Environment reset between the ask and the answer)", async () => {
     const w = world();
     const record = w.open(OWN);
-    const fresh = settingsChanges(w.sql, w.now);
+    const fresh = settingsChanges(w.sql, { now: w.now });
     expect(fresh.get(record.id)).toMatchObject({ id: record.id, state: "open", caller: OWN });
     expect(
       await answerOpenChange({ ...w.deps(), changes: fresh }, record.id, {
@@ -1122,7 +1121,7 @@ describe("the table filters and counts in SQL (SPI-1393)", () => {
         return { columnNames: result.columnNames, toArray: () => rows };
       },
     } as unknown as Parameters<typeof settingsChanges>[0];
-    const changes = settingsChanges(sql, w.now, undefined, undefined, () => CAPPED_LIMITS);
+    const changes = settingsChanges(sql, { now: w.now, limits: () => CAPPED_LIMITS });
     const records = () => returned.filter(({ row }) => "record" in row);
     return { changes, records, reset: () => (returned.length = 0) };
   };
@@ -1170,7 +1169,7 @@ describe("the table filters and counts in SQL (SPI-1393)", () => {
     await flush();
     expect(w.deps().changes.get(record.id)).toMatchObject({ state: "applying", applyingAt: NOW });
     w.advance(APPLYING_GRACE_MS);
-    expect(settingsChanges(w.sql, w.now).get(record.id)).toMatchObject({ state: "failed" });
+    expect(settingsChanges(w.sql, { now: w.now }).get(record.id)).toMatchObject({ state: "failed" });
     release();
     await answering;
   });

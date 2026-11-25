@@ -9,7 +9,16 @@
 import { SETTINGS_SERVER } from "@t3flare/harness-registry";
 import { type ApprovalDecision, type McpAsker, type McpCardQuestion, PARKED_REASON } from "@t3flare/session-protocol";
 
-import type { ParkedKind } from "./parked.ts";
+import type { ParkedCall } from "./parked.ts";
+
+/**
+ * What a parked card's record keeps of an ask (SPI-1389): a relay tool card's call, which an allow lets run once; an MCP
+ * server's question's server; the Settings server's card's Open change.
+ */
+export type CliAskPark =
+  | { readonly kind: "tool"; readonly call: ParkedCall }
+  | { readonly kind: "question"; readonly server: string }
+  | { readonly kind: "change"; readonly server: string; readonly changeId: string };
 
 /** What the relay asks: the card's text, its buttons and title, and the ask's id. A tool card is t3's `permission` kind. */
 export interface CliAsk {
@@ -27,12 +36,7 @@ export interface CliAsk {
   /** A form's questions (SPI-1079): the card is t3's `user_input` request, answered with `answers`. */
   readonly questions?: ReadonlyArray<McpCardQuestion>;
   /** What a parked card's record keeps of the ask (SPI-1389). */
-  readonly park: {
-    readonly kind: ParkedKind;
-    readonly tool: string;
-    readonly argsHash: string;
-    readonly changeId?: string;
-  };
+  readonly park: CliAskPark;
 }
 
 export interface CliAnswer {
@@ -91,9 +95,8 @@ export const approveCliTool = async (input: {
   readonly title: string;
   readonly summary: string;
   readonly detail: string;
-  /** The call's tool, `server/upstream`, and its arguments' hash: a parked card's record (SPI-1389). */
-  readonly tool: string;
-  readonly argsHash: string;
+  /** The call, its tool `server/upstream` and its arguments' hash: a parked card's record (SPI-1389). */
+  readonly call: ParkedCall;
 }): Promise<CliAnswer> => {
   const asker = askers.get(input.thread);
   if (asker === undefined) return { approved: false, reason: `no live turn to ask on (thread ${input.thread})` };
@@ -112,7 +115,7 @@ export const approveCliTool = async (input: {
         detail: input.detail,
         options,
         title: input.title,
-        park: { kind: "tool", tool: input.tool, argsHash: input.argsHash },
+        park: { kind: "tool", call: input.call },
       },
       withdrawn.signal,
     );
@@ -149,12 +152,13 @@ export const cliQuestionAsker = (thread: string): McpAsker => {
             ...(card.kind === "form" && card.questions !== undefined ? { questions: card.questions } : {}),
             park:
               card.server === SETTINGS_SERVER && card.changeId !== undefined
-                ? { kind: "change", tool: card.server, argsHash: "", changeId: card.changeId }
-                : { kind: "question", tool: card.server, argsHash: "" },
+                ? { kind: "change", server: card.server, changeId: card.changeId }
+                : { kind: "question", server: card.server },
           },
           withdrawn.signal,
         );
-        if (answer.parked !== undefined) return { decision: "cancel", reason: PARKED_REASON };
+        // The held call is answered with the parked text, whatever the server makes of the cancel (`relay.ts`).
+        if (answer.parked !== undefined) return { decision: "cancel", reason: PARKED_REASON, parked: answer.parked };
         if (answer.reason === "withdrawn") return { decision: "cancel", reason: "withdrawn" };
         // No decision from t3 means no owner answered (no live turn, the session ended): a cancel, never a decline.
         const decision = answer.decision ?? (answer.approved ? "accept" : "cancel");

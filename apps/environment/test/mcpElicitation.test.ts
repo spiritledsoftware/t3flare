@@ -15,7 +15,7 @@ import {
   type QuestionContext,
 } from "../src/mcp/elicitation.ts";
 import { McpHost, type McpEngineBinding } from "../src/mcp/host.ts";
-import { OWNER_ONLY_REFUSAL, refuseOwnerOnly } from "../src/mcp/ownerOnly.ts";
+import { OWNER_ONLY_REFUSAL, PARKED_OWNER_ONLY_REFUSAL, refuseOwnerOnly } from "../src/mcp/ownerOnly.ts";
 
 const context: QuestionContext = {
   server: "fixture",
@@ -531,5 +531,16 @@ describe("refuseOwnerOnly", () => {
       `[${call({ action: "respond", requestId: "t3flare-elicit-3" }, 1)},${call({ action: "list" }, 2)}]`,
     );
     expect(JSON.parse(batch!).map((answer: { id: number }) => answer.id)).toEqual([1, 2]);
+  });
+
+  it("refuses read and respond on a parked card's question (SPI-1389), with its own refusal", () => {
+    for (const action of ["respond", "read"])
+      expect(
+        JSON.parse(
+          refuseOwnerOnly(
+            call({ action, requestId: "runtime-request:codex:t3flare-park:1", answers: { decision: "Allow" } }),
+          )!,
+        ),
+      ).toMatchObject({ result: { content: [{ text: PARKED_OWNER_ONLY_REFUSAL }], isError: true } });
   });
 });

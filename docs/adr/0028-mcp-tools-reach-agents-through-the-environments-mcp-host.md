@@ -198,7 +198,8 @@ server's.
 Supersedes the SPI-1316 refinement's wait. An MCP server's question, and a CLI agent's tool approval, wait until the Owner
 answers them: the MCP host's question wait is `CARD_WAIT_MS` (the off deadline, a week, which the library's input bound
 needs), and the CLI cards arm no timer. A CLI agent's turn parks after Park after (ADR-0015's SPI-1389 refinement): the
-relay answers its held call with a complete tool result saying it parked, and an MCP server's question is cancelled with
-`PARKED_REASON`. The CLI tool timeout is made from Park after at the spawn (ADR-0032's SPI-1389 refinement). A call the
+relay answers its held call with a complete tool result saying it parked and naming the limit. An MCP server's question
+is cancelled with `PARKED_REASON`, and its held call too is answered with that parked result, not with whatever the
+server makes of the cancel (`McpQuestionAnswer.parked`); the Settings server answers its own parked change. The CLI tool timeout is made from Park after at the spawn (ADR-0032's SPI-1389 refinement). A call the
 Owner allowed on its parked question runs once without a card when it is repeated with the same arguments (the relay's
 `allowance`, by tool and the SHA-256 of the arguments' canonical JSON).

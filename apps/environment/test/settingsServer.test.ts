@@ -121,13 +121,11 @@ const setup = (
     accessToken: async () => undefined,
   };
   // As the Environment DO wires it (SPI-1322): the Settings server's limits as stored now.
-  const stored = settingsChanges(
-    nodeSqlStorage(),
-    () => now,
-    undefined,
-    () => CARD_WAIT_MS,
-    () => settingsServerLimitsOf(store.load()),
-  );
+  const stored = settingsChanges(nodeSqlStorage(), {
+    now: () => now,
+    cardWaitMs: () => CARD_WAIT_MS,
+    limits: () => settingsServerLimitsOf(store.load()),
+  });
   // Every applied change's row, as the changes table keeps it.
   const applied: Array<ChangeRecord> = [];
   const changes = {
