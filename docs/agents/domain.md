@@ -31,3 +31,7 @@ If the concept you need isn't in the glossary yet, that's a signal: either you'r
 If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
 
 > _Contradicts ADR-0007 (event-sourced orders), but worth reopening because…_
+
+## ADR refinements
+
+ADRs are append-only: a change to a decision is a dated `## Refinement (SPI-<n>, <date>)` section appended at the end. After `node scripts/worktree-setup.ts`, the `adr-append` merge driver (`.gitattributes`, `scripts/adr-merge.ts`) joins two branches' appends to one ADR by itself, in landing order; any other change both sides made to an ADR still conflicts as usual.
