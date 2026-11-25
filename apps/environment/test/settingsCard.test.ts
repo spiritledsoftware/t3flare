@@ -16,7 +16,11 @@ import { answerParkedChange, ownerOutcome } from "../src/settings/server.ts";
 import { settingsInstructions, settingsOwnerInstructions } from "../src/settings/tools.ts";
 import { csrfToken } from "../src/harness/csrf.ts";
 import { parkedCards } from "../src/provider/cli/parked.ts";
-import { clearClosedParkedChanges, type ParkQuestion } from "../src/provider/cli/parkedChanges.ts";
+import {
+  clearClosedParkedChanges,
+  noteChangeClosed,
+  type ParkQuestionState,
+} from "../src/provider/cli/parkedChanges.ts";
 import { nodeSqlStorage, nodeTransaction } from "./nodeSqlStorage.ts";
 
 let fixture: SettingsFixture | undefined;
@@ -327,17 +331,18 @@ describe("a parked change closed elsewhere (SPI-1404)", () => {
   const PARK_ID = `runtime-request:codex:${PARK_QUESTION_MARKER}:x`;
 
   /** A CLI turn parked on the change its call opened: the fixture's parked card, and its record kept as `park` keeps it. */
-  const parkedRun = async (question: () => ParkQuestion = () => "pending") => {
-    const closed: Array<[string, string]> = [];
+  const parkedRun = async (question: () => ParkQuestionState = () => "pending") => {
+    const closed: Array<[string, string, boolean]> = [];
+    const sql = nodeSqlStorage();
+    const parked = parkedCards(sql, nodeTransaction(sql));
+    // As the Environment DO wires it: the close notes an answer's decision on the parked cards.
     fixture = settingsFixture({
       answer: { decision: "cancel", reason: PARKED_REASON },
-      changeClosed: (id, state) => void closed.push([id, state]),
+      changeClosed: (id, state) => void closed.push([id, state, noteChangeClosed(parked, id, state)]),
     });
     const run = fixture;
     await run.call(run.durable(), "change_environment", ASKED);
     const changeId = run.cards[0]!.changeId!;
-    const sql = nodeSqlStorage();
-    const parked = parkedCards(sql, nodeTransaction(sql));
     parked.park({ id: PARK_ID, thread: "thread-d", kind: "change", title: "t", changeId, parkedAt: 1 });
     const answered: Array<[string, boolean]> = [];
     const dismissed: Array<string> = [];
@@ -354,12 +359,13 @@ describe("a parked change closed elsewhere (SPI-1404)", () => {
   };
 
   it("approved on its page: the close is told, and its question answered Approve once, its record left for the answer", async () => {
-    let question: ParkQuestion = "pending";
+    let question: ParkQuestionState = "pending";
     const { run, changeId, parked, closed, answered, dismissed, reconcile } = await parkedRun(() => question);
     // Still open: nothing to do.
     expect(await reconcile()).toEqual({ answered: 0, dismissed: 0, dropped: 0 });
     expect((await pagePost(run, changeId, { action: "approve" })).status).toBe(200);
-    expect(closed).toEqual([[changeId, "applied"]]);
+    expect(closed).toEqual([[changeId, "applied", true]]);
+    expect(parked.get(PARK_ID)?.answeredElsewhere).toEqual({ approve: true });
     expect(await reconcile()).toEqual({ answered: 1, dismissed: 0, dropped: 0 });
     expect(answered).toEqual([[PARK_ID, true]]);
     expect(dismissed).toEqual([]);
@@ -420,5 +426,44 @@ describe("a parked change closed elsewhere (SPI-1404)", () => {
     expect(failing).toEqual({ answered: 0, dismissed: 0, dropped: 0 });
     expect(run.logs).toContainEqual(expect.objectContaining({ t3flare: "cli-park-clear-failed", changeId }));
     expect(await reconcile()).toMatchObject({ answered: 1 });
+  });
+
+  it("a delivery retried after the change's row is pruned still answers with the page's decision", async () => {
+    const { run, changeId, parked } = await parkedRun();
+    expect((await pagePost(run, changeId, { action: "decline" })).status).toBe(200);
+    const answered: Array<[string, boolean]> = [];
+    const dismissed: Array<string> = [];
+    const cleared = await clearClosedParkedChanges({
+      parked,
+      // The closed row is gone (kept `keptMs`), as after a long-failing delivery.
+      change: () => undefined,
+      question: () => "pending",
+      answer: async (card, approve) => void answered.push([card.id, approve]),
+      dismiss: async (card) => void dismissed.push(card.id),
+      log: (event) => void run.logs.push(event),
+    });
+    expect(cleared).toEqual({ answered: 1, dismissed: 0, dropped: 0 });
+    expect([answered, dismissed]).toEqual([[[PARK_ID, false]], []]);
+  });
+
+  it("an answer t3 refuses because the Owner answered the question meanwhile is left to that answer, unlogged", async () => {
+    let question: ParkQuestionState = "pending";
+    const { run, changeId, parked } = await parkedRun(() => question);
+    await pagePost(run, changeId, { action: "approve" });
+    const logged = run.logs.length;
+    const cleared = await clearClosedParkedChanges({
+      parked,
+      change: (id) => run.deps.changes.get(id),
+      question: () => question,
+      answer: async () => {
+        question = "answered";
+        throw new Error(`Runtime request ${PARK_ID} is resolved.`);
+      },
+      dismiss: async () => undefined,
+      log: (event) => void run.logs.push(event),
+    });
+    expect(cleared).toEqual({ answered: 0, dismissed: 0, dropped: 0 });
+    expect(run.logs.slice(logged)).toEqual([]);
+    expect(parked.get(PARK_ID)).toBeDefined();
   });
 });

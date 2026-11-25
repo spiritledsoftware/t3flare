@@ -48,6 +48,11 @@ export interface ParkedCard {
   readonly server?: string;
   /** A change card's Open change. */
   readonly changeId?: string;
+  /**
+   * A change card's Open change was answered elsewhere (its Change page): whether it was approved, kept at the close so
+   * a later delivery answers with it after the change's row is pruned (SPI-1404).
+   */
+  readonly answeredElsewhere?: { readonly approve: boolean };
   /** The CLI's own session id for the thread (its native thread id): kept from session pruning while parked. */
   readonly nativeSession?: string;
   readonly parkedAt: number;
@@ -63,6 +68,8 @@ export interface ParkedCards {
   discard(id: string): void;
   /** The change cards parked on Open change `changeId`, or on any Open change when it is omitted (SPI-1404). */
   changeCards(changeId?: string): ReadonlyArray<ParkedCard>;
+  /** Notes on every change card of `changeId` that it was answered elsewhere with `approve`: how many there are. */
+  noteAnsweredElsewhere(changeId: string, approve: boolean): number;
   /** Removes a change card whose Open change closed elsewhere and whose question is dealt with (SPI-1404). */
   drop(id: string): void;
   get(id: string): ParkedCard | undefined;
@@ -149,6 +156,20 @@ export const parkedCards = (sql: Pick<SqlStorage, "exec">, transaction: <T>(run:
           const card = parse(row.record);
           return card === undefined ? [] : [card];
         });
+    },
+    noteAnsweredElsewhere: (changeId, approve) => {
+      prepare();
+      sql.exec(
+        `UPDATE ${PARKED_TABLE} SET record = json_set(record, '$.answeredElsewhere', json(?)) WHERE json_valid(record) AND json_extract(record, '$.kind') = 'change' AND json_extract(record, '$.changeId') = ?`,
+        JSON.stringify({ approve }),
+        changeId,
+      );
+      return sql
+        .exec<{ count: number }>(
+          `SELECT COUNT(*) AS count FROM ${PARKED_TABLE} WHERE json_valid(record) AND json_extract(record, '$.kind') = 'change' AND json_extract(record, '$.changeId') = ?`,
+          changeId,
+        )
+        .toArray()[0]!.count;
     },
     drop: remove,
     get,

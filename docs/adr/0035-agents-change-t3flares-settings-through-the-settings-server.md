@@ -280,12 +280,14 @@ cut off is closed as failed `APPLYING_GRACE_MS` after it started (`applyingAt`),
 
 ## Refinement (SPI-1404, 2026-11-25): a page answer tells the parked agent, as the question does
 
-Supersedes the SPI-1389 refinement's last sentence: an Open change a CLI turn parked on, answered on its Change page (or
+Supersedes the SPI-1389 refinement's last sentence. The parked card and its question are ADR-0015's SPI-1389 refinement.
+An Open change a CLI turn parked on, answered on its Change page (or
 through the page's API, by the Owner or a service token), no longer leaves its park question behind. Each close of an
 Open change tells the Environment DO (`changeClosed`), and where a parked card waits on that change, its question is
 brought in line once t3 takes commands (`clearClosedParkedChanges`, `provider/cli/parkedChanges.ts`):
 
-- **Answered on the page:** the question is answered on the Owner's behalf with the page's decision (Approve, or Decline)
+- **Answered on the page:** the page's decision (Approve, or Decline) is noted on the parked record at the close, so it
+  outlives the change's row. The question is answered on the Owner's behalf with it
   through t3's own `runtime-request.respond`. t3 sends the agent the same `async-answer` message the Owner's own answer
   there sends, once, and the parked answer path reports the change's outcome as the page closed it, then drops the
   record. That message starts a turn, and a Container with it, as answering on the question does; when t3 is not

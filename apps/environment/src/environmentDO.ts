@@ -39,6 +39,7 @@ import {
 
 import { bindEnvironmentServices, environmentServices } from "./agents/bindings.ts";
 import { type ParkedCall, type ParkedCards, parkedCards } from "./provider/cli/parked.ts";
+import { noteChangeClosed } from "./provider/cli/parkedChanges.ts";
 import { graceMoved, ownerSweep, SweepWake } from "./agents/sweepWake.ts";
 import { GitHubTokens } from "./agents/github.ts";
 import { deliverPush } from "./agents/sessionSink.ts";
@@ -835,7 +836,9 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
   #parkedChangeClosed(id: string, state: ChangeState): void {
     let parked: boolean;
     try {
-      parked = this.#parked.changeCards(id).length > 0;
+      // An answer's decision is noted on the parked cards now, so a delivery retried after the change's row is pruned
+      // still answers with it.
+      parked = noteChangeClosed(this.#parked, id, state);
     } catch (error) {
       console.warn(JSON.stringify({ t3flare: "cli-park-clear-failed", change: id, error: String(error) }));
       return;
@@ -865,9 +868,10 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         const cleared = await clearClosedParkedChanges({
           parked: this.#parked,
           change: (changeId) => settings.changes.get(changeId),
-          question: questions.parkQuestionOf,
-          answer: (card, approve) => runtime.run(questions.answerParkQuestion(card, approve)),
-          dismiss: (card) => runtime.run(questions.dismissParkQuestion(card)),
+          question: (requestId) => questions.parkQuestionOf(this.ctx.storage.sql, requestId),
+          answer: (card, approve) =>
+            runtime.run(questions.dispatchParkCommand(questions.parkAnswerCommand(card, approve))),
+          dismiss: (card) => runtime.run(questions.dispatchParkCommand(questions.parkDismissCommand(card))),
           log: (event) => console.warn(JSON.stringify(event)),
         });
         if (cleared.answered + cleared.dismissed + cleared.dropped > 0)

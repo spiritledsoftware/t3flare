@@ -111,6 +111,11 @@ describe("the parked cards (SPI-1389)", () => {
     expect(ids.toSorted()).toEqual(["c1", "c2"]);
     expect(store.changeCards("chg-2").map((record) => record.id)).toEqual(["c2"]);
     expect(store.changeCards("chg-3")).toEqual([]);
+    // An answer elsewhere is noted on its change's cards only: how many there are.
+    expect(store.noteAnsweredElsewhere("chg-2", false)).toBe(1);
+    expect(store.noteAnsweredElsewhere("chg-3", true)).toBe(0);
+    expect(store.get("c2")?.answeredElsewhere).toEqual({ approve: false });
+    expect(store.get("c1")?.answeredElsewhere).toBeUndefined();
     store.drop("c2");
     expect(store.changeCards().map((record) => record.id)).toEqual(["c1"]);
     expect(store.get(card().id)).toEqual(card());
