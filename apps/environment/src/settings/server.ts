@@ -1227,8 +1227,9 @@ const askedText = (view: ChangeView, input: SettingsCallInput, url: string | und
   ].join("\n");
 
 /**
- * Why a change approved on its Change page only can't be approved elsewhere (SPI-1435): its page, with the link, and the
- * reason. A parked change's question names it, from the first ask (`McpQuestionCard.pagePrompt`) and after an Approve.
+ * Why a change approved on its Change page only can't be approved elsewhere (SPI-1435): its page, with the link, and
+ * the reason. A parked change's question names it, from the first ask (`McpQuestionCard.pagePrompt`) and after an
+ * Approve.
  */
 export const pageOnlyText = (needsPage: PageReason, url: string | undefined): string =>
   `It is approved on its Change page only. ${PAGE_REASON[needsPage](
@@ -1265,12 +1266,15 @@ export const askedCard = (
         ? full
         : [full, "", `${PAGE_REASON[needsPage](where)} "Opened it" keeps the call waiting for the page.`].join("\n");
   // SPI-1435: a park question offers no "Opened it", so it reads the change and its page without that button's line.
+  // The page's link and reason are kept whole, last: only the change's text before them is cut to fit.
+  const pageText = needsPage === undefined ? undefined : visible(pageOnlyText(needsPage, url));
   const pagePrompt =
-    needsPage === undefined
+    needsPage === undefined || pageText === undefined
       ? undefined
-      : (needsPage === "oversize" ? [headline, "", askedBy(input.caller)] : [full])
-          .concat("", pageOnlyText(needsPage, url))
-          .join("\n");
+      : `${cardText(
+          (needsPage === "oversize" ? [headline, "", askedBy(input.caller)] : [full]).join("\n"),
+          Math.max(0, CARD_TEXT_MAX - pageText.length - 2),
+        )}\n\n${pageText}`;
   return {
     id: newCardId(),
     kind: "approval",
@@ -1278,7 +1282,7 @@ export const askedCard = (
     title: cardText(`settings: ${input.tool}?`, 200),
     prompt: cardText(prompt),
     options: needsPage === undefined ? APPROVAL_OPTIONS : PAGE_OPTIONS,
-    ...(pagePrompt === undefined ? {} : { pagePrompt: cardText(pagePrompt) }),
+    ...(pagePrompt === undefined ? {} : { pagePrompt }),
   };
 };
 

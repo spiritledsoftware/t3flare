@@ -306,8 +306,8 @@ or at the next close of a parked change.
 
 ## Refinement (SPI-1435, 2026-11-25): a page-only parked change is asked as such, and an Approve on it asks again
 
-Supersedes, for a change approved on its Change page only, the SPI-1389 refinement's "the Owner's answer there applies or
-declines it as the card would". Such a change (`needsPage`: a secret, a sign-in, skills to review, or too long for a
+Supersedes, for a change approved on its Change page only, the SPI-1389 refinement's "the Owner's answer there applies
+or declines it as the card would". Such a change (`needsPage`: a secret, a sign-in, skills to review, or too long for a
 question) can't be approved on its park question. Before, an Approve there was refused, reported to the agent as "no
 longer open", and its parked record dropped, so a later page answer reached nobody.
 

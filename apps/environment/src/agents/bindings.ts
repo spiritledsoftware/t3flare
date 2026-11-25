@@ -81,8 +81,8 @@ export interface EnvironmentServices {
    */
   readonly answerParkedChange?: (changeId: string, approve: boolean) => Promise<ParkedChangeAnswer>;
   /**
-   * Reads parked Open change `changeId` again and, when it has closed, brings its parked cards in line as its close does
-   * (SPI-1435, after a new record on it is kept). Absent (a test's services): nothing is read.
+   * Reads parked Open change `changeId` again and, when it has closed, brings its parked cards in line as its close
+   * does (SPI-1435, after a new record on it is kept). Absent (a test's services): nothing is read.
    */
   readonly recheckParkedChange?: (changeId: string) => Promise<void>;
   /**

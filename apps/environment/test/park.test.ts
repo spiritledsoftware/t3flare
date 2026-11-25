@@ -367,7 +367,7 @@ describe("the park (SPI-1389)", () => {
       }),
     ));
 
-  it("asks a change approved on its Change page only as such, and an Approve there asks again, naming the page (SPI-1435)", () =>
+  it("asks a page-only change as such, and an Approve there asks again, naming the page (SPI-1435)", () =>
     run(
       Effect.gen(function* () {
         const { settings, card, changeId } = yield* Effect.promise(pageOnlyChange);
@@ -423,7 +423,7 @@ describe("the park (SPI-1389)", () => {
       }),
     ));
 
-  it("an Approve on a page-only change whose question cannot be raised again keeps nothing and says so (SPI-1435)", () =>
+  it("an Approve on a page-only change that cannot be raised again keeps nothing and says so (SPI-1435)", () =>
     run(
       Effect.gen(function* () {
         const { settings, changeId } = yield* Effect.promise(pageOnlyChange);

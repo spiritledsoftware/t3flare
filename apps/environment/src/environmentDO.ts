@@ -39,7 +39,7 @@ import {
 
 import { bindEnvironmentServices, environmentServices } from "./agents/bindings.ts";
 import { type ParkedCall, type ParkedCards, parkedCards } from "./provider/cli/parked.ts";
-import { noteChangeClosed } from "./provider/cli/parkedChanges.ts";
+import { noteChangeClosed, parkedChangeRecheck } from "./provider/cli/parkedChanges.ts";
 import { graceMoved, ownerSweep, SweepWake } from "./agents/sweepWake.ts";
 import { GitHubTokens } from "./agents/github.ts";
 import { deliverPush } from "./agents/sessionSink.ts";
@@ -862,11 +862,10 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
    * (`#parkedChangeClosed`); gone, the cleanup runs, which dismisses its question.
    */
   async #recheckParkedChange(id: string): Promise<void> {
-    const record = (await this.#settingsDeps()).changes.get(id);
-    if (record?.state === "open" || record?.state === "applying") return;
-    if (record !== undefined) return this.#parkedChangeClosed(id, record.state);
+    const recheck = parkedChangeRecheck((await this.#settingsDeps()).changes.get(id));
+    if (recheck.kind === "closed") return this.#parkedChangeClosed(id, recheck.state);
     const running = this.#runtime;
-    if (running !== undefined)
+    if (recheck.kind === "gone" && running !== undefined)
       this.ctx.waitUntil(
         running.then(
           (runtime) => this.#clearParkedChanges(runtime),

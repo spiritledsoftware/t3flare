@@ -105,7 +105,7 @@ const CHANGE_OPTIONS: typeof PARK_OPTIONS = [CHANGE_APPROVE, CHANGE_DECLINE];
 const PAGE_ONLY_OPTIONS: typeof PARK_OPTIONS = [
   {
     ...CHANGE_APPROVE,
-    description: "Approved on its Change page only: answering Approve here asks again.",
+    description: "Approve on its Change page: answering Approve here changes nothing and asks again.",
   },
   CHANGE_DECLINE,
 ];
@@ -125,12 +125,13 @@ const pageOnlyQuestionText = (title: string, pageReason: string): string =>
  * nothing changed, and its outcome comes as a message when the change closes (`raised`), or, when its question could
  * not be raised again, is read from the settings.
  */
-const pageOnlyTurnText = (title: string, pageReason: string, raised: boolean): string =>
-  `The owner picked Approve on the Open change that parked your turn (${title}), but nothing changed yet: ${pageReason} ${
-    raised
-      ? "It stays open, and its outcome comes to this thread as a message when the owner answers it."
-      : "It stays open; read the settings later to see whether it applied."
-  } Do not repeat the change.`;
+const pageOnlyTurnText = (title: string, pageReason: string, raised: boolean): string => {
+  const next = raised
+    ? "It stays open, and its outcome comes to this thread as a message when the owner answers it."
+    : "It stays open; read the settings later to see whether it applied.";
+  const picked = `The owner picked Approve on the Open change that parked your turn (${title})`;
+  return `${picked}, but nothing changed yet: ${pageReason} ${next} Do not repeat the change.`;
+};
 
 /** The id of a parked approval's one question (`decisionQuestion`): an answer given on the Owner's behalf names it. */
 export const PARK_DECISION_QUESTION = "decision";
