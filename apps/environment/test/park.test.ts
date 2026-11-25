@@ -69,17 +69,17 @@ const fixture = Effect.fn("fixture")(function* (options: FixtureOptions) {
   let store = options.store;
   // Barriers on what the park did, checked as it closes a card or answers a request: a test waits on the park's work
   // itself, never on a clock or a tick (the late parks run detached, and a call's hash completes on the thread pool).
-  const barriers: Array<{ readonly ready: () => boolean; readonly done: () => void }> = [];
-  const check = () => {
-    for (const barrier of barriers) if (barrier.ready()) barrier.done();
+  const readyBarriers: Array<{ readonly ready: () => boolean; readonly done: () => void }> = [];
+  const releaseReadyBarriers = () => {
+    for (const barrier of readyBarriers) if (barrier.ready()) barrier.done();
   };
   /** Waits until `ready` holds, checked now and as the park closes a card or answers a request. */
   const until = (ready: () => boolean) =>
     Effect.promise(
       () =>
         new Promise<void>((done) => {
-          barriers.push({ ready, done });
-          check();
+          readyBarriers.push({ ready, done });
+          releaseReadyBarriers();
         }),
     );
   const live: LiveTurn = {
@@ -104,7 +104,7 @@ const fixture = Effect.fn("fixture")(function* (options: FixtureOptions) {
     closeCard: (id, answer) => {
       cards.delete(id);
       answers.set(id, answer);
-      check();
+      releaseReadyBarriers();
       return [];
     },
     offer: (events) => void shown.push(...events),
@@ -112,7 +112,7 @@ const fixture = Effect.fn("fixture")(function* (options: FixtureOptions) {
       respondToRuntimeRequest: (response) =>
         Effect.sync(() => {
           cancelled.push(response.requestId);
-          check();
+          releaseReadyBarriers();
         }),
       // The CLI takes a while to end its interrupted turn: the park's window.
       interruptTurn: () => Deferred.succeed(interrupted, undefined).pipe(Effect.andThen(Deferred.await(release))),
@@ -219,7 +219,8 @@ describe("the park (SPI-1389)", () => {
         f.park.noteNative(nativeEvent("first"));
         const parking = yield* f.park.park(cause).pipe(Effect.forkChild);
         yield* Deferred.await(f.interrupted);
-        yield* f.until(() => f.cancelled.length === 2);
+        // At least 2, so a third cancel (a request parked twice) fails the assertion below rather than hanging.
+        yield* f.until(() => f.cancelled.length >= 2);
         expect(f.questions()).toHaveLength(2);
         expect([...f.cancelled].sort()).toEqual(["first", "late"]);
         yield* Deferred.succeed(f.release, undefined);

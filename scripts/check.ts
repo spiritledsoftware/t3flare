@@ -19,8 +19,9 @@ const LAST_DETAILS_MAX_BYTES = 64 * 1024 * 1024;
 /**
  * The most worker processes each of the check's Vitest runs starts, as Vitest's own `VITEST_MAX_WORKERS`, which
  * overrides every package's config; one already in the environment wins. The check starts eleven Vitest runs at once
- * beside the typechecks and lints, and each would otherwise size its own pool to the machine's cores less one.
- * Tests run alone keep Vitest's default.
+ * beside the typechecks and lints, and each would otherwise size its own pool to the machine's cores less one. 2
+ * bounds the test processes a full check starts to about 11 runs × 2, alongside tsgo and oxlint, on any machine; a
+ * machine can set another with `VITEST_MAX_WORKERS`. Tests run alone keep Vitest's default.
  */
 const CHECK_TEST_WORKERS = 2;
 
