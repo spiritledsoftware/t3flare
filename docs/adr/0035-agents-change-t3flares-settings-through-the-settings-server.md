@@ -272,8 +272,8 @@ held call is answered "waiting", saying the outcome comes as a message. The card
 (`McpQuestionCard.changeId`), so the parked question names it; the Owner's answer there applies or declines it as the
 card would (`answerParkedChange`), and the agent is told the outcome. A change answered on its page first stays as it
 closed, and the parked question's answer only reports that. (Superseded by the SPI-1404 refinement below: a page answer
-now answers the parked question too. An Approve there on a change approved on its Change page only is superseded by the
-SPI-1435 refinement below.)
+now answers the parked question too.) (An Approve there on a change approved on its Change page only is superseded by
+the SPI-1435 refinement below.)
 
 With no Answer wait, the strike window no longer widens with a run's waits: it is the Strike window, or the off deadline
 (a week) when the window is off, and a closed row is kept for that window and the lock. An apply the Environment's reset
@@ -304,22 +304,30 @@ token), no longer leaves its park question behind. Each close of an Open change 
 Any other failure is logged (`cli-park-clear-failed`) and tried again while the question is pending: at the next boot,
 or at the next close of a parked change.
 
-## Refinement (SPI-1435, 2026-11-25): an Approve on a page-only parked change asks again, naming the page
+## Refinement (SPI-1435, 2026-11-25): a page-only parked change is asked as such, and an Approve on it asks again
 
 Supersedes, for a change approved on its Change page only, the SPI-1389 refinement's "the Owner's answer there applies or
 declines it as the card would". Such a change (`needsPage`: a secret, a sign-in, skills to review, or too long for a
 question) can't be approved on its park question. Before, an Approve there was refused, reported to the agent as "no
 longer open", and its parked record dropped, so a later page answer reached nobody.
 
-Now `answerParkedChange` answers nothing for an Approve on such a change while it is open, and says so (`page-only`),
-naming its Change page with the link and the reason. t3 has already resolved the question the Owner answered, so it
-can't stay open: the parked answer path raises it again on the answer's turn as a new parked question, a new record on
-the same change. The new question names the page and the reason, and still offers Approve, which asks again, and
-Decline, which closes the change as before. The agent is told that nothing changed yet and that the outcome comes as a
-message. That message is the SPI-1404 path: when the Owner answers on the page, the new question is answered on their
-behalf, and the agent is told the outcome once. When the change expires, the question is dismissed. Either way the
-record goes. If the question can't be raised again (no live turn, or its record can't be kept), nothing stays against
-the resolved question: the agent is told to read the settings later.
+Its park question says so from the start. The Settings server's card carries the text a park question shows
+(`McpQuestionCard.pagePrompt`): the change, then its Change page with the link and the reason, without the card's
+"Opened it" line. The question offers Approve, which asks again, and Decline. Approve stays because SPI-1404's answer
+on the Owner's behalf names it.
+
+An Approve on it anyway answers nothing while the change is open: `answerParkedChange` says so (`page-only`), naming
+the page and the reason. t3 has already resolved the question the Owner answered, so it can't stay open: the parked
+answer path raises it again on the answer's turn as a new parked question, a new record on the same change. The agent
+is told that nothing changed yet and that the outcome comes as a message. That message is the SPI-1404 path: when the
+Owner answers on the page, the new question is answered on their behalf, and the agent is told the outcome once. When
+the change expires, the question is dismissed. Either way the record goes.
+
+The change is read open before the new record is kept, so a close in between finds no record to note. Once the record
+is kept, the change is read again (`recheckParkedChange`): closed, it is brought in line as its close is; gone, the
+cleanup dismisses its question. If the question can't be raised again (no live turn, or its record can't be kept),
+nothing stays against the resolved question: the agent is told to read the settings later, and `cli-park-reraise-failed`
+is logged with the change and the reason.
 
 A Decline on the question, and any answer to a change that has really closed or is gone, are unchanged: a closed change
 reports its outcome, and a gone change says it is no longer open.

@@ -153,6 +153,11 @@ export interface WrapOptions {
   /** SPI-1389: answers a parked Open change. Default: the Environment DO's (`EnvironmentServices.answerParkedChange`). */
   readonly answerParkedChange?: (changeId: string, approve: boolean) => Promise<ParkedChangeAnswer>;
   /**
+   * SPI-1435: reads a parked Open change again and, closed, brings its parked cards in line. Default: the Environment
+   * DO's (`EnvironmentServices.recheckParkedChange`).
+   */
+  readonly recheckParkedChange?: (changeId: string) => Promise<void>;
+  /**
    * SPI-1389: the CLI's own request's whole call by its native id. Default: what the session's process's stdout gave
    * (`ChannelProcess.nativeCalls`).
    */
@@ -296,6 +301,11 @@ export const wrapCliAdapter = (
       if (answer === undefined) return { kind: "outcome", text: "read the settings to see whether it applied" };
       return answer(changeId, approve);
     });
+  const recheckParkedChange =
+    options.recheckParkedChange ??
+    (async (changeId: string) => {
+      await environmentServices().recheckParkedChange?.(changeId);
+    });
   /** SPI-1172: a failed turn's terminal or error item, with the relay's classification of the process's last answer. */
   const relayedEvent = (
     session: CliSession,
@@ -413,6 +423,7 @@ export const wrapCliAdapter = (
           parkAfterMs: () => parkAfterMs(session),
           parked,
           answerParkedChange,
+          recheckParkedChange,
           nativeCallOf: (nativeId) => nativeCallOf(session, nativeId),
           kill: () => session.process?.kill(),
           processKey: () => session.process?.key ?? null,

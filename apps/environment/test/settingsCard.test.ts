@@ -176,6 +176,10 @@ describe("the asked change's card", () => {
       expect(card.options?.map((option) => option.label)).toEqual(["Opened it", "Decline", "Cancel"]);
       expect(card.prompt).toContain(`${PANEL}/changes/`);
       expect(card.prompt.length).toBeLessThanOrEqual(CARD_TEXT_MAX + 200);
+      // SPI-1435: what a park question shows names the page and why, never the card's "Opened it".
+      expect(card.pagePrompt).toContain("approved on its Change page only");
+      expect(card.pagePrompt).toContain(`${PANEL}/changes/`);
+      expect(card.pagePrompt).not.toContain("Opened it");
       // The card said "Opened it" (the fixture accepts): nothing applied, and the change expired with no page answer.
       expect(structured(answer)).toMatchObject({ status: "expired" });
       expect(revisions()).toBe(before);
@@ -330,6 +334,12 @@ describe("the asked change's wait (SPI-1316, SPI-1389)", () => {
     });
     const record = opened(run)!;
     expect(record.needsPage).toBe("secret");
+    // Its card carries the text a park question shows: the change, its page and why, and no "Opened it".
+    const pagePrompt = run.cards[0]!.pagePrompt!;
+    expect(pagePrompt).toContain(
+      `It is approved on its Change page only. It takes a secret, typed only on its Change page: ${PANEL}/changes/${record.id}`,
+    );
+    expect(pagePrompt).not.toContain("Opened it");
     const answer = await answerParkedChange(run.deps, record.id, true);
     expect(answer.kind).toBe("page-only");
     expect(answer.text).toContain("approved on its Change page only");

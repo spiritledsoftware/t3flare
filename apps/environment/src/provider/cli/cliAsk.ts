@@ -18,7 +18,13 @@ import type { ParkedCall } from "./parked.ts";
 export type CliAskPark =
   | { readonly kind: "tool"; readonly call: ParkedCall }
   | { readonly kind: "question"; readonly server: string }
-  | { readonly kind: "change"; readonly server: string; readonly changeId: string };
+  | {
+      readonly kind: "change";
+      readonly server: string;
+      readonly changeId: string;
+      /** The change is approved on its Change page only: its question's text, naming the page and why (SPI-1435). */
+      readonly pagePrompt?: string;
+    };
 
 /** What the relay asks: the card's text, its buttons and title, and the ask's id. A tool card is t3's `permission` kind. */
 export interface CliAsk {
@@ -152,7 +158,12 @@ export const cliQuestionAsker = (thread: string): McpAsker => {
             ...(card.kind === "form" && card.questions !== undefined ? { questions: card.questions } : {}),
             park:
               card.server === SETTINGS_SERVER && card.changeId !== undefined
-                ? { kind: "change", server: card.server, changeId: card.changeId }
+                ? {
+                    kind: "change",
+                    server: card.server,
+                    changeId: card.changeId,
+                    ...(card.pagePrompt === undefined ? {} : { pagePrompt: card.pagePrompt }),
+                  }
                 : { kind: "question", server: card.server },
           },
           withdrawn.signal,

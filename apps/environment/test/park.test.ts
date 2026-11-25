@@ -11,7 +11,11 @@ import type { LiveTurn } from "../src/provider/cli/cardEvents.ts";
 import type { CliAnswer, CliAsk } from "../src/provider/cli/cliAsk.ts";
 import { parkedCallText, parker, type ParkableCard } from "../src/provider/cli/park.ts";
 import { type ParkedCards, type ParkedChangeAnswer, parkedCards } from "../src/provider/cli/parked.ts";
+import { type McpQuestionCard, PARKED_REASON } from "@t3flare/session-protocol";
+import { addMcpServer } from "../src/harness/ops.ts";
+import { answerParkedChange } from "../src/settings/server.ts";
 import { nodeSqlStorage, nodeTransaction } from "./nodeSqlStorage.ts";
+import { PANEL, settingsFixture } from "./settingsFixture.ts";
 
 /** A parked-card store over a fresh in-memory SQLite, its transactions real. */
 const nodeParkedCards = () => {
@@ -57,6 +61,8 @@ interface FixtureOptions {
   readonly onNativeCall?: (nativeId: string) => void;
   /** Answers a parked Open change: by default its outcome, empty. */
   readonly answerParkedChange?: (changeId: string, approve: boolean) => Promise<ParkedChangeAnswer>;
+  /** Reads a parked change again: by default nothing. */
+  readonly recheckParkedChange?: (changeId: string) => Promise<void>;
 }
 
 /** One session's parker over fakes: its cards, what it showed and answered, and its turn's interrupt held open. */
@@ -122,6 +128,7 @@ const fixture = Effect.fn("fixture")(function* (options: FixtureOptions) {
     parkAfterMs: () => 0,
     parked: () => store,
     answerParkedChange: options.answerParkedChange ?? (async () => ({ kind: "outcome", text: "" })),
+    recheckParkedChange: options.recheckParkedChange ?? (async () => undefined),
     nativeCallOf: (nativeId) => {
       options.onNativeCall?.(nativeId);
       return { name: "Bash", kind: "execute", rawInput: { command: nativeId } };
@@ -152,7 +159,17 @@ const fixture = Effect.fn("fixture")(function* (options: FixtureOptions) {
           )
         : [],
     );
+  /** The option labels of the questions shown, in order. */
+  const questionOptions = () =>
+    shown.flatMap((event) =>
+      event.type === "turn_item.updated" && event.turnItem.type === "user_input_request"
+        ? (
+            event.turnItem as unknown as { questions: ReadonlyArray<{ options: ReadonlyArray<{ label: string }> }> }
+          ).questions.map((question) => question.options.map((option) => option.label))
+        : [],
+    );
   return {
+    questionOptions,
     questionTexts,
     park,
     cards,
@@ -169,6 +186,38 @@ const fixture = Effect.fn("fixture")(function* (options: FixtureOptions) {
 });
 
 const run = <A>(body: Effect.Effect<A>) => Effect.runPromise(body);
+
+/** A real Settings server with an Open change approved on its Change page only (a header value), its card parked. */
+const pageOnlyChange = async () => {
+  const settings = settingsFixture({ answer: { decision: "cancel", reason: PARKED_REASON } });
+  await addMcpServer(
+    settings.deps.ops,
+    { server: "keyed", url: "https://keyed.example/mcp", auth: { kind: "header", header: "X-Key" }, value: "old" },
+    { actor: { caller: "owner:o" } },
+  );
+  await settings.call(settings.durable(), "change_mcp", {
+    expectedRevision: 1,
+    change: { op: "header-value", server: "keyed" },
+  });
+  const card = settings.cards[0]!;
+  return { settings, card, changeId: card.changeId! };
+};
+
+/** The Settings server's card as the CLI's question asker raises it (`cliQuestionAsker`). */
+const changeAsk = (card: McpQuestionCard): CliAsk => ({
+  askId: card.id,
+  title: card.title,
+  summary: card.prompt,
+  detail: "",
+  options: card.options ?? [],
+  requestKind: "mcp-elicitation",
+  park: {
+    kind: "change",
+    server: card.server,
+    changeId: card.changeId!,
+    ...(card.pagePrompt === undefined ? {} : { pagePrompt: card.pagePrompt }),
+  },
+});
 const cause = { by: "park", minutes: 10 } as const;
 
 describe("the park (SPI-1389)", () => {
@@ -318,79 +367,90 @@ describe("the park (SPI-1389)", () => {
       }),
     ));
 
-  it("an Approve on a change approved on its Change page only asks again, names the page, and keeps a record (SPI-1435)", () =>
+  it("asks a change approved on its Change page only as such, and an Approve there asks again, naming the page (SPI-1435)", () =>
     run(
       Effect.gen(function* () {
-        const store = nodeParkedCards();
-        const recorded = new Map<string, Readonly<Record<string, unknown>>>();
-        const pageOnly =
-          "It is approved on its Change page only. It takes a secret, typed only on its Change page: https://panel/changes/chg_1.";
-        // The change stays open until it is answered on its page; a Decline closes it.
-        let open = true;
-        const asked: Array<[string, boolean]> = [];
-        const f = yield* fixture({
-          store,
-          recorded,
-          answerParkedChange: async (changeId, approve) => {
-            asked.push([changeId, approve]);
-            if (approve && open) return { kind: "page-only", text: pageOnly };
-            open = false;
-            return { kind: "outcome", text: approve ? "Applied" : "Not changed: the owner declined it on the card." };
-          },
-        });
-        const id = "runtime-request:claudeAgent:t3flare-park:1";
-        store.park({
-          id,
-          thread: THREAD,
-          kind: "change",
-          title: "settings: change_mcp?",
-          changeId: "chg_1",
-          parkedAt: 1,
-        });
-        recorded.set(id, { decision: "Approve" });
-        const text = yield* f.park.answerText({ messageId: `async-answer:${id}`, text: "Parked\nApprove" }, false);
-        // The agent is told nothing changed and the outcome comes later, never that the change is gone.
-        expect(text).toContain("nothing changed yet");
-        expect(text).toContain(pageOnly);
-        expect(text).toContain("its outcome comes to this thread as a message");
-        expect(text).not.toContain("no longer open");
-        // The question is raised again, naming the page and why, with a record on the same change.
-        expect(f.questions()).toHaveLength(1);
-        const again = f.questions()[0]!;
-        expect(f.questionTexts()[0]).toContain(pageOnly);
-        expect(store.get(id)).toBeUndefined();
-        expect(store.get(again)).toMatchObject({ kind: "change", changeId: "chg_1", title: "settings: change_mcp?" });
-        expect(store.changeCards("chg_1")).toHaveLength(1);
-        // Decline on the question raised again closes it as today, and drops the record.
-        recorded.set(again, { decision: "Decline" });
-        const declined = yield* f.park.answerText({ messageId: `async-answer:${again}`, text: "" }, false);
-        expect(declined).toContain("Not changed: the owner declined it on the card.");
-        expect(store.get(again)).toBeUndefined();
-        expect(f.questions()).toHaveLength(1);
-        expect(asked).toEqual([
-          ["chg_1", true],
-          ["chg_1", false],
-        ]);
-        // When the question cannot be raised again, nothing is kept against the answered question, and the agent is
-        // told to read the settings.
-        open = true;
-        store.park({
-          id,
-          thread: THREAD,
-          kind: "change",
-          title: "settings: change_mcp?",
-          changeId: "chg_1",
-          parkedAt: 1,
-        });
-        f.setStore({
-          ...store,
-          parkAll: () => {
-            throw new Error("storage reset");
-          },
-        });
-        const unraised = yield* f.park.answerText({ messageId: `async-answer:${id}`, text: "" }, false);
-        expect(unraised).toContain("read the settings later");
-        expect(store.changeCards("chg_1")).toHaveLength(0);
+        const { settings, card, changeId } = yield* Effect.promise(pageOnlyChange);
+        try {
+          const store = nodeParkedCards();
+          const recorded = new Map<string, Readonly<Record<string, unknown>>>();
+          const rechecked: Array<string> = [];
+          const f = yield* fixture({
+            store,
+            recorded,
+            // The real Settings server's answer.
+            answerParkedChange: (id, approve) => answerParkedChange(settings.deps, id, approve),
+            recheckParkedChange: async (id) => void rechecked.push(id),
+          });
+          // The first park question: the change, its page and why, and no card's "Opened it".
+          f.open("card-1", changeAsk(card));
+          const parking = yield* f.park.park(cause).pipe(Effect.forkChild);
+          yield* Deferred.await(f.interrupted);
+          yield* Deferred.succeed(f.release, undefined);
+          yield* Fiber.join(parking);
+          const first = f.questions()[0]!;
+          const [firstText] = f.questionTexts();
+          expect(firstText).toContain("It is approved on its Change page only. It takes a secret");
+          expect(firstText).toContain(`${PANEL}/changes/${changeId}`);
+          expect(firstText).toContain("Approve it there");
+          expect(firstText).not.toContain("Opened it");
+          expect(f.questionOptions()[0]).toEqual(["Approve", "Decline"]);
+          // Approve on it: before SPI-1435, the server's refusal reached the agent as "no longer open", and the record
+          // was dropped.
+          recorded.set(first, { decision: "Approve" });
+          const text = yield* f.park.answerText({ messageId: `async-answer:${first}`, text: "" }, false);
+          expect(text).not.toContain("no longer open");
+          expect(text).toContain("nothing changed yet: It is approved on its Change page only. It takes a secret");
+          expect(text).toContain("its outcome comes to this thread as a message");
+          expect(settings.deps.changes.get(changeId)).toMatchObject({ state: "open" });
+          // The question is raised again, naming the page and why, with a record on the same change, read again.
+          expect(f.questions()).toHaveLength(2);
+          const again = f.questions()[1]!;
+          expect(f.questionTexts()[1]).toContain(`${PANEL}/changes/${changeId}`);
+          expect(f.questionOptions()[1]).toEqual(["Approve", "Decline"]);
+          expect(store.get(first)).toBeUndefined();
+          expect(store.get(again)).toMatchObject({ kind: "change", changeId });
+          expect(rechecked).toEqual([changeId]);
+          // Decline on it closes the change as before, and drops the record.
+          recorded.set(again, { decision: "Decline" });
+          const declined = yield* f.park.answerText({ messageId: `async-answer:${again}`, text: "" }, false);
+          expect(declined).toContain("Not changed: the owner declined it on the card.");
+          expect(store.changeCards(changeId)).toEqual([]);
+          expect(f.questions()).toHaveLength(2);
+        } finally {
+          settings.dispose();
+        }
+      }),
+    ));
+
+  it("an Approve on a page-only change whose question cannot be raised again keeps nothing and says so (SPI-1435)", () =>
+    run(
+      Effect.gen(function* () {
+        const { settings, changeId } = yield* Effect.promise(pageOnlyChange);
+        try {
+          const store = nodeParkedCards();
+          const rechecked: Array<string> = [];
+          const id = "runtime-request:claudeAgent:t3flare-park:1";
+          const f = yield* fixture({
+            store: {
+              ...store,
+              parkAll: () => {
+                throw new Error("storage reset");
+              },
+            },
+            recorded: new Map([[id, { decision: "Approve" }]]),
+            answerParkedChange: (change, approve) => answerParkedChange(settings.deps, change, approve),
+            recheckParkedChange: async (change) => void rechecked.push(change),
+          });
+          store.park({ id, thread: THREAD, kind: "change", title: "settings: change_mcp?", changeId, parkedAt: 1 });
+          const text = yield* f.park.answerText({ messageId: `async-answer:${id}`, text: "" }, false);
+          expect(text).toContain("read the settings later");
+          expect(text).not.toContain("no longer open");
+          expect(store.changeCards(changeId)).toEqual([]);
+          expect(rechecked).toEqual([]);
+        } finally {
+          settings.dispose();
+        }
       }),
     ));
 
