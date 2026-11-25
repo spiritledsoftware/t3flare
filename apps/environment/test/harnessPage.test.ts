@@ -843,8 +843,8 @@ describe("the Environment section's dotfiles", () => {
       .replaceAll("&#39;", "'")
       .replaceAll("&amp;", "&");
     expect(JSON.parse(unescaped)).toEqual({
-      8080: "computerd, which runs the Container's commands and serves its files",
-      17781: "the MCP bridge, which runs stdio MCP servers",
+      8080: "computerd, its server that runs the Container's commands and serves its files",
+      17781: "the MCP bridge, its server for stdio MCP servers",
     });
     const listed = portsOf(
       renderPage({

@@ -115,12 +115,12 @@ describe("a Container preview", () => {
     const computerd = await run.preview.serve(new Request("http://8080.t3flare.internal/"), 8080);
     expect(computerd.status).toBe(404);
     expect(await computerd.text()).toContain(
-      "Port 8080 is reserved by t3flare for computerd, which runs the Container's commands and serves its files.",
+      "Port 8080 is reserved by t3flare for computerd, its server that runs the Container's commands and serves its files.",
     );
     const bridge = await run.preview.serve(new Request("http://17781.t3flare.internal/"), 17_781);
     expect(bridge.status).toBe(404);
     expect(await bridge.text()).toContain(
-      "Port 17781 is reserved by t3flare for the MCP bridge, which runs stdio MCP servers.",
+      "Port 17781 is reserved by t3flare for the MCP bridge, its server for stdio MCP servers.",
     );
     expect(run.seen).toEqual([]);
   });

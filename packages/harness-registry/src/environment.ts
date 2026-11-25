@@ -247,8 +247,8 @@ export const MAX_PREVIEW_PORTS = 8;
  * the MCP bridge (apps/sandbox-image/src/mcp-bridge.ts, not run by the image yet) would run stdio MCP servers.
  */
 export const RESERVED_CONTAINER_PORT_USES: Readonly<Record<number, string>> = {
-  8080: "computerd, which runs the Container's commands and serves its files",
-  17_781: "the MCP bridge, which runs stdio MCP servers",
+  8080: "computerd, its server that runs the Container's commands and serves its files",
+  17_781: "the MCP bridge, its server for stdio MCP servers",
 };
 
 /** The ports of `RESERVED_CONTAINER_PORT_USES`, ascending. */
@@ -1236,7 +1236,7 @@ export const ENVIRONMENT_SETTINGS = {
   },
   previewPorts: {
     title: "Container preview ports",
-    description: `Off by default: a preview browser can open a dev server on any Container port, as a browser on your own machine opens any localhost port, but never ${RESERVED_CONTAINER_PORTS.join(" or ")}, t3flare's own. Any page that browser opens can then reach every server listening on 0.0.0.0 in the Workspace's Container. Name ports here, comma-separated, to allow only those: at most ${MAX_PREVIEW_PORTS}, the most Browser Run routes for one browser. Applies to preview browsers opened after the change.`,
+    description: `Empty: a preview browser can open a dev server on any Container port except ${RESERVED_CONTAINER_PORTS.join(" and ")}, which t3flare uses itself, as a browser on your own machine opens any localhost port. A page open in that browser can then also reach every other server listening on 0.0.0.0 in the Workspace's Container. To allow only some ports, list them, separated by commas or spaces: at most ${MAX_PREVIEW_PORTS}, the most one preview browser can route on Cloudflare. Applies to preview browsers opened after the change.`,
     // Named constraints: Browser Run's eight hosts (`MAX_PREVIEW_PORTS`), t3flare's own ports (`RESERVED_CONTAINER_PORTS`).
     // No tier, deliberately: which Container ports a browser may reach is asked either way (ADR-0035 §3).
     schema: {

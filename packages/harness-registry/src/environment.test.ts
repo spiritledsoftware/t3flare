@@ -940,10 +940,10 @@ describe("the Workspace's command limits, Terminals, previews and what it keeps 
     });
     // Each reserved port refused by name, with what t3flare uses it for.
     expect(stored("3000, 8080")).toBe(
-      "previewPorts: port 8080 is reserved by t3flare for computerd, which runs the Container's commands and serves its files",
+      "previewPorts: port 8080 is reserved by t3flare for computerd, its server that runs the Container's commands and serves its files",
     );
     expect(stored("17781")).toBe(
-      "previewPorts: port 17781 is reserved by t3flare for the MCP bridge, which runs stdio MCP servers",
+      "previewPorts: port 17781 is reserved by t3flare for the MCP bridge, its server for stdio MCP servers",
     );
     expect(reservedPortMessage(5173)).toBeUndefined();
     expect(stored("1 2 3 4 5 6 7 8 9")).toBe("previewPorts: at most 8 ports");
@@ -963,10 +963,10 @@ describe("the Workspace's command limits, Terminals, previews and what it keeps 
       "A command that runs longer than this is ended and fails; while it runs it holds the Container.",
     );
     expect(ENVIRONMENT_SETTINGS.previewPorts.description).toContain(
-      "Off by default: a preview browser can open a dev server on any Container port, as a browser on your own machine opens any localhost port, but never 8080 or 17781, t3flare's own. Any page that browser opens can then reach every server listening on 0.0.0.0 in the Workspace's Container.",
+      "Empty: a preview browser can open a dev server on any Container port except 8080 and 17781, which t3flare uses itself, as a browser on your own machine opens any localhost port. A page open in that browser can then also reach every other server listening on 0.0.0.0 in the Workspace's Container.",
     );
     expect(ENVIRONMENT_SETTINGS.previewPorts.description).toContain(
-      "at most 8, the most Browser Run routes for one browser",
+      "at most 8, the most one preview browser can route on Cloudflare",
     );
   });
 });

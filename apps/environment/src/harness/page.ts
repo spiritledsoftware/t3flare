@@ -664,7 +664,7 @@ const environmentSection = (
     {
       id: "previews",
       title: "Previews",
-      desc: "Which Container ports a preview browser can open.",
+      desc: "Which Container ports a preview browser can open: by default, any but t3flare's own.",
       keys: CONTAINER_PREVIEW_SETTING_KEYS,
     },
     {

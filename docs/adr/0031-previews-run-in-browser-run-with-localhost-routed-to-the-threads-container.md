@@ -50,8 +50,8 @@ browser's routes decide which ports it reaches.
 
 This supersedes the SPI-1364 refinement's default. As on the Owner's machine, where a browser opens any `localhost`
 port, a preview browser opens a dev server on any Container port except `RESERVED_CONTAINER_PORTS`. Each reserved port
-is named with what it is for, and a refusal says so: "port 8080 is reserved by t3flare for computerd, which runs the
-Container's commands and serves its files", and port 17781 for the MCP bridge. `previewPorts` stays, as an opt-in
+is named with what it is for, and a refusal says so: "port 8080 is reserved by t3flare for computerd, its server
+that runs the Container's commands and serves its files", and port 17781 for the MCP bridge. `previewPorts` stays, as an opt-in
 Advanced list: empty, the default, means any port. A list allows only its ports, at most eight.
 
 **Browser Run's routing, probed on a throwaway Stage** (2026-11-25, `outboundByHost` from a Worker binding):

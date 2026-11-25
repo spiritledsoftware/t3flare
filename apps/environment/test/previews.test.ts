@@ -87,10 +87,10 @@ describe("a preview browser opens any Container port but t3flare's own (SPI-1390
   it("refuses each of t3flare's reserved ports with a page that names it and what it is for, routed or not", () => {
     for (const routed of [[], [8080, 17_781]]) {
       expect(pageOf(previewNavigation("http://localhost:8080/", browser(routed)))).toContain(
-        "Port 8080 is reserved by t3flare for computerd, which runs the Container's commands and serves its files.",
+        "Port 8080 is reserved by t3flare for computerd, its server that runs the Container's commands and serves its files.",
       );
       expect(pageOf(previewNavigation("http://127.0.0.1:17781/mcp", browser(routed)))).toContain(
-        "Port 17781 is reserved by t3flare for the MCP bridge, which runs stdio MCP servers.",
+        "Port 17781 is reserved by t3flare for the MCP bridge, its server for stdio MCP servers.",
       );
     }
   });
