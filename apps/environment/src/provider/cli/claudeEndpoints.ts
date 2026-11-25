@@ -54,8 +54,8 @@ const newer = (a: ReadonlyArray<number>, b: ReadonlyArray<number>): number => {
  * The slug Claude Code's `opus` or `sonnet` alias resolves to: the family's newest model, as stock Claude Code's alias
  * is (ADR-0049's local parity). Among models of one version, the one pi-ai's catalog knows, then the owner's order.
  * Never the family's first listed: Commissary lists dated models first (`claude-opus-4-1-20250805`), which its
- * credentials refuse, and an imported `"model": "opus"` opens every session on the alias. No model of the family: the
- * first model listed (so the alias still names a slug the relay routes, never Claude Code's own id).
+ * credentials refuse. A session opens on this alias's model (`claudeManagedSettings`'s `model`). No model of the family:
+ * the first model listed (so the alias still names a slug the relay routes, never Claude Code's own id).
  */
 const familyModelOf = (own: ReadonlyArray<ModelEndpoint>, family: "opus" | "sonnet"): string | undefined => {
   const slugs = own.flatMap((endpoint) =>

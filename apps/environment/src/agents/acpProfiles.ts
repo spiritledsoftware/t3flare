@@ -208,6 +208,12 @@ export const claudeModeOf = (relay: ClaudeRelay): ClaudeMode => {
   };
 };
 
+/** The managed `model`: the slug the `opus` alias names, else the first model listed. */
+const openingModelOf = (mode: ClaudeMode): { readonly model?: string } => {
+  const model = mode.aliases.ANTHROPIC_DEFAULT_OPUS_MODEL ?? mode.availableModels[0];
+  return model === undefined ? {} : { model };
+};
+
 /** The variables Claude Code gets from both its launch environment and the managed `env` (M0 P1, P3). */
 const claudeSwitches = (mode: ClaudeMode): Record<string, string> => ({
   ANTHROPIC_BASE_URL: mode.baseUrl,
@@ -248,6 +254,11 @@ export const claudeManagedSettings = (
   // Review F3: only the endpoint the managed env pins is admitted.
   allowedProviders: ["customEndpoint"],
   availableModels: [...mode.availableModels],
+  // The model a session opens on, before t3 sets the thread's own: the `opus` alias's (the family's newest), else the
+  // first listed. The adapter resolves an Owner's imported `"model": "opus"` to the family's first model in this list
+  // (it reads no version from a slug), a dated one the endpoint refuses, so the open failed; a managed `model` outranks
+  // the Owner's.
+  ...openingModelOf(mode),
   env: { ...Object.fromEntries(CLAUDE_PINNED_EMPTY.map((name) => [name, ""])), ...claudeSwitches(mode) },
   skipWebFetchPreflight: true,
   disableClaudeAiConnectors: true,
