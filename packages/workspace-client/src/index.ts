@@ -117,6 +117,8 @@ export interface FoundEntry {
 export interface FoundIndex {
   readonly entries: ReadonlyArray<FoundEntry>;
   readonly truncated: boolean;
+  /** When `truncated`, the limit that cut it, with its value (SPI-1392). */
+  readonly cut?: string;
 }
 
 /**

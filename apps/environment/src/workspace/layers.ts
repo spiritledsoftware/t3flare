@@ -98,6 +98,8 @@ const rangesOf = (line: string, pattern: RegExp) => {
 
 const findAll = (at: Located) =>
   call<FoundIndex>(at, { op: "index", path: at.inner, maxBytes: INDEX_MAX_BYTES }).pipe(
+    // SPI-1392: t3's answers carry only `truncated`; the limit that cut the index is named in the log.
+    Effect.tap((found) => (found.cut === undefined ? Effect.void : Effect.logWarning(found.cut))),
     Effect.map((found) => ({
       entries: found.entries.flatMap((entry): Array<ProjectEntry> => {
         const path = relativeTo(at.inner, entry.path);

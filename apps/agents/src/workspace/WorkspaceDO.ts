@@ -44,14 +44,7 @@ import type {
   TerminalOpenInput,
 } from "@t3flare/workspace-client";
 import { type CliAgent, isCliAgent, type PromptTemplate, type SkillDiscovery, SKILLS_MOUNT } from "@t3flare/skills";
-import {
-  describeFailure,
-  fitFoundEntries,
-  gitOutputCut,
-  HARNESS_ROOT,
-  REPO_ROOT,
-  startRefusal,
-} from "@t3flare/workspace-client";
+import { describeFailure, gitOutputCut, HARNESS_ROOT, REPO_ROOT, startRefusal } from "@t3flare/workspace-client";
 
 import * as git from "isomorphic-git";
 
@@ -135,6 +128,7 @@ import { type KillAnswer, killAnswer } from "@t3flare/sandbox-image/kill";
 import type { PortScan } from "@t3flare/sandbox-image/ports";
 import { authoredScript, captureScript, restoreScript, shellWord } from "./checkpointScripts.ts";
 import { captureTurn, type LastCapture } from "./checkpointCapture.ts";
+import { FileIndex } from "./fileIndex.ts";
 import { type FileChunk, fileOps, grepPaths } from "./files.ts";
 import { diffScript, execOutput } from "./execOutput.ts";
 import { gitAnswerOf, gitExecOf, gitOutcome, keptFor, keptWhole } from "./gitOutput.ts";
@@ -277,7 +271,7 @@ export type FsOp =
   | { readonly op: "realPath"; readonly path: string }
   /** `limit` absent: every match (SPI-1364; each caller passes its own). */
   | { readonly op: "find"; readonly path: string; readonly pattern?: string; readonly limit?: number }
-  /** SPI-1364: every entry under `path`, cut to fit `maxBytes` of a DO RPC answer (`fitFoundEntries`), the cut stated. */
+  /** SPI-1364: every entry under `path`, cut to fit `maxBytes` of a DO RPC answer, the cut named; the walk bounded and the index kept per revision (`FileIndex`, SPI-1392). */
   | { readonly op: "index"; readonly path: string; readonly maxBytes: number }
   | {
       readonly op: "grep";
@@ -382,6 +376,8 @@ export class WorkspaceDO extends ContainerHost {
   /** The launch (its start time) whose lock failure was logged (SPI-1148, plan §4.3). */
   #lockFailureLogged: number | undefined;
   readonly #reads: ReturnType<typeof readCache>;
+  /** The file index t3's search and lists read (FsOp `index`), kept per path for the repo's revision (SPI-1392). */
+  readonly #fileIndex: FileIndex;
   readonly #container: ContainerOnlyBackend;
   /** The Session's `ComputerExecutionEnv` file operations (the agent's tools), answered here. */
   readonly #host: WorkspaceEnvHost;
@@ -626,6 +622,10 @@ export class WorkspaceDO extends ContainerHost {
     ]);
     // SPI-1364: `GIT_READS_KEPT` (SPI-1387).
     this.#reads = readCache(ctx.storage.sql, () => GIT_READS_KEPT);
+    this.#fileIndex = new FileIndex({
+      find: (path, limit) => fileOps(this.#workspace).find(path, undefined, limit),
+      revision: () => this.#reads.revision("repo"),
+    });
     this.#skillSet = skillSetStore({
       kv: ctx.storage.kv,
       transactionSync: <T>(closure: () => T): T => ctx.storage.transactionSync(closure),
@@ -1654,10 +1654,8 @@ export class WorkspaceDO extends ContainerHost {
         return ops.realPath(op.path);
       case "find":
         return ops.find(op.path, op.pattern, op.limit);
-      case "index": {
-        const found = await ops.find(op.path, undefined);
-        return "ok" in found ? { ok: fitFoundEntries(found.ok, op.maxBytes) } : found;
-      }
+      case "index":
+        return this.#fileIndex.index(op.path, op.maxBytes);
       case "grep":
         return ops.grep(op.pattern, op.path, op.options ?? {});
     }
