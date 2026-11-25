@@ -4,7 +4,7 @@
 import * as fs from "node:fs";
 import { join } from "node:path";
 
-import { SKILLS_LOCK_SCRIPT } from "@t3flare/workspace-client";
+import { describeFailure, SKILLS_LOCK_SCRIPT } from "@t3flare/workspace-client";
 import { describe, expect, it } from "vitest";
 
 import { CONTAINER_IGNORE } from "../src/workspace/constants.ts";
@@ -162,6 +162,65 @@ describe("the Container backend made again when the patterns change", () => {
     release();
     await second;
     expect(seen.slice(3)).toEqual(["start r2", "end r2"]);
+  });
+});
+
+describe("a Container start that runs out its wait names it (SPI-1430)", () => {
+  // A backend whose connect fails with `error`, made with a wait of `connectTimeoutMs`.
+  const failing = (error: Error, connectTimeoutMs = 120_000) =>
+    new ContainerOnlyBackend({
+      initial: ["/a"],
+      patterns: () => Promise.resolve(["/a"]),
+      stop: () => Promise.resolve(),
+      connectTimeoutMs: () => connectTimeoutMs,
+      make: (): PatternedBackend => ({
+        id: "container-shell",
+        type: "cloudflare-container",
+        description: "a container",
+        handleFetch: () => Promise.resolve(new Response("")),
+        connect: () => Promise.reject(error),
+      }),
+    });
+  const thrownBy = (backend: ContainerOnlyBackend): Promise<unknown> =>
+    backend.connect({} as never).catch((error: unknown) => error);
+  const PLACE = "change it under Environment › Advanced › Container start wait (seconds)";
+
+  it("computer's upgrade wait running out names the wait, its seconds and its place, with computer's error kept", async () => {
+    const original = new Error("ContainerBackend(x) [stage=ws]: /api upgrade did not arrive within 90000ms");
+    const thrown = await thrownBy(failing(original, 90_000));
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe(
+      `the Container did not answer within its 90-second time limit; ${PLACE}. ${original.message}`,
+    );
+    expect((thrown as Error).cause).toBe(original);
+  });
+
+  it("computer's health checks running out the wait name it too", async () => {
+    const original = new Error(
+      "ContainerBackend(x): connect failed at stage=health port=8080 attempt=3/3 restarts=2 timeoutMs=120000 lastError=fetch failed",
+    );
+    expect(((await thrownBy(failing(original))) as Error).message).toBe(
+      `the Container did not answer within its 120-second time limit; ${PLACE}. ${original.message}`,
+    );
+  });
+
+  it("any other failure is computer's, as it was, however long it took", async () => {
+    for (const message of [
+      "ContainerBackend(x): connect failed at stage=restart port=8080 attempt=1/3 restarts=0 timeoutMs=120000 lastError=boom",
+      "ContainerBackend(x) [stage=connect]: POST /connect returned 500: no",
+    ]) {
+      const original = new Error(message);
+      expect(await thrownBy(failing(original))).toBe(original);
+    }
+  });
+
+  it("a budget refusal is never named as the wait, even when it ran the health checks out", async () => {
+    const original = new Error(
+      'ContainerBackend(x): connect failed at stage=health port=8080 attempt=3/3 restarts=2 timeoutMs=120000 lastError="t3flare: the Container cannot start: the budget is spent"',
+    );
+    const thrown = await thrownBy(failing(original));
+    expect(thrown).toBe(original);
+    expect(describeFailure(thrown)).toBe("t3flare: the Container cannot start: the budget is spent");
   });
 });
 

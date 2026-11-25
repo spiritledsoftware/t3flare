@@ -5,6 +5,8 @@
 // Environment DO, so a run begun under an older epoch has lost its canceller and its reader, and is ended.
 import { MAX_TIMED_MINUTES } from "@t3flare/harness-registry";
 
+import type { TimedBy } from "./execLimit.ts";
+
 /** What of computer's exec handle a cancel uses. */
 export interface KillableRun {
   kill(signal?: "SIGTERM" | "SIGKILL"): Promise<void>;
@@ -29,6 +31,18 @@ export const gitDeadlineMs = (
   run: { readonly timeoutMs?: number; readonly runId?: string },
   commandMs: number,
 ): number => run.timeoutMs ?? (run.runId === undefined ? commandMs : CANCELLABLE_RUN_MS);
+
+/**
+ * A git run's deadline, as `gitDeadlineMs`, with the limit behind it (SPI-1430): the command time limit when it is that
+ * limit's; none for its own `timeoutMs` (t3's) or `CANCELLABLE_RUN_MS` (a backstop), which no setting sets.
+ */
+export const gitDeadline = (
+  run: { readonly timeoutMs?: number; readonly runId?: string },
+  command: TimedBy,
+): TimedBy =>
+  run.timeoutMs === undefined && run.runId === undefined
+    ? command
+    : { timeoutMs: gitDeadlineMs(run, command.timeoutMs), limit: undefined };
 
 /**
  * How long a cancel for a run that has not begun is remembered. It covers only the order two RPCs arrive in: the router

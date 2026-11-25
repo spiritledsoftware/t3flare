@@ -387,7 +387,7 @@ The Environment DO reads each at every call and carries it to the Workspace DO a
 not exist yet for a new Workspace's first clone, the case that most needs a longer limit. So a change applies at the
 next clone, checkout or checkpoint, and one already running keeps its limit. A call that carries none (an older
 Environment, the admin route's `checkpoint`) gets `DEFAULT_CLONE_MINUTES` or `DEFAULT_CHECKPOINT_MINUTES`
-(`gitLimits.ts`).
+(`gitLimits.ts`; since SPI-1430, `execLimit.ts`).
 
 The checkpoint limit also bounds the two Container git reads that were a fixed 120 s: the authored paths of a range
 where HEAD moved (part of a turn's checkpoint) and a project's ref tips before a worktree's removal (`refTips`, part of

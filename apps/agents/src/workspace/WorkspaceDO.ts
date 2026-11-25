@@ -55,7 +55,6 @@ import {
   BASE_BUILD_TEXT_CHARACTERS,
   type BaseBuildRecord,
   BUILDERS,
-  deadlineMs,
   cliProcessesPerWorkspace,
   EMPTY_ENVIRONMENT,
   FIRST_PROMPT_SECONDS,
@@ -72,7 +71,15 @@ import {
   TEMP_FILES_HOURS,
 } from "@t3flare/harness-registry";
 import { BaseBuild } from "./baseBuild.ts";
-import { checkpointLimitMs, cloneLimitMs } from "./gitLimits.ts";
+import {
+  checkpointLimit,
+  cloneLimit,
+  commandLimit,
+  type ExecLimit,
+  limitNoted,
+  spawnTimed,
+  type TimedBy,
+} from "./execLimit.ts";
 import {
   BASE_WAIT_POLL_MS,
   baseIdOf,
@@ -132,7 +139,7 @@ import { FileIndex } from "./fileIndex.ts";
 import { type FileChunk, fileOps, grepPaths } from "./files.ts";
 import { diffScript, execOutput } from "./execOutput.ts";
 import { gitAnswerOf, gitExecOf, gitOutcome, keptFor, keptWhole } from "./gitOutput.ts";
-import { dropOrphanedRuns, gitDeadlineMs, RunCancels } from "./runCancels.ts";
+import { dropOrphanedRuns, gitDeadline, RunCancels } from "./runCancels.ts";
 import {
   deleteRef,
   diffCommits,
@@ -224,7 +231,13 @@ export interface ExecInput {
   readonly cwd?: string;
   readonly env?: Readonly<Record<string, string>>;
   readonly stdin?: string;
+  /** Its deadline; none: the command time limit's (`commandMinutes`). */
   readonly timeoutMs?: number;
+  /**
+   * The limit behind `timeoutMs`, named in the answer's stderr when the command runs out its deadline (SPI-1430,
+   * `execLimit.ts`). Without `timeoutMs` it is the command time limit; a deadline with none names nothing.
+   */
+  readonly limit?: ExecLimit | undefined;
   /** A read t3 makes on its own: it does not keep the Container up (no last-use update). */
   readonly passive?: boolean;
   /** Never start a stopped Container: answer status `not-running` instead (SPI-1148's wait for a running Container's copy). */
@@ -1360,11 +1373,11 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   /**
-   * The command time limit (`commandMinutes`, SPI-1364) in ms: the deadline of a Container command that carries none of
-   * its own, as the running Container's start took it; the off deadline when it is off (0, the default, SPI-1386).
+   * The command time limit (`commandMinutes`, SPI-1364): the deadline of a Container command that carries none of its
+   * own, as the running Container's start took it; the off deadline when it is off (0, the default, SPI-1386).
    */
-  #commandMs(): number {
-    return deadlineMs(this.#keptSettings().commandMinutes, 60_000);
+  #commandLimit(): TimedBy {
+    return commandLimit(this.#keptSettings().commandMinutes);
   }
 
   /** The settings the running Container took (kept by its start), read against this Worker's schema; else the defaults. */
@@ -1555,21 +1568,31 @@ export class WorkspaceDO extends ContainerHost {
       const script = backend === CONTAINER_BACKEND ? containerScript(await this.#containerPatterns(), body) : body;
       if (input.onlyIfRunning === true && !this.containerRunning())
         return { exitCode: -1, status: "not-running", stdout: "", stderr: "", ms: Date.now() - started };
-      const handle = await this.#workspace.runtime.exec(script, {
-        backend,
-        cwd: input.cwd ?? WORKSPACE_ROOT,
-        encoding: "utf8",
-        // A passive read is marked so the Container's backend sends it without waiting for the lay-down (ADR-0032's Global mise config refinement).
-        env:
-          backend === CONTAINER_BACKEND
-            ? commandEnvOf(COMMAND_ENV, input.env, input.passive === true)
-            : { ...input.env },
-        ...(input.stdin === undefined ? {} : { stdin: input.stdin }),
-        timeoutMs: input.timeoutMs ?? this.#commandMs(),
-        ...(execOutput(input.wholeOutput === true) === false ? { output: false } : {}),
-      });
+      const timed: TimedBy =
+        input.timeoutMs === undefined ? this.#commandLimit() : { timeoutMs: input.timeoutMs, limit: input.limit };
+      // Timed from the spawn, as computerd times its deadline: not the Container's start or the files' push before it.
+      const { handle, ranMs } = await spawnTimed(
+        () =>
+          this.#workspace.runtime.exec(script, {
+            backend,
+            cwd: input.cwd ?? WORKSPACE_ROOT,
+            encoding: "utf8",
+            // A passive read is marked so the Container's backend sends it without waiting for the lay-down (ADR-0032's
+            // Global mise config refinement).
+            env:
+              backend === CONTAINER_BACKEND
+                ? commandEnvOf(COMMAND_ENV, input.env, input.passive === true)
+                : { ...input.env },
+            ...(input.stdin === undefined ? {} : { stdin: input.stdin }),
+            timeoutMs: timed.timeoutMs,
+            ...(execOutput(input.wholeOutput === true) === false ? { output: false } : {}),
+          }),
+        () => Date.now(),
+      );
       if (input.runId !== undefined) this.#runCancels.started(input.runId, handle);
-      const result = await handle.result();
+      const ran = await handle.result();
+      // SPI-1430: a command computer ended at its deadline names the limit behind it.
+      const result = limitNoted({ ...ran, ms: ranMs() }, timed.timeoutMs, timed.limit);
       // The sync guard's scan ran after the command whatever its answer: its result is read first, so a leak it found is
       // flagged whatever the answer does next.
       if (guard !== undefined) await this.#readScanResult();
@@ -1723,8 +1746,9 @@ export class WorkspaceDO extends ContainerHost {
         cwd: run.cwd,
         env: { ...this.#identityEnv(), ...run.env },
         ...(run.stdin === undefined ? {} : { stdin: run.stdin }),
-        // SPI-1364: a run t3 can cancel takes no `commandMinutes` cut (`gitDeadlineMs`).
-        timeoutMs: gitDeadlineMs(run, this.#commandMs()),
+        // SPI-1364: a run t3 can cancel takes no `commandMinutes` cut (`gitDeadline`); one that does names it
+        // (SPI-1430).
+        ...gitDeadline(run, this.#commandLimit()),
         passive,
         ...(run.runId === undefined ? {} : { runId: run.runId }),
       });
@@ -1943,7 +1967,7 @@ export class WorkspaceDO extends ContainerHost {
   async checkpoint(op: CheckpointOp, options?: { readonly timeoutMs?: number }): Promise<CheckpointAnswer> {
     this.#alive();
     // The Container's git for this op may run this long (`checkpointMinutes`, carried by the Environment DO).
-    const timeoutMs = checkpointLimitMs(options?.timeoutMs);
+    const timed = checkpointLimit(options?.timeoutMs);
     try {
       const repo = await this.#repo();
       switch (op.op) {
@@ -1953,13 +1977,13 @@ export class WorkspaceDO extends ContainerHost {
           for (const ref of op.refs) await deleteRef(repo, ref);
           return { ok: true, value: null, by: "do" };
         case "capture":
-          return await this.#capture(repo, op.ref, timeoutMs);
+          return await this.#capture(repo, op.ref, timed);
         case "diff":
-          return await this.#diff(repo, op, timeoutMs);
+          return await this.#diff(repo, op, timed);
         case "authored":
-          return await this.#authored(repo, op.from, op.to, timeoutMs);
+          return await this.#authored(repo, op.from, op.to, timed);
         case "restore":
-          return await this.#restore(repo, op.ref, op.fallbackToHead, timeoutMs);
+          return await this.#restore(repo, op.ref, op.fallbackToHead, timed);
       }
     } catch (error) {
       console.warn(JSON.stringify({ t3flare: "checkpoint-failed", op: op.op, error: String(error) }));
@@ -1968,7 +1992,7 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   /** SPI-1100: the Container's writes (a CLI agent's, a terminal's) are pulled first (`checkpointCapture.ts`). */
-  #capture(repo: Repo, ref: string, timeoutMs: number): Promise<CheckpointAnswer> {
+  #capture(repo: Repo, ref: string, timed: TimedBy): Promise<CheckpointAnswer> {
     return captureTurn(
       {
         // Never starts the Container (`pullNow` skips a stopped one); serialised with the terminals' pulls.
@@ -1983,7 +2007,7 @@ export class WorkspaceDO extends ContainerHost {
             script: captureScript(at),
             cwd: REPO_ROOT,
             env: this.#identityEnv(),
-            timeoutMs,
+            ...timed,
           });
           return result.exitCode === 0 ? { ok: true } : { ok: false, error: `git capture failed: ${result.stderr}` };
         },
@@ -1993,7 +2017,7 @@ export class WorkspaceDO extends ContainerHost {
     );
   }
 
-  async #diff(repo: Repo, op: Extract<CheckpointOp, { op: "diff" }>, timeoutMs: number): Promise<CheckpointAnswer> {
+  async #diff(repo: Repo, op: Extract<CheckpointOp, { op: "diff" }>, timed: TimedBy): Promise<CheckpointAnswer> {
     if (op.filePaths?.length === 0) return { ok: true, value: "", by: "do" };
     // Above the guard the DO reads no object (SPI-1050 review): the Container's git answers, started if need be.
     const within = await withinGuard(repo);
@@ -2028,7 +2052,7 @@ export class WorkspaceDO extends ContainerHost {
         script: diffScript(argv, op.maxOutputBytes),
         cwd: REPO_ROOT,
         passive: true,
-        ...(within ? {} : { timeoutMs }),
+        ...(within ? {} : timed),
         wholeOutput: op.maxOutputBytes !== undefined,
       });
       if (result.exitCode === 0) return { ok: true, value: result.stdout, by: "container" };
@@ -2042,7 +2066,7 @@ export class WorkspaceDO extends ContainerHost {
     return { ok: true, value, by: "do" };
   }
 
-  async #authored(repo: Repo, fromRef: string, toRef: string, timeoutMs: number): Promise<CheckpointAnswer> {
+  async #authored(repo: Repo, fromRef: string, toRef: string, timed: TimedBy): Promise<CheckpointAnswer> {
     const within = await withinGuard(repo);
     const resolve = resolverFor(repo, within);
     const from = await resolve(fromRef);
@@ -2059,7 +2083,7 @@ export class WorkspaceDO extends ContainerHost {
         script: `exec git log --no-walk=unsorted --format=%P ${shellWord(from)} ${shellWord(to)}`,
         cwd: REPO_ROOT,
         passive: true,
-        timeoutMs,
+        ...timed,
       });
       if (parents.exitCode !== 0) return { ok: false, error: parents.stderr };
       const lines = parents.stdout.split("\n");
@@ -2072,7 +2096,7 @@ export class WorkspaceDO extends ContainerHost {
     const result = await this.exec({
       script: authoredScript(from, to, startHead, endHead),
       cwd: REPO_ROOT,
-      timeoutMs,
+      ...timed,
     });
     if (result.exitCode !== 0) return { ok: false, error: result.stderr };
     return {
@@ -2082,12 +2106,12 @@ export class WorkspaceDO extends ContainerHost {
     };
   }
 
-  async #restore(repo: Repo, ref: string, fallbackToHead: boolean, timeoutMs: number): Promise<CheckpointAnswer> {
+  async #restore(repo: Repo, ref: string, fallbackToHead: boolean, timed: TimedBy): Promise<CheckpointAnswer> {
     const resolve = resolverFor(repo, await withinGuard(repo));
     let commit = await resolve(ref);
     if (commit === null && fallbackToHead) commit = await resolve("HEAD");
     if (commit === null) return { ok: true, value: false, by: "do" };
-    const result = await this.exec({ script: restoreScript(commit), cwd: REPO_ROOT, timeoutMs });
+    const result = await this.exec({ script: restoreScript(commit), cwd: REPO_ROOT, ...timed });
     if (result.exitCode !== 0) return { ok: false, error: result.stderr };
     return { ok: true, value: true, by: "container" };
   }
@@ -2122,7 +2146,7 @@ export class WorkspaceDO extends ContainerHost {
       const result = await this.exec({
         script,
         cwd: "/workspace",
-        timeoutMs: cloneLimitMs(input.timeoutMs),
+        ...cloneLimit(input.timeoutMs),
       });
       // In the background: a repo's many refs make a long prime, which the clone's answer does not wait for.
       if (result.exitCode === 0) this.ctx.waitUntil(this.#prime().catch(() => undefined));
@@ -2166,7 +2190,7 @@ export class WorkspaceDO extends ContainerHost {
       email: this.env.T3FLARE_GIT_EMAIL ?? "t3flare@users.noreply.github.com",
     });
     try {
-      const result = await this.exec({ script, cwd: "/workspace", timeoutMs: cloneLimitMs(input.timeoutMs) });
+      const result = await this.exec({ script, cwd: "/workspace", ...cloneLimit(input.timeoutMs) });
       if (result.exitCode !== 0) return { ok: false, tips: [], error: result.stderr };
       return { ok: true, tips: parseTips(result.stdout) };
     } catch (error) {
@@ -2196,7 +2220,7 @@ export class WorkspaceDO extends ContainerHost {
     const bundle = `${HARNESS_ROOT}/tmp/wt-${input.name.replace(/[^A-Za-z0-9-]/g, "")}.bundle`;
     const script = worktreeBundleScript({ ref: input.ref, tips: input.tips, bundle });
     try {
-      const result = await this.exec({ script, cwd: REPO_ROOT, timeoutMs: checkpointLimitMs(input.timeoutMs) });
+      const result = await this.exec({ script, cwd: REPO_ROOT, ...checkpointLimit(input.timeoutMs) });
       if (result.exitCode !== 0) return { ok: false, error: result.stderr };
       const answer = parseBundleAnswer(result.stdout);
       if (answer.commit === null) return { ok: false, error: `no commit for ${input.ref}` };
@@ -2255,7 +2279,7 @@ export class WorkspaceDO extends ContainerHost {
     }
     const script = worktreeFinishScript({ bundle: local, ref: input.ref, commit: input.commit, config: input.config });
     try {
-      const result = await this.exec({ script, cwd: REPO_ROOT, timeoutMs: cloneLimitMs(input.timeoutMs) });
+      const result = await this.exec({ script, cwd: REPO_ROOT, ...cloneLimit(input.timeoutMs, "worktree checkout") });
       const head = result.stdout.trim().split("\n").at(-1) ?? "";
       if (result.exitCode !== 0) return { ok: false, error: result.stderr };
       if (head !== input.commit) return { ok: false, error: `HEAD is ${head}, not ${input.commit}` };
@@ -2420,7 +2444,7 @@ export class WorkspaceDO extends ContainerHost {
     const result = await this.exec({
       script: "git for-each-ref --format='%(objectname)' | sort -u",
       cwd: REPO_ROOT,
-      timeoutMs: checkpointLimitMs(input?.timeoutMs),
+      ...checkpointLimit(input?.timeoutMs),
     });
     if (result.exitCode !== 0) return { ok: false, tips: [], error: result.stderr };
     return { ok: true, tips: parseTips(`TIPS\n${result.stdout}`) };
@@ -2443,7 +2467,7 @@ export class WorkspaceDO extends ContainerHost {
     const result = await this.exec({
       script: carryOutScript({ projectTips: input.projectTips, bundle }),
       cwd: REPO_ROOT,
-      timeoutMs: checkpointLimitMs(input.timeoutMs),
+      ...checkpointLimit(input.timeoutMs),
     });
     if (result.exitCode !== 0) return { ok: false, dirty: true, carried: [], bundle: null, error: result.stderr };
     const answer = parseCarryOut(result.stdout);
@@ -2468,7 +2492,7 @@ export class WorkspaceDO extends ContainerHost {
     const result = await this.exec({
       script: carryInScript({ bundle: local, dir: input.dir, carried: input.carried }),
       cwd: REPO_ROOT,
-      timeoutMs: checkpointLimitMs(input.timeoutMs),
+      ...checkpointLimit(input.timeoutMs),
     });
     const lines = result.stdout.split("\n").filter((line) => /^(CREATED|FASTFORWARD|KEPT) /.test(line));
     if (result.exitCode !== 0) return { ok: false, lines, error: result.stderr };

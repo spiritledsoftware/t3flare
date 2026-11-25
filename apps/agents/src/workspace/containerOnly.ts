@@ -7,7 +7,8 @@
 // backend is made again whenever the patterns a start needs differ: the static `CONTAINER_IGNORE`, the submodules'
 // git directories (`.git/modules`), and each path `.gitmodules` names (read from the DO's files at each start).
 import type { WorkspaceBackend } from "@cloudflare/computer";
-import { SKILLS_LOCK_SCRIPT } from "@t3flare/workspace-client";
+import { timeLimitHit } from "@t3flare/harness-registry";
+import { SKILLS_LOCK_SCRIPT, startRefusal } from "@t3flare/workspace-client";
 
 import { REPO_ROOT, WORKSPACE_ROOT } from "./constants.ts";
 
@@ -119,6 +120,37 @@ export interface ContainerOnlyOptions {
   readonly connected?: (handle: { readonly runtimeId?: string | undefined }) => Promise<void>;
 }
 
+/** computer's refusal of a running Container started with other patterns. */
+const MISMATCH = "ContainerIgnoreMismatchError";
+
+/**
+ * computer's own errors for a start that ran out its wait (computer 0.11.2, `ContainerBackend`): its health checks
+ * retried until the deadline (`stage=health`), or the `/api` upgrade did not arrive by it (`stage=ws`). One deadline
+ * path is not named: computer gives computerd the wait's remainder for its egress health check (`POST /connect`'s
+ * `healthTimeoutMs`), whose running out comes back as `[stage=connect]: POST /connect returned …`, which is computer's
+ * as it is (rare).
+ */
+const WAIT_RAN_OUT =
+  /ContainerBackend\([^)]*\)(?:: connect failed at stage=health | \[stage=ws\]: \/api upgrade did not arrive within )/;
+
+/**
+ * `connect`, its failure for running out its wait (`connectTimeoutMs`) named as the Container start wait, with its
+ * seconds and where to change it (SPI-1430), computer's error after it and kept as the `cause`. A budget refusal, which
+ * `startRefusal` finds, and any other failure are computer's, as they are.
+ */
+const startWaited = async <Handle>(connect: () => Promise<Handle>, connectTimeoutMs: number): Promise<Handle> => {
+  try {
+    return await connect();
+  } catch (error) {
+    if (!(error instanceof Error) || !WAIT_RAN_OUT.test(error.message) || startRefusal(error) !== undefined)
+      throw error;
+    const limit = timeLimitHit(Math.round(connectTimeoutMs / 1000), "second", {
+      environment: "containerConnectSeconds",
+    });
+    throw new Error(`the Container did not answer within ${limit}. ${error.message}`, { cause: error });
+  }
+};
+
 export class ContainerOnlyBackend implements WorkspaceBackend {
   readonly id: string;
   readonly type: string;
@@ -165,14 +197,15 @@ export class ContainerOnlyBackend implements WorkspaceBackend {
       this.#current = { patterns, connectTimeoutMs, backend: this.#options.make(patterns, connectTimeoutMs) };
     }
     const backend = this.#current.backend;
+    const connect = () => startWaited(() => backend.connect(host), connectTimeoutMs);
     let handle: Awaited<ReturnType<WorkspaceBackend["connect"]>>;
     try {
-      handle = await backend.connect(host);
+      handle = await connect();
     } catch (error) {
-      if (!(error instanceof Error && error.name === "ContainerIgnoreMismatchError")) throw error;
+      if (!(error instanceof Error && error.name === MISMATCH)) throw error;
       this.#options.log?.({ t3flare: "container-patterns-restart", error: String(error) });
       await this.#options.stop();
-      handle = await backend.connect(host);
+      handle = await connect();
     }
     await this.#options.connected?.(handle).catch(() => undefined);
     return handle;
