@@ -14,7 +14,9 @@ export const ERROR_LINE = /error TS\d+|: error |^\s*[×✗✖] |^\s*FAIL\b|Error
 /** vp's `--log grouped` header, naming the task whose output follows. */
 export const TASK_HEADER = /^── \[(.+)\] ──$/;
 
-/** The first line of vp's summary after a run. */
+/** The rule vp prints over its summary after a run. */
+const VP_SUMMARY_RULE = "---";
+/** The first line of vp's summary after a run, under {@link VP_SUMMARY_RULE}. */
 const VP_SUMMARY = /^vp run: \d+\/\d+ successful/;
 
 /** A line of a check's output, read with the `--log grouped` section it is in. */
@@ -41,9 +43,9 @@ export const checkLines = (output: string): Array<CheckLine> => {
   let section = -1;
   let notFailing = false;
   for (const text of output.split("\n")) {
-    // vp's closing summary, `---` then `vp run: 11/27 successful…`, and pnpm's line after it end the last section.
+    // vp's closing summary, its rule then `vp run: 11/27 successful…`, and pnpm's line after it end the last section.
     if (VP_SUMMARY.test(text)) {
-      if (lines.at(-1)?.text === "---")
+      if (lines.at(-1)?.text === VP_SUMMARY_RULE)
         lines[lines.length - 1] = { ...lines.at(-1)!, task: undefined, header: undefined };
       task = undefined;
       headerLine = undefined;

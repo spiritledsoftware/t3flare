@@ -7,7 +7,14 @@
 import { spawn, spawnSync } from "node:child_process";
 import * as os from "node:os";
 
-import { failureReport } from "./lib/checkFailure.ts";
+import { failureReport, type LastDetails } from "./lib/checkFailure.ts";
+
+/**
+ * The most of `vp run --last-details` read back. Its summary is about 300 bytes a task (13 KB for the 45 tasks in
+ * lib/fixtures/check-run-test.details.txt), so this is room for far more tasks than `check:all` has; past it the read
+ * fails with ENOBUFS and the block says the details could not be read.
+ */
+const LAST_DETAILS_MAX_BYTES = 64 * 1024 * 1024;
 
 const child = spawn("vp", ["run", "--log", "grouped", "--concurrency-limit", "16", "check:all"], {
   stdio: ["inherit", "pipe", "pipe"],
@@ -29,12 +36,14 @@ child.on("error", (error) => {
 child.on("close", (code, signal) => {
   if (code === 0) return;
   if (code === null) {
-    console.error(`check: vp was stopped by ${signal ?? "a signal"}`);
-    process.exitCode = 128 + (signal === null ? 0 : os.constants.signals[signal]);
+    // Node passes `close` a null code only with the signal that ended vp.
+    console.error(`check: vp was stopped by ${signal}`);
+    process.exitCode = 128 + os.constants.signals[signal!];
     return;
   }
-  const details = spawnSync("vp", ["run", "--last-details"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-  const summary = details.error === undefined ? `${details.stdout}${details.stderr}` : undefined;
-  console.error(`\n${failureReport(Buffer.concat(output).toString("utf8"), summary)}`);
+  const details = spawnSync("vp", ["run", "--last-details"], { encoding: "utf8", maxBuffer: LAST_DETAILS_MAX_BYTES });
+  const lastDetails: LastDetails =
+    details.error === undefined ? `${details.stdout}${details.stderr}` : { unreadable: String(details.error) };
+  console.error(`\n${failureReport(Buffer.concat(output).toString("utf8"), lastDetails, code)}`);
   process.exitCode = code;
 });

@@ -1,7 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off
-// The block a failed `pnpm run check` ends with (SPI-1346), on real runs: each `check-run-<case>.txt` is `pnpm run check`'s
-// output on a scratch change with one deliberate failure, and `check-run-<case>.details.txt` the `vp run --last-details`
-// that followed it, the checkout path replaced by /repo. In `killed`, a scratch `node --test` file SIGKILLed its runner.
+// The block a failed `pnpm run check` ends with (SPI-1346), on real runs: each `check-run-<case>.txt` is
+// `pnpm run check`'s output on a scratch change with one deliberate failure, and `check-run-<case>.details.txt` the
+// `vp run --last-details` that followed it, the checkout path replaced by /repo. In `killed`, a scratch `node --test`
+// file SIGKILLed its runner.
 import * as assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -34,9 +35,9 @@ void describe("parseLastDetails", () => {
 void describe("failureReport", () => {
   void it("names a failing lint task, its error, and the tasks vp stopped", () => {
     const { log, details } = run("lint");
-    const report = failureReport(log, details);
+    const report = failureReport(log, details, 1);
     const lines = report.split("\n");
-    assert.equal(lines[0], "check FAILED: first failing task: @t3flare/skills#lint (exit 1)");
+    assert.equal(lines[0], "check FAILED (vp exit 1): first failing task: @t3flare/skills#lint (exit 1)");
     assert.match(lines[1]!, /^ {2}src\/scratch\.ts:2:1: error typescript\(no-floating-promises\)/);
     const stopped = /^stopped by vp when it failed \(not failures\): (\d+) tasks \(exit 137\): (.+)$/m.exec(report);
     assert.ok(stopped, report);
@@ -48,16 +49,16 @@ void describe("failureReport", () => {
   });
 
   void it("names a failing check:fmt and the file it would change", () => {
-    const report = failureReport(run("fmt").log, run("fmt").details);
-    assert.match(report, /^check FAILED: first failing task: t3flare#check:fmt \(exit 1\)\n/);
+    const report = failureReport(run("fmt").log, run("fmt").details, 1);
+    assert.match(report, /^check FAILED \(vp exit 1\): first failing task: t3flare#check:fmt \(exit 1\)\n/);
     assert.match(report, /^ {2}packages\/skills\/src\/scratch\.ts/m);
     assert.match(report, /^ {2}Format issues found in above 1 files/m);
     assert.match(report, /^stopped by vp when it failed \(not failures\): 15 tasks \(exit 137\): /m);
   });
 
   void it("names a failing test and its assertion", () => {
-    const report = failureReport(run("test").log, run("test").details);
-    assert.match(report, /^check FAILED: first failing task: @t3flare\/skills#test \(exit 1\)\n/);
+    const report = failureReport(run("test").log, run("test").details, 1);
+    assert.match(report, /^check FAILED \(vp exit 1\): first failing task: @t3flare\/skills#test \(exit 1\)\n/);
     assert.match(report, /^ {5}× fails on purpose/m);
     assert.match(report, /^ {2}AssertionError: expected 1 to be 2/m);
     assert.match(report, /^stopped by vp when it failed \(not failures\): 15 tasks \(exit 137\): /m);
@@ -65,27 +66,42 @@ void describe("failureReport", () => {
 
   void it("blames no task when every task that did not pass was killed", () => {
     const { log, details } = run("killed");
-    const report = failureReport(log, details);
-    assert.match(report, /^check FAILED: no task failed by itself; 16 tasks were killed \(exit 137\)/);
+    const report = failureReport(log, details, 1);
+    assert.match(report, /^check FAILED \(vp exit 1\): no task failed by itself; 16 tasks were killed \(exit 137\)/);
     assert.match(report, /out of memory/);
     assert.doesNotMatch(report, /first failing task/);
   });
 
   void it("lists other tasks that failed by themselves", () => {
     const details = run("lint").details.replace(
-      "@t3flare/mcp#lint: ~/packages/mcp$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src vitest.config.ts ✗ (exit code: 137)",
-      "@t3flare/mcp#lint: ~/packages/mcp$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src vitest.config.ts ✗ (exit code: 2)",
+      /(\[17\] @t3flare\/mcp#lint: .*)\(exit code: 137\)/,
+      "$1(exit code: 2)",
     );
-    const report = failureReport(run("lint").log, details);
+    const report = failureReport(run("lint").log, details, 1);
     assert.match(report, /^other failed tasks: @t3flare\/mcp#lint \(exit 2\)$/m);
     assert.match(report, /^stopped by vp when it failed \(not failures\): 14 tasks \(exit 137\): /m);
   });
 
-  void it("falls back to the first section with an error when vp's summary cannot be read", () => {
-    const report = failureReport(run("test").log, undefined);
-    assert.match(report, /^check FAILED: first task with an error in the log: @t3flare\/skills#test\n/);
-    assert.match(report, /AssertionError: expected 1 to be 2/);
-    assert.doesNotMatch(report, /stopped by vp/);
+  void it("names no task when vp's details could not be read", () => {
+    const report = failureReport(run("test").log, { unreadable: "spawnSync vp ENOBUFS" }, 1);
+    assert.equal(
+      report,
+      "check FAILED (vp exit 1): vp's details of the run could not be read (spawnSync vp ENOBUFS), " +
+        "so no task is named; " +
+        "find the failure in the log above, or run `vp run --last-details`",
+    );
+  });
+
+  void it("names no task when vp's details list no failure, as stale or unreadable details do", () => {
+    const passed = run("lint").details.replaceAll(/✗ \(exit code: \d+\)/g, "✓");
+    for (const details of [passed, "error: no previous run\n"]) {
+      const report = failureReport(run("test").log, details, 2);
+      assert.match(report, /^check FAILED \(vp exit 2\): /);
+      assert.doesNotMatch(report, /#/, "no task named");
+    }
+    assert.match(failureReport("", passed, 2), /every task in vp's details of the last run passed/);
+    assert.match(failureReport("", passed, 2), /may be from an earlier run/);
+    assert.match(failureReport("", "error: no previous run\n", 2), /vp's details of the run list no task/);
   });
 
   void it("leaves out t3's errors the typecheck reports as not failing", () => {
@@ -100,7 +116,7 @@ void describe("failureReport", () => {
     ].join("\n");
     const details =
       "  [1] @t3flare/environment#typecheck: ~/apps/environment$ node scripts/typecheck.ts ✗ (exit code: 1)\n";
-    const report = failureReport(log, details);
+    const report = failureReport(log, details, 1);
     assert.match(report, /src\/runtime\.ts\(62,14\): error TS2322/);
     assert.doesNotMatch(report, /t3code|t3's own files/);
   });
@@ -109,7 +125,7 @@ void describe("failureReport", () => {
     const passing = Array.from({ length: 100 }, (_, i) => `  ✓ passes ${i}`);
     const log = ["── [@t3flare/a#test] ──", ...passing, "   × fails here", "AssertionError: no", ...passing].join("\n");
     const details = "  [1] @t3flare/a#test: ~/a$ vitest run ✗ (exit code: 1)\n";
-    const shown = failureReport(log, details).split("\n").slice(1);
+    const shown = failureReport(log, details, 1).split("\n").slice(1);
     assert.ok(shown.length <= FAILURE_LINES + 1);
     assert.deepEqual(shown.slice(0, 2), ["     × fails here", "  AssertionError: no"]);
   });

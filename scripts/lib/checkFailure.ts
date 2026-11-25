@@ -46,34 +46,45 @@ const indent = (lines: ReadonlyArray<string>) => lines.map((line) => `  ${line}`
 const names = (tasks: ReadonlyArray<TaskResult>) => tasks.map((t) => t.name).join(", ");
 const codes = (tasks: ReadonlyArray<TaskResult>) => [...new Set(tasks.map((t) => t.exitCode))].join("/");
 
+/** `vp run --last-details`'s output, or why it could not be read (it could not run, or overflowed its buffer). */
+export type LastDetails = string | { readonly unreadable: string };
+
 /**
- * The block for a failed check, from its output and `vp run --last-details` (`undefined` when that could not be run).
- * Without the details, it names the first task whose section of the log holds an error line.
+ * The block for a check vp exited `exitCode` from, given its output and {@link LastDetails}. It names a task only from
+ * the details: when they cannot be read, or list no failed task (from an earlier run, or vp failed outside its tasks),
+ * it says so and names none.
  */
-export const failureReport = (log: string, details: string | undefined): string => {
-  const failed = parseLastDetails(details ?? "").filter((t) => t.exitCode !== 0);
-  if (failed.length === 0) {
-    const first = checkLines(log).find((l) => l.kind === "line" && l.task !== undefined && ERROR_LINE.test(l.text));
-    if (first === undefined)
-      return "check FAILED: no task's section of the log holds an error line, and `vp run --last-details` named none";
-    return [
-      `check FAILED: first task with an error in the log: ${first.task}`,
-      ...indent(sectionExcerpt(log, first.task!)),
-    ].join("\n");
-  }
+export const failureReport = (log: string, details: LastDetails, exitCode: number): string => {
+  const failedHeading = `check FAILED (vp exit ${exitCode}): `;
+  const lookInLog = "find the failure in the log above, or run `vp run --last-details`";
+  if (typeof details !== "string")
+    return (
+      `${failedHeading}vp's details of the run could not be read (${details.unreadable}), so no task is named; ` +
+      lookInLog
+    );
+  const tasks = parseLastDetails(details);
+  if (tasks.length === 0)
+    return `${failedHeading}vp's details of the run list no task, so no task is named; ${lookInLog}`;
+  const failed = tasks.filter((t) => t.exitCode !== 0);
+  if (failed.length === 0)
+    return (
+      `${failedHeading}every task in vp's details of the last run passed, so no task is named: the details may be ` +
+      `from an earlier run, or vp failed outside its tasks; ${lookInLog}`
+    );
   const own = failed.filter((t) => !SIGNALLED.has(t.exitCode));
   const stopped = failed.filter((t) => SIGNALLED.has(t.exitCode));
   if (own.length === 0)
     return (
-      `check FAILED: no task failed by itself; ${stopped.length} tasks were killed (exit ${codes(stopped)}), ` +
+      `${failedHeading}no task failed by itself; ${stopped.length} tasks were killed (exit ${codes(stopped)}), ` +
       `which can be the machine running out of memory: ${names(stopped)}`
     );
   const [first, ...others] = own;
-  const block = [`check FAILED: first failing task: ${first!.name} (exit ${first!.exitCode})`];
+  const block = [`${failedHeading}first failing task: ${first!.name} (exit ${first!.exitCode})`];
   block.push(...indent(sectionExcerpt(log, first!.name)));
   if (stopped.length > 0)
     block.push(
-      `stopped by vp when it failed (not failures): ${stopped.length} tasks (exit ${codes(stopped)}): ${names(stopped)}`,
+      `stopped by vp when it failed (not failures): ${stopped.length} tasks ` +
+        `(exit ${codes(stopped)}): ${names(stopped)}`,
     );
   if (others.length > 0)
     block.push(`other failed tasks: ${others.map((t) => `${t.name} (exit ${t.exitCode})`).join(", ")}`);

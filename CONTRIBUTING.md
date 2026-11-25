@@ -62,11 +62,19 @@ the full run; while you work, the targeted checks below are faster. When it fail
 failed, with its error, and list the tasks vp stopped because of it as stopped, not failed. Errors labelled `[t3, not
 failing]` are t3's own, which the typecheck reports and passes.
 
-To check a change while you work, from the root: run the test files it touches, `pnpm --filter @t3flare/<pkg> run
-typecheck` for the package it changed (`vp run typecheck:scripts` for the root `scripts/`), and `vp fmt --check` and
-`oxlint --type-aware --deny-warnings` on the changed files. These run the Effect diagnostics and type-aware lint
-rules (`globalDate`, `unbound-method`) that vitest doesn't. A bare `tsc --noEmit` is not the same: it skips them, and
-fails on t3code's `schemaClassMissingBrand` suggestions.
+To check a change while you work, run only the checks it touches, from the root:
+
+- each test file it touches, one at a time: `pnpm --filter @t3flare/<pkg> exec vitest run <file>` in a package
+  (`<file>` relative to it), or `node --test <file>` for the root `scripts/`;
+- the typecheck of the package it changed: `pnpm --filter @t3flare/<pkg> run typecheck`, or `vp run typecheck:scripts`
+  for the root `scripts/`;
+- lint for that package, `pnpm --filter @t3flare/<pkg> run lint` (or `vp run lint:scripts`), which carries the repo's
+  flags; a bare `oxlint` can be another version and misses them;
+- the formatter on the changed files: `vp fmt --check <files>`.
+
+The typecheck runs the Effect diagnostics (`globalDate`), and lint the type-aware rules (`unbound-method`), that vitest
+doesn't. A bare `tsc --noEmit` is not the same: it skips them, and fails on t3code's `schemaClassMissingBrand`
+suggestions.
 
 Every pull request runs [`ci.yml`](.github/workflows/ci.yml): `check` (that same command, required to merge) and
 `secrets` (a gitleaks scan of the PR's commits). CI gets no secrets and a read-only token, so it never deploys anything

@@ -67,7 +67,9 @@ void describe("checkDetail", () => {
   });
 
   void it("leaves out t3's errors under their not-failing label, with or without the heading over them", () => {
-    const t3Error = `${T3_NOT_FAILING_LABEL}../../t3code/apps/server/src/a.ts(1,1): error TS2345: Argument of type 'X' is not assignable.\n  Type 'X' is not assignable to type 'Y'.`;
+    const t3Error =
+      `${T3_NOT_FAILING_LABEL}../../t3code/apps/server/src/a.ts(1,1): error TS2345: Argument of type 'X' is not ` +
+      "assignable.\n  Type 'X' is not assignable to type 'Y'.";
     const output = [
       "── [@t3flare/environment#typecheck] ──",
       "src/runtime.ts(62,14): error TS2322: Type 'string' is not assignable to type 'number'.",

@@ -1,9 +1,10 @@
 // @effect-diagnostics globalConsole:off nodeBuiltinImport:off
 // `pnpm --filter @t3flare/environment run typecheck`, or `node apps/environment/scripts/typecheck.ts` from anywhere:
 // `effect-tsgo tsrs --noEmit` over two programs, failing only on errors in t3flare's own files (fragility U10,
-// `lib/typecheckFilter.ts`). Errors in t3's files are printed under a heading, each labelled not failing, and pass. The package's program (tsconfig.json) checks src, scripts and the Node tests with Node's types; the
-// workerd tests' program (test/tsconfig.workerd.json) checks the `workerd` Vitest project's files with the Workers
-// globals, which clash with Node's across the rest, so it owns only those files.
+// `lib/typecheckFilter.ts`). Errors in t3's files are printed under a heading, each labelled not failing, and pass.
+// The package's program (tsconfig.json) checks src, scripts and the Node tests with Node's types; the workerd tests'
+// program (test/tsconfig.workerd.json) checks the `workerd` Vitest project's files with the Workers globals, which
+// clash with Node's across the rest, so it owns only those files.
 import { spawnSync } from "node:child_process";
 import * as path from "node:path";
 
@@ -44,7 +45,8 @@ for (const { project, ownership, elsewhere } of programs) {
   );
   if (result.error !== undefined) {
     console.error(
-      `typecheck: could not run ${effectTsgo}: ${String(result.error)}; run \`pnpm install --frozen-lockfile\` at the repo root`,
+      `typecheck FAILED, not on a type error: could not run ${effectTsgo}: ${String(result.error)}; ` +
+        "run `pnpm install --frozen-lockfile` at the repo root",
     );
     process.exit(1);
   }
@@ -54,12 +56,18 @@ for (const { project, ownership, elsewhere } of programs) {
   for (const diagnostic of verdict.t3Errors) t3Errors.set(diagnostic.text, diagnostic);
   if (verdict.elsewhereErrors.length > 0) {
     console.log(
-      `${project}: ${verdict.elsewhereErrors.length} error(s) in files it does not own, which ${elsewhere ?? "another program"} checks; not failing.`,
+      `${project}: ${verdict.elsewhereErrors.length} error(s) in files it does not own, ` +
+        `which ${elsewhere ?? "another program"} checks; not failing.`,
     );
   }
   if (!verdict.ok) {
     ok = false;
-    if (verdict.reason !== undefined) console.error(`typecheck (${project}): ${verdict.reason}\n${output}`);
+    // A type error in a file no program owns is a type error; any other reason (a signal, a crash, output that is not
+    // diagnostics) is not, and says so.
+    if (verdict.reason !== undefined) {
+      const kind = verdict.unownedErrors.length > 0 ? "on type errors" : "not on a type error";
+      console.error(`typecheck (${project}) FAILED, ${kind}: ${verdict.reason}\n${output}`);
+    }
   }
 }
 if (t3Errors.size > 0) console.log(`\n${t3ErrorsReport([...t3Errors.values()])}`);
