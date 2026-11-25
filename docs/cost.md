@@ -50,7 +50,8 @@ What moves the total:
 ## What t3flare measures itself
 
 - **`container-idle-stop`** (agents Worker logs): `memoryPeakBytes` and `cpuUsageUsec` from the Container's cgroup, and
-  `ranMs` since its start, at every idle stop.
+  `ranMs` since its start, at every idle stop; and `terminalHold` and `agentTerminalHold`, the hold t3's and the agent's
+  open Terminals got (`busy` or `prompt`, and its `minutes`), or null with none open (SPI-1431).
 - **`GET /_t3flare/health` → `sql`**: `rowsWritten` and `rowsRead` of t3's statements through the SQL adapter since
   `isolate.startedAt`, and the Environment's `databaseSize`. Divide by the isolate's age for a rate.
 - **`GET /_t3flare/agents/workspaces` → `terminals.pushes`**: terminal output batches each Workspace DO pushed since it

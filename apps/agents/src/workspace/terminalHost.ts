@@ -12,7 +12,7 @@
 // - Only input is use (review F10): the Container's terminal hold is measured from the last input. Opening is not input
 //   (cost audit F1): t3 re-attaches every open panel after an Environment restart, so an open must not hold the
 //   Container. A shell at its prompt holds it for less than one running a foreground command.
-import { FIRST_PROMPT_SECONDS } from "@t3flare/harness-registry";
+import { changeItUnder, FIRST_PROMPT_SECONDS, type SettingRef } from "@t3flare/harness-registry";
 import type { KillAnswer } from "@t3flare/sandbox-image/kill";
 import { scanMarkers, terminalCommand } from "@t3flare/sandbox-image/terminal";
 import type {
@@ -105,6 +105,39 @@ interface Terminal {
   closing: boolean;
 }
 
+/** A Terminal hold that let the Container stop (SPI-1431): which, and its value in minutes as it was applied. */
+export interface HoldLapse {
+  readonly hold: "busy" | "prompt";
+  readonly minutes: number;
+}
+
+const HOLDS: Readonly<
+  Record<HoldLapse["hold"], { readonly ref: SettingRef; readonly when: string; readonly name: string }>
+> = {
+  busy: {
+    ref: { environment: "terminalBusyHoldMinutes" },
+    when: "while a command ran",
+    name: "the Terminal hold while a command runs",
+  },
+  prompt: {
+    ref: { environment: "terminalPromptHoldMinutes" },
+    when: "at the prompt",
+    name: "the Terminal hold at the prompt",
+  },
+};
+
+/**
+ * What follows "the Workspace's Container stopped" when a Terminal hold let it stop (ADR-0049 §4): ": its Terminals had
+ * no input for 30 minutes while a command ran, the Terminal hold while a command runs; change it under …". Nothing for
+ * a stop no hold let happen (a close, a destroy, an idle stop with no Terminal open).
+ */
+export const holdLapsed = (lapse: HoldLapse | null | undefined): string => {
+  if (lapse === undefined || lapse === null) return "";
+  const { ref, when, name } = HOLDS[lapse.hold];
+  const minutes = `${lapse.minutes.toLocaleString("en-US")} minute${lapse.minutes === 1 ? "" : "s"}`;
+  return `: its Terminals had no input for ${minutes} ${when}, ${name}${changeItUnder(ref)}`;
+};
+
 const encoder = new TextEncoder();
 
 export class TerminalHost {
@@ -139,10 +172,28 @@ export class TerminalHost {
    * `terminalPromptHoldMs`.
    */
   holdsContainer(hold: TerminalHold): boolean {
-    const open = [...this.#terminals.values()].filter((terminal) => !terminal.exited);
-    if (open.length === 0) return false;
-    const ms = open.some((terminal) => terminal.busy) ? hold.terminalBusyHoldMs : hold.terminalPromptHoldMs;
+    const applied = this.#openHold();
+    if (applied === undefined) return false;
+    const ms = applied === "busy" ? hold.terminalBusyHoldMs : hold.terminalPromptHoldMs;
     return this.#deps.now() - this.#lastInput < ms;
+  }
+
+  /**
+   * The hold `holdsContainer` applies now, with its value in `hold` (SPI-1431): what a stop it let happen names. None
+   * with no terminal open.
+   */
+  appliedHold(hold: TerminalHold): HoldLapse | undefined {
+    const applied = this.#openHold();
+    if (applied === undefined) return undefined;
+    const ms = applied === "busy" ? hold.terminalBusyHoldMs : hold.terminalPromptHoldMs;
+    return { hold: applied, minutes: ms / 60_000 };
+  }
+
+  /** Which hold open terminals keep the Container for: the busy one while one runs a command, else the prompt one. */
+  #openHold(): HoldLapse["hold"] | undefined {
+    const open = [...this.#terminals.values()].filter((terminal) => !terminal.exited);
+    if (open.length === 0) return undefined;
+    return open.some((terminal) => terminal.busy) ? "busy" : "prompt";
   }
 
   /** Batches pushed to the Environment since this object started (cost audit F4's check). */
@@ -477,11 +528,15 @@ export class TerminalHost {
     return lapsed.length;
   }
 
-  /** The Container stops (idle stop, destroy): every shell ends with it. */
-  containerStopped(): void {
+  /**
+   * The Container stops (idle stop, reclaim, close, destroy): every shell ends with it. `lapse`: the hold that let it
+   * stop (an idle stop or a reclaim under open terminals, SPI-1431), named in each.
+   */
+  containerStopped(lapse?: HoldLapse | null): void {
+    const line = `The Workspace's Container stopped${holdLapsed(lapse)}.`;
     for (const terminal of this.#terminals.values()) {
       if (!terminal.exited) {
-        this.#frame(terminal, { data: "\r\n\x1b[2mThe Workspace's Container stopped.\x1b[0m\r\n" });
+        this.#frame(terminal, { data: `\r\n\x1b[2m${line}\x1b[0m\r\n` });
         this.#exited(terminal, 129);
       }
     }

@@ -585,6 +585,27 @@ describe("an agent Terminal's scrollback in storage, and the Workspace's exited 
     }
   });
 
+  it("notes the Terminal hold that let the Container stop on each running entry's exit, else the plain stop (SPI-1431)", async () => {
+    const exitAfter = async (lapse?: { readonly hold: "busy" | "prompt"; readonly minutes: number }) => {
+      const { terminals } = fakeHost(repl);
+      const id = await startFor(terminals, owner, "terminal");
+      terminals.containerStopped(lapse);
+      const listed = await terminals.handle({ op: "list", owner });
+      if (!listed.ok) throw new Error(listed.error);
+      return listed.value.entries.find((entry) => entry.id === id)!.exit;
+    };
+    expect((await exitAfter({ hold: "busy", minutes: 30 }))?.note).toBe(
+      "the Workspace's Container stopped: its Terminals had no input for 30 minutes while a command ran, the " +
+        "Terminal hold while a command runs; change it under Environment › Advanced › Terminal hold while a command " +
+        "runs (minutes)",
+    );
+    expect((await exitAfter({ hold: "prompt", minutes: 10 }))?.note).toBe(
+      "the Workspace's Container stopped: its Terminals had no input for 10 minutes at the prompt, the Terminal hold " +
+        "at the prompt; change it under Environment › Advanced › Terminal hold at the prompt (minutes)",
+    );
+    expect((await exitAfter())?.note).toBe("the Workspace's Container stopped");
+  });
+
   it("reports an unseen exit the bound forgot in the owner's next wait", async () => {
     const { terminals } = fakeHost(repl);
     const ids: Array<string> = [];
