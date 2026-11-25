@@ -130,8 +130,11 @@ export interface ProcessCommandInput {
  * (never `.` or `..`), and at least `KEEPABLE_SESSION_LENGTH` characters, so that `*id*` names that session's files and
  * not most others (a session id is a UUID or a timestamped one, far longer).
  */
-const KEEPABLE_SESSION_LENGTH = 8;
+export const KEEPABLE_SESSION_LENGTH = 8;
 const KEEPABLE_SESSION = new RegExp(`^(?=.*[A-Za-z0-9])[A-Za-z0-9._-]{${KEEPABLE_SESSION_LENGTH},}$`);
+
+/** Whether a keep may name `session` (`KEEPABLE_SESSION`): one it may not is left out of the touch. */
+export const isKeepableSession = (session: string): boolean => KEEPABLE_SESSION.test(session);
 
 /** Where a profile may write: the process's own home, or the synced harness directory (session directories only). */
 const writable = (marker: string, path: string): boolean =>
@@ -209,7 +212,7 @@ const linkLines = (home: string, link: ProcessLink): ReadonlyArray<string> => {
  * subagents and tool results there).
  */
 const keepLines = (keep: ProcessCommandInput["keep"]): ReadonlyArray<string> => {
-  const sessions = (keep?.sessions ?? []).filter((session) => KEEPABLE_SESSION.test(session));
+  const sessions = (keep?.sessions ?? []).filter(isKeepableSession);
   if (keep === undefined || sessions.length === 0) return [];
   const names = sessions.map((session) => `-path ${quote(`*${session}*`)}`).join(" -o ");
   return keep.dirs.map(

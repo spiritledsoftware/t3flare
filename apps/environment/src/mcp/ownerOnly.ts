@@ -6,9 +6,10 @@
 // `MCP_QUESTION_MARKER`) is answered with a tool error, and t3 never sees it. `list` still lists the id (t3's answer);
 // `read` and `respond` on it are refused. A parked card's question (`PARK_QUESTION_MARKER`) is a plain `user_input`
 // request too, whose answer would mint a call's allowance or approve an Open change: refused the same way. Its answer, a
-// queued `async-answer:` message, is not the agent's to edit, cancel or send early in t3's queue (`t3_queue`), nor to drop
-// by stopping the delegated task whose thread holds it (`task_cancel`): the park reads the Owner's decision from t3's
-// record of the answer, and this keeps the message, and so the answer's turn, whole as well.
+// queued `async-answer:` message, is not the agent's to edit, cancel or send early in t3's queue (`t3_queue`), nor to hold
+// back by stopping the delegated task whose thread holds it (`task_cancel`, which cancels the task's queued runs; a
+// thread's stop holds its queue, so the answer's turn is delayed, not lost). The park reads the Owner's decision from
+// t3's record of the answer; this keeps the message, and the answer's turn, as the Owner sent them besides.
 import { MCP_QUESTION_MARKER, PARK_QUESTION_MARKER } from "@t3flare/session-protocol";
 
 export const OWNER_ONLY_REFUSAL =
@@ -18,7 +19,7 @@ export const QUEUED_ANSWER_REFUSAL =
   "Refused: this queued message is the owner's answer to a parked approval; it is not an agent's to edit, cancel or send early.";
 
 export const TASK_ANSWER_REFUSAL =
-  "Refused: this task's thread holds the owner's queued answer to a parked approval, which stopping it would drop. Tell the owner, or wait for the answer's turn to run.";
+  "Refused: this task's thread holds the owner's queued answer to a parked approval, which stopping the task would cancel with its other queued turns. Tell the owner, or wait for the answer's turn to run.";
 
 /** What the guard reads of t3's state. */
 export interface OwnerOnlyLookups {

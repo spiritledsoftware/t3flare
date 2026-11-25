@@ -522,7 +522,8 @@ export const parker = (deps: ParkerDeps) => {
      * one-time allowance. Any other message as it is. `steered`: the answer goes into a running turn.
      *
      * The answer is the one t3 recorded on the question (`recordedAnswerOf`), never the message's text: a queued
-     * message's text can be edited before its turn starts. A parked question with no recorded answer keeps its card.
+     * message's text can be edited before its turn starts. A parked question whose answer t3 holds no readable record of
+     * is asked again as a new parked question (`askAgain`), and the message passes as it is when that cannot be done.
      */
     answerText: Effect.fn("Park.answerText")(function* (
       message: { readonly messageId: string; readonly text: string },
@@ -535,8 +536,9 @@ export const parker = (deps: ParkerDeps) => {
       if (store === undefined || card === undefined) return message.text;
       const answers = deps.recordedAnswerOf(id);
       if (answers === undefined) {
-        // t3 resolved the question (its answer message is here) but its answer cannot be read: the card is asked again,
-        // never left parked against a question no one can answer twice.
+        // t3 resolved the question (its answer message is here) but its answer cannot be read: the card is asked again on
+        // the live turn. With no live turn, or a new record that cannot be kept, it stays parked against the question t3
+        // already resolved, and the message passes as it is (logged, `asked: false`).
         const asked = yield* askAgain(card);
         workersLog("warn", { t3flare: "cli-park-answer-unread", providerSessionId: deps.providerSessionId, asked });
         return asked

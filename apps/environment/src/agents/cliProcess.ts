@@ -18,6 +18,7 @@ import { traceProtocol } from "./processRouter.ts";
 import { scratchProjectOf } from "./scratch.ts";
 import { type ChannelProcess, type ChannelStart, ProcessRefused } from "./processChannel.ts";
 import { type CliName, profileLaunch } from "./cliProfiles.ts";
+import { isKeepableSession, KEEPABLE_SESSION_LENGTH } from "@t3flare/sandbox-image/process";
 import { nativeCallRecorder, nativeProtocolOf } from "../provider/cli/nativeCalls.ts";
 import { CliSpawn } from "../provider/cli/wrapper.ts";
 import { takeEnvironmentSkillsAt } from "../provider/cli/environmentSkillsTake.ts";
@@ -227,6 +228,17 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
       session: session !== undefined,
       t3Tools: launch.env.T3_MCP_URL !== undefined,
     });
+    // SPI-1389: a parked session whose id the launcher may not name (too short, or not a plain name) is not kept from
+    // pruning: said, never silent. Its length only, never the id.
+    const unkept = (launch.keep?.sessions ?? []).filter((session) => !isKeepableSession(session));
+    if (unkept.length > 0)
+      workersLog("warn", {
+        t3flare: "cli-keep-unkept",
+        cli: name,
+        sessions: unkept.length,
+        lengths: unkept.map((session) => session.length),
+        minimum: KEEPABLE_SESSION_LENGTH,
+      });
     if (launch.droppedEnv.length > 0)
       workersLog("log", { t3flare: "cli-env-dropped", cli: name, keys: launch.droppedEnv });
     const start: ChannelStart = {
