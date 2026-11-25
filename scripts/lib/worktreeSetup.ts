@@ -31,7 +31,8 @@ const childEnv = (): NodeJS.ProcessEnv =>
     Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_") || KEPT_GIT_VARIABLES.test(key)),
   );
 
-const git = (args: ReadonlyArray<string>) => {
+/** git with the caller's repository-naming GIT_* variables dropped (childEnv); adrMergeDriver.ts uses it too. */
+export const git = (args: ReadonlyArray<string>) => {
   // submodule.recurse is off for every command here: with the pointer broken, a recursing command fails on it.
   const result = spawnSync("git", ["-c", "submodule.recurse=false", ...args], { encoding: "utf8", env: childEnv() });
   return { ok: result.status === 0, out: (result.stdout ?? "").trim(), err: (result.stderr ?? "").trim() };
