@@ -107,8 +107,9 @@ export const imageTooLargeNote = (subject: string, base64Length: number, perImag
   `[${subject} (${mebibytes(base64Length)} of base64) is not shown: this model's API takes at most ${mebibytes(perImageBase64)} in one image.]`;
 
 /**
- * The bytes the character at `at` takes in a JSON string. Only a surrogate pair, two UTF-16 units, takes 4; a lone
- * surrogate is escaped as `\udxxx`, as JSON.stringify writes it.
+ * The bytes the character at `at` of `text` takes inside a JSON string, as JSON.stringify writes it in UTF-8: 2 for an
+ * escaped quote, backslash or named control character, 6 for any other control character or a lone surrogate
+ * (`\u00xx`, `\udxxx`), 4 for a surrogate pair (two UTF-16 units), else its UTF-8 length.
  */
 const jsonCharBytes = (text: string, at: number): number => {
   const code = text.charCodeAt(at);
@@ -123,7 +124,7 @@ const jsonCharBytes = (text: string, at: number): number => {
   return code >= 0xdc00 && code <= 0xdfff ? 6 : 3;
 };
 
-/** The bytes `text` takes inside a JSON string (UTF-8, with JSON's escapes): how a Session row or a JSON-RPC line holds it. */
+/** The bytes `text` takes inside a JSON string, without its quotes: what JSON.stringify writes for it, in UTF-8. */
 export const jsonTextBytes = (text: string): number => {
   let bytes = 0;
   for (let at = 0; at < text.length;) {
@@ -138,7 +139,10 @@ export const jsonTextBytes = (text: string): number => {
 export const jsonPartBytes = (part: string, separator: string): number =>
   jsonTextBytes(separator) + jsonTextBytes(part);
 
-/** How many UTF-16 units of `text` fit in `room` JSON bytes (`jsonTextBytes`), never splitting a surrogate pair. */
+/**
+ * The length, in UTF-16 units, of `text`'s longest start that takes at most `room` bytes inside a JSON string
+ * (`jsonTextBytes`), never splitting a surrogate pair. Counted a character at a time, so it is exact.
+ */
 export const jsonTextPrefix = (text: string, room: number): number => {
   let bytes = 0;
   let at = 0;

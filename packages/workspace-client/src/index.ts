@@ -255,51 +255,6 @@ export const headBytes = (text: string, bytes: number): string => {
   return new TextDecoder().decode(encoded.subarray(0, bytes));
 };
 
-/**
- * The bytes the character at `at` of `text` takes inside a JSON string, as JSON.stringify writes it in UTF-8: 2 for an
- * escaped quote, backslash or named control character, 6 for any other control character or a lone surrogate
- * (`\u00xx`, `\udxxx`), 4 for a surrogate pair (two UTF-16 units), else its UTF-8 length.
- */
-const jsonCharBytes = (text: string, at: number): number => {
-  const code = text.charCodeAt(at);
-  if (code === 0x22 || code === 0x5c) return 2;
-  if (code < 0x20) return code === 0x08 || code === 0x09 || code === 0x0a || code === 0x0c || code === 0x0d ? 2 : 6;
-  if (code < 0x80) return 1;
-  if (code < 0x800) return 2;
-  if (code >= 0xd800 && code <= 0xdbff) {
-    const next = text.charCodeAt(at + 1);
-    return next >= 0xdc00 && next <= 0xdfff ? 4 : 6;
-  }
-  return code >= 0xdc00 && code <= 0xdfff ? 6 : 3;
-};
-
-/** The bytes `text` takes inside a JSON string, without its quotes: what JSON.stringify writes for it, in UTF-8. */
-export const jsonTextBytes = (text: string): number => {
-  let bytes = 0;
-  for (let at = 0; at < text.length;) {
-    const size = jsonCharBytes(text, at);
-    bytes += size;
-    at += size === 4 ? 2 : 1;
-  }
-  return bytes;
-};
-
-/**
- * The length, in UTF-16 units, of `text`'s longest start that takes at most `room` bytes inside a JSON string
- * (`jsonTextBytes`), never splitting a surrogate pair. Counted a character at a time, so it is exact.
- */
-export const jsonTextPrefix = (text: string, room: number): number => {
-  let bytes = 0;
-  let at = 0;
-  while (at < text.length) {
-    const size = jsonCharBytes(text, at);
-    if (bytes + size > room) break;
-    bytes += size;
-    at += size === 4 ? 2 : 1;
-  }
-  return at;
-};
-
 export type GitAnswer =
   | {
       readonly ran: true;
