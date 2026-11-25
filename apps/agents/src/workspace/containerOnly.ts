@@ -125,10 +125,13 @@ const MISMATCH = "ContainerIgnoreMismatchError";
 
 /**
  * computer's own errors for a start that ran out its wait (computer 0.11.2, `ContainerBackend`): its health checks
- * retried until the deadline (`stage=health`), or the `/api` upgrade did not arrive by it (`stage=ws`).
+ * retried until the deadline (`stage=health`), or the `/api` upgrade did not arrive by it (`stage=ws`). One deadline
+ * path is not named: computer gives computerd the wait's remainder for its egress health check (`POST /connect`'s
+ * `healthTimeoutMs`), whose running out comes back as `[stage=connect]: POST /connect returned …`, which is computer's
+ * as it is (rare).
  */
 const WAIT_RAN_OUT =
-  /ContainerBackend\([^)]*\)(?:: connect failed at stage=health |(?: \[stage=ws\]: \/api upgrade did not arrive within ))/;
+  /ContainerBackend\([^)]*\)(?:: connect failed at stage=health | \[stage=ws\]: \/api upgrade did not arrive within )/;
 
 /**
  * `connect`, its failure for running out its wait (`connectTimeoutMs`) named as the Container start wait, with its

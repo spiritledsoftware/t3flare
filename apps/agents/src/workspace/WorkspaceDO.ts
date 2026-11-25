@@ -1577,7 +1577,8 @@ export class WorkspaceDO extends ContainerHost {
             backend,
             cwd: input.cwd ?? WORKSPACE_ROOT,
             encoding: "utf8",
-            // A passive read is marked so the Container's backend sends it without waiting for the lay-down (ADR-0032's Global mise config refinement).
+            // A passive read is marked so the Container's backend sends it without waiting for the lay-down (ADR-0032's
+            // Global mise config refinement).
             env:
               backend === CONTAINER_BACKEND
                 ? commandEnvOf(COMMAND_ENV, input.env, input.passive === true)
@@ -1745,7 +1746,8 @@ export class WorkspaceDO extends ContainerHost {
         cwd: run.cwd,
         env: { ...this.#identityEnv(), ...run.env },
         ...(run.stdin === undefined ? {} : { stdin: run.stdin }),
-        // SPI-1364: a run t3 can cancel takes no `commandMinutes` cut (`gitDeadline`); one that does names it (SPI-1430).
+        // SPI-1364: a run t3 can cancel takes no `commandMinutes` cut (`gitDeadline`); one that does names it
+        // (SPI-1430).
         ...gitDeadline(run, this.#commandLimit()),
         passive,
         ...(run.runId === undefined ? {} : { runId: run.runId }),
