@@ -1,7 +1,7 @@
 // SPI-1375: t3's git runs through the Workspace DO answer the head of each stream, cut in the Container just past t3's
 // own cap, never computer's silent tail. Run through the computer-like exec seam, so a tailed answer fails here.
 // @effect-diagnostics globalTimers:off nodeBuiltinImport:off
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -166,17 +166,24 @@ describe("a git run's output (SPI-1375)", () => {
   }, 300_000);
 
   it("leaves no process behind when git ends at once (its watcher and reader see the end of their FIFOs)", async () => {
-    const groupOf = (pgid: number) =>
-      spawnSync("ps", ["-A", "-o", "pid=,pgid="], { encoding: "utf8" })
-        .stdout.split("\n")
-        .map((line) => line.trim().split(/\s+/).map(Number))
-        .filter(([pid, group]) => group === pgid && pid !== undefined);
+    /** Whether any process of group `pgid` is left: a signal 0 to the group fails (ESRCH) once it is empty. */
+    const groupAlive = (pgid: number) => {
+      try {
+        process.kill(-pgid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
     // 16 at a time, so their watchers and readers start late, as under load.
     const one = async (): Promise<number> => {
       const { child, closed } = started("exit 0", { group: true });
       expect(await closed).toBe(0);
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      if (groupOf(child.pid!).length === 0) return 0;
+      // Its watcher ends once it is scheduled to read the script's last word, however late under load: wait for the
+      // group to empty, polling every 20 ms up to 500 times (10 s or more). A process still there after that is a leak.
+      for (let at = 0; at < 500; at++)
+        if (groupAlive(child.pid!)) await new Promise((resolve) => setTimeout(resolve, 20));
+        else return 0;
       process.kill(-child.pid!, "SIGKILL");
       return 1;
     };

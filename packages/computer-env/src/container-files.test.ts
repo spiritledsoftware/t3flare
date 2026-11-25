@@ -338,42 +338,38 @@ describe("the Container's file operations", () => {
 });
 
 describe("grep's bounds (SPI-1361)", () => {
-  it.skipIf(!hasRg)(
-    "takes any context, showing the lines the file has",
-    async () => {
-      const path = join(root, "pkg/index.ts");
-      const found = await files().grep("const b", path, {
-        ignoreCase: false,
-        regex: false,
-        context: 1_000_000_000,
-        limit: 10,
-        include: undefined,
-        exclude: [],
-      });
-      expect(found.items[0]?.context?.map((line) => line.line)).toEqual([1, 2]);
-      // A walk over the whole range would take far longer than this.
-    },
-    5_000,
-  );
+  it.skipIf(!hasRg)("takes any context, showing the lines the file has", async () => {
+    const path = join(root, "pkg/index.ts");
+    const found = await files().grep("const b", path, {
+      ignoreCase: false,
+      regex: false,
+      context: 1_000_000_000,
+      limit: 10,
+      include: undefined,
+      exclude: [],
+    });
+    // A walk over the whole range (2·10⁹ slots) would take far longer than the test's timeout.
+    expect(found.items[0]?.context?.map((line) => line.line)).toEqual([1, 2]);
+  });
 
-  // A 200,000-line file with context 1,000 and limit 1,000,000 makes ripgrep emit more than GREP_OUTPUT_BYTES of events,
-  // which the bound must cut, so it cannot shrink. It takes about 3 s alone but 30-40 s under the full check's load on
-  // CI runners, past vitest's 30 s default, hence its own timeout.
+  // A 50,000-line file whose every line matches makes ripgrep emit more than GREP_OUTPUT_BYTES of events (each line its
+  // own match event, of well over 100 bytes), which the bound must cut. The limit's event count (1,000,000 matches at
+  // context 1) stays far above the line count, so the byte bound cuts first. Context 1 keeps the items' walk small.
   it.skipIf(!hasRg)(
     "reads at most GREP_OUTPUT_BYTES of ripgrep's events, whatever the limit and context, naming the cut",
     async () => {
       const path = join(root, "big.txt");
-      writeFileSync(path, "match this line\n".repeat(200_000));
+      writeFileSync(path, "match this line\n".repeat(50_000));
       const found = await files().grep("match", path, {
         ignoreCase: false,
         regex: false,
-        context: 1_000,
+        context: 1,
         limit: 1_000_000,
         include: undefined,
         exclude: [],
       });
       expect(found.items.length).toBeGreaterThan(0);
-      expect(found.items.length).toBeLessThan(200_000);
+      expect(found.items.length).toBeLessThan(50_000);
       // Each event is a JSON object of well over 64 bytes, so the matches read fit the byte bound.
       expect(found.items.length * 64).toBeLessThan(GREP_OUTPUT_BYTES);
       // The cut is named, with its value (SPI-1394).
@@ -381,7 +377,6 @@ describe("grep's bounds (SPI-1361)", () => {
         "the search read only the first 4 MiB of ripgrep's output, the Container's fixed grep read limit",
       );
     },
-    120_000,
   );
 });
 

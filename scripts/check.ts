@@ -3,7 +3,7 @@
 // it arrives, and exits with vp's code. When the check fails it then asks vp for its last run's details and ends the
 // output with a block naming the task that failed, and the tasks vp stopped as stopped (lib/checkFailure.ts), so a log
 // cut short still has them. Plain node, no dependencies, like workspace-guard.ts; vp is on `PATH` under pnpm. The
-// environment passes through to vp and its tasks.
+// environment passes through to vp and its tasks, with each Vitest run's workers capped (SPI-1400).
 import { spawn, spawnSync } from "node:child_process";
 import * as os from "node:os";
 
@@ -16,8 +16,17 @@ import { failureReport, type LastDetails } from "./lib/checkFailure.ts";
  */
 const LAST_DETAILS_MAX_BYTES = 64 * 1024 * 1024;
 
+/**
+ * The most worker processes each of the check's Vitest runs starts, as Vitest's own `VITEST_MAX_WORKERS`, which
+ * overrides every package's config; one already in the environment wins. The check starts eleven Vitest runs at once
+ * beside the typechecks and lints, and each would otherwise size its own pool to the machine's cores less one.
+ * Tests run alone keep Vitest's default.
+ */
+const CHECK_TEST_WORKERS = 2;
+
 const child = spawn("vp", ["run", "--log", "grouped", "--concurrency-limit", "16", "check:all"], {
   stdio: ["inherit", "pipe", "pipe"],
+  env: { ...process.env, VITEST_MAX_WORKERS: process.env.VITEST_MAX_WORKERS ?? String(CHECK_TEST_WORKERS) },
 });
 const output: Array<Buffer> = [];
 child.stdout.on("data", (chunk: Buffer) => {

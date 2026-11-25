@@ -82,6 +82,7 @@ const primedRepo = (branches: number, remotes: number) => {
     GIT_COMMITTER_NAME: "t",
     GIT_COMMITTER_EMAIL: "t@t",
     GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
   };
   const run = (cwd: string, args: ReadonlyArray<string>, input?: string) =>
     spawnSync("git", args, { cwd, encoding: "utf8", env, ...(input === undefined ? {} : { input }) });
@@ -113,6 +114,7 @@ const primedRepo = (branches: number, remotes: number) => {
   };
   return {
     exec,
+    head,
     direct: (argv: ReadonlyArray<string>) => run(repo, argv),
     remove: () => fs.rmSync(dir, { recursive: true, force: true }),
   };
@@ -146,24 +148,32 @@ describe("priming", () => {
   });
 
   it("with more refs than its output holds, still primes the fixed reads and every local branch, first", async () => {
-    const repo = primedRepo(3, 1500);
+    // 300 remote refs past a 2 KiB cut: the fixed and local answers fit in under 1 KiB, so the cut falls among the remote
+    // refs. Kept small so the prime spawns few processes on a loaded machine.
+    const repo = primedRepo(3, 300);
     try {
-      const answers = await primeReads(repo.exec, () => true, Number.POSITIVE_INFINITY, 8 * 1024);
+      const answers = await primeReads(repo.exec, () => true, Number.POSITIVE_INFINITY, 2 * 1024);
       const argvs = answers.map((answer) => answer.argv);
       expect(argvs.slice(0, FIXED_READS.length)).toEqual(FIXED_READS);
       for (const branch of ["main", "feature-0", "feature-1", "feature-2"])
         expect(argvs).toContainEqual(["for-each-ref", UPSTREAM_FORMAT, `refs/heads/${branch}`]);
       // The cut fell among the remote refs: some primed, the rest left.
-      const remote = argvs.filter((argv) => argv[1] === "--verify");
+      const remote = answers.filter((answer) => answer.argv[1] === "--verify");
       expect(remote.length).toBeGreaterThan(0);
-      expect(remote.length).toBeLessThan(1500);
-      for (const answer of answers) {
+      expect(remote.length).toBeLessThan(300);
+      for (const answer of answers.filter((each) => each.argv[1] !== "--verify")) {
         const direct = repo.direct(answer.argv);
         expect({ exitCode: answer.exitCode, stdout: answer.stdout }, answer.argv.join(" ")).toEqual({
           exitCode: direct.status,
           stdout: direct.stdout,
         });
       }
+      // Every remote ref points at the one commit, so git's answer to each is known without running it.
+      for (const answer of remote)
+        expect({ exitCode: answer.exitCode, stdout: answer.stdout }, answer.argv.join(" ")).toEqual({
+          exitCode: 0,
+          stdout: `${repo.head}\n`,
+        });
     } finally {
       repo.remove();
     }

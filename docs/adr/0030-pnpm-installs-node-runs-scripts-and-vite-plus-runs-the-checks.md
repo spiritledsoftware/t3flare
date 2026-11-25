@@ -182,3 +182,13 @@ from its top level and falls back to `git merge-file` where that file is missing
 the script merges as git always has. GitHub's mergeability check and squash-merge never run the driver; the landing flow
 rebases locally first. Rejected (the Owner chose the driver): one file per refinement, and `merge=union`, which can
 duplicate text silently.
+
+## Refinement (SPI-1400, 2026-11-25): the check caps each Vitest run's workers
+
+`check:all` starts its eleven `#test` tasks at once, up to 16 tasks in all, beside the multi-threaded typechecks and
+lints. Each Vitest run sized its own fork pool to the machine's cores less one, so on an 8-core machine up to 77 test
+processes competed for 8 cores, and the tests that spawn processes or compute keys timed out under that load and passed
+alone. `scripts/check.ts` now runs vp with `VITEST_MAX_WORKERS=2` in the environment: Vitest's own variable, which
+overrides each package's `maxWorkers`, and which `vp run` passes to its tasks unchanged. A `VITEST_MAX_WORKERS` already
+in the environment wins, and a test file run alone keeps Vitest's default. Every package with tests now has a
+`vitest.config.ts` with a 30 s `testTimeout`; the five that had none ran with Vitest's 5 s default.

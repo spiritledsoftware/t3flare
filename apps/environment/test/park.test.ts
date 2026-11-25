@@ -67,6 +67,21 @@ const fixture = Effect.fn("fixture")(function* (options: FixtureOptions) {
   const release = yield* Deferred.make<void>();
   let kills = 0;
   let store = options.store;
+  // Barriers on what the park did, checked as it closes a card or answers a request: a test waits on the park's work
+  // itself, never on a clock or a tick (the late parks run detached, and a call's hash completes on the thread pool).
+  const barriers: Array<{ readonly ready: () => boolean; readonly done: () => void }> = [];
+  const check = () => {
+    for (const barrier of barriers) if (barrier.ready()) barrier.done();
+  };
+  /** Waits until `ready` holds, checked now and as the park closes a card or answers a request. */
+  const until = (ready: () => boolean) =>
+    Effect.promise(
+      () =>
+        new Promise<void>((done) => {
+          barriers.push({ ready, done });
+          check();
+        }),
+    );
   const live: LiveTurn = {
     threadId: "thread-park",
     runId: "run-1",
@@ -89,11 +104,16 @@ const fixture = Effect.fn("fixture")(function* (options: FixtureOptions) {
     closeCard: (id, answer) => {
       cards.delete(id);
       answers.set(id, answer);
+      check();
       return [];
     },
     offer: (events) => void shown.push(...events),
     runtime: {
-      respondToRuntimeRequest: (response) => Effect.sync(() => void cancelled.push(response.requestId)),
+      respondToRuntimeRequest: (response) =>
+        Effect.sync(() => {
+          cancelled.push(response.requestId);
+          check();
+        }),
       // The CLI takes a while to end its interrupted turn: the park's window.
       interruptTurn: () => Deferred.succeed(interrupted, undefined).pipe(Effect.andThen(Deferred.await(release))),
     },
@@ -128,6 +148,7 @@ const fixture = Effect.fn("fixture")(function* (options: FixtureOptions) {
     cancelled,
     questions,
     open,
+    until,
     interrupted,
     release,
     kills: () => kills,
@@ -137,7 +158,6 @@ const fixture = Effect.fn("fixture")(function* (options: FixtureOptions) {
 
 const run = <A>(body: Effect.Effect<A>) => Effect.runPromise(body);
 const cause = { by: "park", minutes: 10 } as const;
-const settle = Effect.promise(() => new Promise((resolve) => setImmediate(resolve)));
 
 describe("the park (SPI-1389)", () => {
   it("keeps every card's record first, then shows its question, answers its held call, and ends the process", () =>
@@ -171,7 +191,7 @@ describe("the park (SPI-1389)", () => {
         yield* Deferred.await(f.interrupted);
         // The CLI raises another card before its interrupted turn ends.
         f.open("card-2", askOf("note two", "h2"));
-        yield* settle;
+        yield* f.until(() => f.answers.has("card-2"));
         expect(f.answers.get("card-2")).toEqual({ approved: false, parked: parkedCallText(cause, "tool") });
         expect(f.questions().map((id) => store.get(id)?.call?.argsHash)).toEqual(["h1", "h2"]);
         yield* Deferred.succeed(f.release, undefined);
@@ -199,7 +219,7 @@ describe("the park (SPI-1389)", () => {
         f.park.noteNative(nativeEvent("first"));
         const parking = yield* f.park.park(cause).pipe(Effect.forkChild);
         yield* Deferred.await(f.interrupted);
-        yield* settle;
+        yield* f.until(() => f.cancelled.length === 2);
         expect(f.questions()).toHaveLength(2);
         expect([...f.cancelled].sort()).toEqual(["first", "late"]);
         yield* Deferred.succeed(f.release, undefined);
