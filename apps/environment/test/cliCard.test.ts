@@ -602,7 +602,7 @@ describe("a CLI agent's turn parks after Park after, and its answer resumes it (
             recordedAnswerOf: (id) => recorded.get(id),
             answerParkedChange: async (changeId, approve) => {
               changes.push([changeId, approve]);
-              return "Applied: the owner approved it on the card.";
+              return { kind: "outcome", text: "Applied: the owner approved it on the card." };
             },
           },
           [[HOLD], [HOLD], [HOLD], [HOLD_OTHER]],

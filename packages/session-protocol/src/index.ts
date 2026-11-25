@@ -584,6 +584,11 @@ export interface McpQuestionCard {
   readonly questions?: ReadonlyArray<McpCardQuestion>;
   /** The Settings server's card for an Open change (SPI-1389): the change's id, which a parked card's record keeps. */
   readonly changeId?: string;
+  /**
+   * The Settings server's card for an Open change approved on its Change page only (SPI-1435): its text as a parked
+   * question shows it, naming the page and why, without the card's "Opened it" button's line.
+   */
+  readonly pagePrompt?: string;
 }
 
 /**

@@ -12,13 +12,14 @@ import { CHANGES_API_PATH, changePagePath } from "../src/harness/paths.ts";
 import { HINT_TRUST_LINE } from "../src/settings/render.ts";
 import { addMcpServer } from "../src/harness/ops.ts";
 import { HOST, PANEL, settingsFixture, type SettingsFixture, structured, textOf, until } from "./settingsFixture.ts";
-import { answerParkedChange, ownerOutcome } from "../src/settings/server.ts";
+import { answerParkedChange, askedCard, ownerOutcome } from "../src/settings/server.ts";
 import { settingsInstructions, settingsOwnerInstructions } from "../src/settings/tools.ts";
 import { csrfToken } from "../src/harness/csrf.ts";
 import { parkedCards } from "../src/provider/cli/parked.ts";
 import {
   clearClosedParkedChanges,
   noteChangeClosed,
+  parkedChangeRecheck,
   type ParkQuestionState,
 } from "../src/provider/cli/parkedChanges.ts";
 import { nodeSqlStorage, nodeTransaction } from "./nodeSqlStorage.ts";
@@ -176,6 +177,10 @@ describe("the asked change's card", () => {
       expect(card.options?.map((option) => option.label)).toEqual(["Opened it", "Decline", "Cancel"]);
       expect(card.prompt).toContain(`${PANEL}/changes/`);
       expect(card.prompt.length).toBeLessThanOrEqual(CARD_TEXT_MAX + 200);
+      // SPI-1435: what a park question shows names the page and why, never the card's "Opened it".
+      expect(card.pagePrompt).toContain("approved on its Change page only");
+      expect(card.pagePrompt).toContain(`${PANEL}/changes/`);
+      expect(card.pagePrompt).not.toContain("Opened it");
       // The card said "Opened it" (the fixture accepts): nothing applied, and the change expired with no page answer.
       expect(structured(answer)).toMatchObject({ status: "expired" });
       expect(revisions()).toBe(before);
@@ -297,12 +302,12 @@ describe("the asked change's wait (SPI-1316, SPI-1389)", () => {
     // The card names the change it stands for, so a parked card's record keeps it.
     expect(run.cards[0]!.changeId).toBe(record.id);
     expect(run.withdrawn).toEqual([]);
-    expect(await answerParkedChange(run.deps, record.id, true)).toMatch(
+    expect((await answerParkedChange(run.deps, record.id, true)).text).toMatch(
       /^Applied: the owner approved it on the card\./,
     );
     expect(run.deps.changes.get(record.id)).toMatchObject({ state: "applied" });
     // Answered already (on the page first, or twice): its outcome, nothing applied again.
-    expect(await answerParkedChange(run.deps, record.id, false)).toMatch(/^Applied/);
+    expect((await answerParkedChange(run.deps, record.id, false)).text).toMatch(/^Applied/);
   });
 
   it("a parked change declined on its question closes declined", async () => {
@@ -310,10 +315,84 @@ describe("the asked change's wait (SPI-1316, SPI-1389)", () => {
     const run = fixture;
     await run.call(run.durable(), "change_environment", ASKED);
     const record = opened(run)!;
-    expect(await answerParkedChange(run.deps, record.id, false)).toContain(
+    expect((await answerParkedChange(run.deps, record.id, false)).text).toContain(
       "Not changed: the owner declined it on the card.",
     );
     expect(run.store.loadEnvironment().revision).toBe(0);
+  });
+
+  it("Approve on a parked page-only change names the page and why, and leaves it open (SPI-1435)", async () => {
+    fixture = settingsFixture({ answer: { decision: "cancel", reason: PARKED_REASON } });
+    const run = fixture;
+    await addMcpServer(
+      run.deps.ops,
+      { server: "keyed", url: "https://keyed.example/mcp", auth: { kind: "header", header: "X-Key" }, value: "old" },
+      { actor: { caller: "owner:o" } },
+    );
+    await run.call(run.durable(), "change_mcp", {
+      expectedRevision: 1,
+      change: { op: "header-value", server: "keyed" },
+    });
+    const record = opened(run)!;
+    expect(record.needsPage).toBe("secret");
+    // Its card carries the text a park question shows: the change, its page and why, and no "Opened it".
+    const pagePrompt = run.cards[0]!.pagePrompt!;
+    expect(pagePrompt).toContain(
+      "It is approved on its Change page only. It takes a secret, typed only on its Change page: " +
+        `${PANEL}/changes/${record.id}`,
+    );
+    expect(pagePrompt).not.toContain("Opened it");
+    const answer = await answerParkedChange(run.deps, record.id, true);
+    expect(answer.kind).toBe("page-only");
+    expect(answer.text).toContain("approved on its Change page only");
+    expect(answer.text).toContain(`${PANEL}/changes/`);
+    expect(answer.text).toContain("It takes a secret");
+    expect(answer.text).not.toContain("no longer open");
+    expect(run.deps.changes.get(record.id)).toMatchObject({ state: "open" });
+    // Decline on the question still closes it.
+    expect(await answerParkedChange(run.deps, record.id, false)).toEqual({
+      kind: "outcome",
+      text: expect.stringContaining("Not changed: the owner declined it on the card."),
+    });
+    // Really closed now: an Approve tells its outcome, never the page.
+    expect(await answerParkedChange(run.deps, record.id, true)).toEqual({
+      kind: "outcome",
+      text: expect.stringContaining("Not changed"),
+    });
+  });
+
+  it("a page-only card's park text keeps its link and reason whole after a maximal change text (SPI-1435)", () => {
+    const url = `${PANEL}/changes/chg_long`;
+    const view = {
+      entity: "harness",
+      subject: "the MCP server set",
+      revision: 1,
+      appliesAt: "",
+      reasons: [],
+      items: [],
+      lines: [],
+    } as const;
+    const input = { tool: "change_mcp", args: { pad: "" }, caller: { door: "own", thread: "t", agent: "a" } } as const;
+    // The change's text padded to exactly the most a card shows.
+    const short = askedCard(view, input, url, undefined).prompt.length;
+    const padded = { ...input, args: { pad: "x".repeat(CARD_TEXT_MAX - short) } };
+    expect(askedCard(view, padded, url, undefined).prompt.length).toBe(CARD_TEXT_MAX);
+    const pagePrompt = askedCard(view, padded, url, "secret").pagePrompt!;
+    expect(pagePrompt).toMatch(
+      new RegExp(
+        `It is approved on its Change page only\\. It takes a secret, typed only on its Change page: ${url}\\.$`,
+      ),
+    );
+    expect(pagePrompt).toContain("[TRUNCATED:");
+  });
+
+  it("Approve on a parked change that is really gone says it is no longer open (SPI-1435)", async () => {
+    fixture = settingsFixture({ answer: { decision: "cancel", reason: PARKED_REASON } });
+    const run = fixture;
+    expect(await answerParkedChange(run.deps, "no-such-change", true)).toEqual({
+      kind: "outcome",
+      text: expect.stringContaining("it is no longer open"),
+    });
   });
 
   it("the Settings server's instructions name no deadline for an asked change (SPI-1389)", () => {
@@ -371,7 +450,7 @@ describe("a parked change closed elsewhere (SPI-1404)", () => {
     expect(dismissed).toEqual([]);
     // `answerText` reads the record when the answer's message comes, and tells the agent the page's outcome.
     expect(parked.get(PARK_ID)).toBeDefined();
-    expect(await answerParkedChange(run.deps, changeId, true)).toMatch(/^Applied: .*on the Change page/);
+    expect((await answerParkedChange(run.deps, changeId, true)).text).toMatch(/^Applied: .*on the Change page/);
     // t3 holds the answer now: a second run does nothing.
     question = "answered";
     expect(await reconcile()).toEqual({ answered: 0, dismissed: 0, dropped: 0 });
@@ -472,4 +551,34 @@ describe("a parked change closed elsewhere (SPI-1404)", () => {
       run.dispose();
     });
   }
+
+  it("a close while its question is raised again is read again, and the agent is told once (SPI-1435)", async () => {
+    const { run, changeId, parked, closed, answered, dismissed, reconcile } = await parkedRun();
+    expect(parkedChangeRecheck(run.deps.changes.get(changeId))).toEqual({ kind: "open" });
+    // The Approve's record is gone, and the page answers before the raised question's record is kept: its close finds
+    // no record to note.
+    parked.drop(PARK_ID);
+    expect((await pagePost(run, changeId, { action: "approve" })).status).toBe(200);
+    expect(closed).toEqual([[changeId, "applied", false]]);
+    const again = `${PARK_ID}-again`;
+    parked.park({ id: again, thread: "thread-d", kind: "change", title: "t", changeId, parkedAt: 2 });
+    // Read again once the record is kept: closed, so its close path runs as the Environment DO runs it.
+    const recheck = parkedChangeRecheck(run.deps.changes.get(changeId));
+    expect(recheck).toEqual({ kind: "closed", state: "applied" });
+    expect(recheck.kind === "closed" && noteChangeClosed(parked, changeId, recheck.state)).toBe(true);
+    expect(await reconcile()).toEqual({ answered: 1, dismissed: 0, dropped: 0 });
+    expect(answered).toEqual([[again, true]]);
+    expect(dismissed).toEqual([]);
+  });
+
+  it("a change gone while its question is raised again is read as gone and dismissed (SPI-1435)", async () => {
+    const { parked, dismissed, reconcile } = await parkedRun();
+    parked.drop(PARK_ID);
+    const again = `${PARK_ID}-again`;
+    parked.park({ id: again, thread: "thread-d", kind: "change", title: "t", changeId: "chg_gone", parkedAt: 2 });
+    expect(parkedChangeRecheck(undefined)).toEqual({ kind: "gone" });
+    expect(await reconcile()).toEqual({ answered: 0, dismissed: 1, dropped: 1 });
+    expect(dismissed).toEqual([again]);
+    expect(parked.changeCards()).toEqual([]);
+  });
 });

@@ -68,6 +68,25 @@ export const noteChangeClosed = (parked: ParkedCards, changeId: string, state: C
     : parked.noteAnsweredElsewhere(changeId, approve) > 0;
 };
 
+/**
+ * What reading a parked Open change again calls for (SPI-1435), after a new record on it was kept once the change was
+ * read open: a close in between found no record to note. Open (or applying, whose close comes later): nothing. Closed:
+ * its close path, `noteChangeClosed` then the reconcile. Gone (no longer kept): the reconcile, which dismisses its
+ * question.
+ */
+export type ParkedChangeRecheck =
+  | { readonly kind: "open" }
+  | { readonly kind: "closed"; readonly state: ChangeState }
+  | { readonly kind: "gone" };
+
+/** What reading parked Open change `change` (undefined: gone) again calls for, as `ParkedChangeRecheck` says. */
+export const parkedChangeRecheck = (change: Pick<ChangeRecord, "state"> | undefined): ParkedChangeRecheck =>
+  change === undefined
+    ? { kind: "gone" }
+    : change.state === "open" || change.state === "applying"
+      ? { kind: "open" }
+      : { kind: "closed", state: change.state };
+
 /** Brings every parked change card whose Open change has closed in line with it, as the header says. */
 export const clearClosedParkedChanges = async (deps: ParkedChangesDeps): Promise<ParkedChangesCleared> => {
   let answered = 0;

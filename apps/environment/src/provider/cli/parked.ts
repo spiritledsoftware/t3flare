@@ -60,6 +60,16 @@ export interface ParkedCard {
 
 export type ParkedDecision = "accept" | "acceptForSession" | "decline";
 
+/**
+ * A parked Open change answered from its park question (SPI-1389): its outcome as the agent is told it; or, for an
+ * Approve on a change approved on its Change page only (a secret, a sign-in, skills to review, or too long for a
+ * question) and still open, `page-only`: nothing changed, and the text names its page and why (SPI-1435).
+ */
+export interface ParkedChangeAnswer {
+  readonly kind: "outcome" | "page-only";
+  readonly text: string;
+}
+
 export interface ParkedCards {
   park(card: ParkedCard): void;
   /** Keeps every card or, when a write fails, none (one transaction); throws then. */

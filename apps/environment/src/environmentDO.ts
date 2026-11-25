@@ -39,7 +39,7 @@ import {
 
 import { bindEnvironmentServices, environmentServices } from "./agents/bindings.ts";
 import { type ParkedCall, type ParkedCards, parkedCards } from "./provider/cli/parked.ts";
-import { noteChangeClosed } from "./provider/cli/parkedChanges.ts";
+import { noteChangeClosed, parkedChangeRecheck } from "./provider/cli/parkedChanges.ts";
 import { graceMoved, ownerSweep, SweepWake } from "./agents/sweepWake.ts";
 import { GitHubTokens } from "./agents/github.ts";
 import { deliverPush } from "./agents/sessionSink.ts";
@@ -280,6 +280,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         const { answerParkedChange } = await import("./settings/server.ts");
         return answerParkedChange(await this.#settingsDeps(), changeId, approve);
       },
+      recheckParkedChange: (changeId) => this.#recheckParkedChange(changeId),
       // Read at each CLI spawn (SPI-1359): the CLI's tool timeout covers the MCP call time limit as stored then.
       mcpCallMs: () => this.#environmentNow().mcpCallSeconds * 1000,
       // Read at each use (SPI-1366): the settings read at their own next use, not at a Container start.
@@ -853,6 +854,25 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
           console.warn(JSON.stringify({ t3flare: "cli-park-clear-failed", change: id, error: String(error) })),
       ),
     );
+  }
+
+  /**
+   * SPI-1435: a parked change's question was raised again, its new record kept after the change was read open. A close
+   * in between found no record to note, so the change is read again: closed, it is brought in line as its close is
+   * (`#parkedChangeClosed`); gone, the cleanup runs, which dismisses its question.
+   */
+  async #recheckParkedChange(id: string): Promise<void> {
+    const recheck = parkedChangeRecheck((await this.#settingsDeps()).changes.get(id));
+    if (recheck.kind === "closed") return this.#parkedChangeClosed(id, recheck.state);
+    const running = this.#runtime;
+    if (recheck.kind === "gone" && running !== undefined)
+      this.ctx.waitUntil(
+        running.then(
+          (runtime) => this.#clearParkedChanges(runtime),
+          (error: unknown) =>
+            console.warn(JSON.stringify({ t3flare: "cli-park-clear-failed", change: id, error: String(error) })),
+        ),
+      );
   }
 
   /** SPI-1404: once t3 takes commands, brings every parked change card in line with its change (`parkedChanges.ts`). */

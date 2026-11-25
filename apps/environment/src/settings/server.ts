@@ -66,6 +66,7 @@ import { type McpAsker, type McpQuestionAnswer, type McpQuestionCard, PARKED_REA
 
 import { planPurge, purgeNow, type WorkspaceActionsDeps } from "../agents/workspaceActions.ts";
 import { workspacesView } from "../agents/workspaceView.ts";
+import type { ParkedChangeAnswer } from "../provider/cli/parked.ts";
 
 import { containerCostTable } from "../harness/containerCost.ts";
 import { changePagePath, OPEN_CHANGES_PATH } from "../harness/paths.ts";
@@ -1225,6 +1226,18 @@ const askedText = (view: ChangeView, input: SettingsCallInput, url: string | und
     callText(input),
   ].join("\n");
 
+/**
+ * Why a change approved on its Change page only can't be approved elsewhere (SPI-1435): its page, with the link, and
+ * the reason. A parked change's question names it, from the first ask (`McpQuestionCard.pagePrompt`) and after an
+ * Approve.
+ */
+export const pageOnlyText = (needsPage: PageReason, url: string | undefined): string =>
+  `It is approved on its Change page only. ${PAGE_REASON[needsPage](
+    url === undefined
+      ? "its Change page (its link is on the Settings page's Open changes list)"
+      : `its Change page: ${url}`,
+  )}`;
+
 /** The owner-only approval card for an asked change (plan D9); never a field, so no agent can answer it. */
 export const askedCard = (
   view: ChangeView,
@@ -1237,10 +1250,14 @@ export const askedCard = (
     url === undefined
       ? "the Change page (its link is on the Settings page's Open changes list)"
       : `the Change page: ${url}`;
+  const headline =
+    view.entity === "workspaces"
+      ? `An agent asks for a Purge of ${view.subject}.`
+      : `An agent asks to change ${view.subject} (revision ${view.revision}).`;
   const prompt =
     needsPage === "oversize"
       ? [
-          `${view.entity === "workspaces" ? `An agent asks for a Purge of ${view.subject}.` : `An agent asks to change ${view.subject} (revision ${view.revision}).`} ${PAGE_REASON.oversize(where)}`,
+          `${headline} ${PAGE_REASON.oversize(where)}`,
           "",
           askedBy(input.caller),
           `"Opened it" keeps the call waiting for the page; Decline and Cancel close it.`,
@@ -1248,6 +1265,16 @@ export const askedCard = (
       : needsPage === undefined
         ? full
         : [full, "", `${PAGE_REASON[needsPage](where)} "Opened it" keeps the call waiting for the page.`].join("\n");
+  // SPI-1435: a park question offers no "Opened it", so it reads the change and its page without that button's line.
+  // The page's link and reason are kept whole, last: only the change's text before them is cut to fit.
+  const pageText = needsPage === undefined ? undefined : visible(pageOnlyText(needsPage, url));
+  const pagePrompt =
+    needsPage === undefined || pageText === undefined
+      ? undefined
+      : `${cardText(
+          (needsPage === "oversize" ? [headline, "", askedBy(input.caller)] : [full]).join("\n"),
+          Math.max(0, CARD_TEXT_MAX - pageText.length - 2),
+        )}\n\n${pageText}`;
   return {
     id: newCardId(),
     kind: "approval",
@@ -1255,6 +1282,7 @@ export const askedCard = (
     title: cardText(`settings: ${input.tool}?`, 200),
     prompt: cardText(prompt),
     options: needsPage === undefined ? APPROVAL_OPTIONS : PAGE_OPTIONS,
+    ...(pagePrompt === undefined ? {} : { pagePrompt }),
   };
 };
 
@@ -1373,12 +1401,17 @@ export const parkedChangeText = (parked: string, url: string | undefined): strin
 /**
  * Answers a parked Open change (SPI-1389) as the Owner did on its parked question, as the card would: approve or decline.
  * The outcome as the agent is told it; a change already closed (answered on its Change page first) tells that outcome.
+ * An Approve on a change still open that is approved on its Change page only answers nothing: `page-only`, naming the
+ * page and why (SPI-1435).
  */
 export const answerParkedChange = async (
   deps: SettingsServerDeps,
   changeId: string,
   approve: boolean,
-): Promise<string> => {
+): Promise<ParkedChangeAnswer> => {
+  const open = deps.changes.get(changeId);
+  if (approve && open?.state === "open" && open.needsPage !== undefined)
+    return { kind: "page-only", text: pageOnlyText(open.needsPage, changeUrlOf(deps, changeId)) };
   const answered = await answerOpenChange(answerDepsOf(deps), changeId, {
     by: "card",
     answerer: { kind: "card" },
@@ -1387,9 +1420,9 @@ export const answerParkedChange = async (
   const record = deps.changes.get(changeId);
   const outcome = answered.ok ? answered.outcome : answered.closed;
   if (record === undefined || outcome === undefined)
-    return `it is no longer open (${answered.ok ? "" : answered.error})`;
+    return { kind: "outcome", text: `it is no longer open (${answered.ok ? "" : answered.error})` };
   const result = resultOf(outcome, record, { appliesAt: "" });
-  return (result.kind === "result" ? result.text : result.message).trim();
+  return { kind: "outcome", text: (result.kind === "result" ? result.text : result.message).trim() };
 };
 
 /** How long an own agent's close waits for an applying answer (`closeOrSettle`), at the Outside request time limit. */
