@@ -68,15 +68,14 @@ export default defineConfig({
           ...each("@t3flare/agents", "typecheck", "lint", "test"),
           ...each("@t3flare/mcp-worker", "typecheck", "lint", "test"),
           ...each("@t3flare/codemode-sandbox", "typecheck", "lint"),
-          // check.ts never typechecked these three (plan D8), nor linted them; they have no tests.
-          ...["sandbox-image", "models", "session-protocol"].flatMap((name) =>
-            each(`@t3flare/${name}`, "typecheck", "lint"),
-          ),
+          // check.ts never typechecked these two (plan D8), nor linted them; they have no tests.
+          ...["sandbox-image", "models"].flatMap((name) => each(`@t3flare/${name}`, "typecheck", "lint")),
           ...[
             "effect-durable",
             "computer-env",
             "github-app",
             "workspace-client",
+            "session-protocol",
             "harness-registry",
             "skills",
             "mcp",

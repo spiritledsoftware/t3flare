@@ -6,7 +6,7 @@ import type { Workspace } from "@cloudflare/computer";
 import { err, type ExecutionEnv, type FileInfo, type FileKind, LineScanner, ok } from "@earendil-works/pi-durable/env";
 import { type ContainerAccess, ContainerFiles, GREP_OUTPUT_BYTES, LISTING_BYTES } from "./container-files.ts";
 import { HARNESS_ROOT, isContainerOnly } from "./container-paths.ts";
-import { jsonTextBytes, jsonTextPrefix } from "@t3flare/workspace-client";
+import { jsonTextBytes, jsonTextPrefix } from "@t3flare/session-protocol";
 import { HostFailure, posixCode, toWireError } from "./failure.ts";
 import { listFiles } from "./list-files.ts";
 import { ancestors, basename, dirname, resolve } from "./paths.ts";
