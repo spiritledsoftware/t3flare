@@ -83,8 +83,8 @@ export interface ExecInput {
   readonly stdin?: string;
   readonly timeoutMs?: number;
   /**
-   * SPI-1364: the output whole, none of it saved in the Workspace's files, for a script that bounds its own; else an
-   * answer past the Workspace DO's `EXEC_OUTPUT_BYTES` fails rather than come back cut.
+   * SPI-1364: the output whole, none of it saved in the Workspace's files, for a script that bounds its own; else
+   * computer's default, which keeps only the last 2,000 lines or 64 KiB of each stream, without a word.
    */
   readonly wholeOutput?: boolean;
 }

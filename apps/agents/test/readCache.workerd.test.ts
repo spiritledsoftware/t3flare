@@ -21,8 +21,8 @@ describe("readCache.put", () => {
   });
 
   it("keeps an answer of exactly MAX_ANSWER_BYTES, and skips one a byte over", async () => {
-    // The answer's JSON around an empty stdout, as the probe makes it.
-    const wrapper = JSON.stringify({ exitCode: 0, stdout: "", stderr: "" }).length;
+    // The answer's JSON around an empty stdout, as the probe makes it and `put` keeps it (whole: `cut` null, SPI-1375).
+    const wrapper = JSON.stringify({ exitCode: 0, stdout: "", stderr: "", cut: null }).length;
     expect(await probe().cacheRead(MAX_ANSWER_BYTES - wrapper)).toEqual({ threw: null, cached: true });
     expect(await probe().cacheRead(MAX_ANSWER_BYTES - wrapper + 1)).toEqual({ threw: null, cached: false });
   });
@@ -32,6 +32,15 @@ describe("readCache.put", () => {
     expect(await probe().cacheRead(3_000_000, "é")).toEqual({ threw: null, cached: true });
     // 3 bytes each: 9 MB does not, though it is 3 million characters.
     expect(await probe().cacheRead(3_000_000, "€")).toEqual({ threw: null, cached: false });
+  });
+
+  it("measures the row as its JSON, escapes included (SPI-1375)", async () => {
+    // A control character is 6 bytes in JSON (`\u0001`): 1 million fit a row, 2 million do not.
+    expect(await probe().cacheRead(1_000_000, "\u0001")).toEqual({ threw: null, cached: true });
+    expect(await probe().cacheRead(2_000_000, "\u0001")).toEqual({ threw: null, cached: false });
+    // A quote is 2.
+    expect(await probe().cacheRead(4_000_000, '"')).toEqual({ threw: null, cached: true });
+    expect(await probe().cacheRead(4_200_000, '"')).toEqual({ threw: null, cached: false });
   });
 });
 

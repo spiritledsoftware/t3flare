@@ -6,12 +6,14 @@
 import {
   describeFailure,
   fromWorkspaceText,
+  headBytes,
   isUnderW,
   isWorktreeId,
   normalize,
   REPO_ROOT,
   startRefusal,
   toWorkspace,
+  utf8AtLeast,
   WORKTREES_ROOT,
 } from "@t3flare/workspace-client";
 import { containerGitHubPermissions, ENVIRONMENT_GITHUB_PERMISSIONS } from "@t3flare/github-app/permissions";
@@ -33,6 +35,7 @@ import { checkpointMsNow, cloneMsNow, environmentServices } from "./bindings.ts"
 import {
   cloneRequestOf,
   gitEnvOf,
+  gitOutputCapOf,
   intoWorkspace,
   isRefsSnapshot,
   mayStartContainer,
@@ -146,7 +149,9 @@ interface Answer {
 /** Every live GitHub token taken out of `text`. */
 const redactTokens = (text: string): string => {
   let out = text;
-  for (const token of environmentServices().github().live()) out = out.split(token).join("***");
+  // Copied only where a token is in it: a whole git answer is held once more for nothing otherwise (SPI-1375).
+  for (const token of environmentServices().github().live())
+    if (out.includes(token)) out = out.replaceAll(token, "***");
   return out;
 };
 
@@ -372,6 +377,8 @@ const git = async (
         .catch(() => undefined);
   };
   signal?.addEventListener("abort", cancel, { once: true });
+  // SPI-1375: t3's cap for this call (Patch 0010); the Workspace answers each stream's head just past it.
+  const maxOutputBytes = gitOutputCapOf(env);
   // No token goes with any git command: the Container's credential helper asks for the Workspace's (ADR-0013).
   const answer = await workspaceRpc(at.id)
     .git({
@@ -381,6 +388,7 @@ const git = async (
       ...(stdin === undefined ? {} : { stdin }),
       startContainer,
       readScope: readScopeOf(args),
+      ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
       // SPI-1382: with this boot's epoch, by which the Workspace ends the run once a restart leaves nothing to cancel it.
       ...(runId === undefined ? {} : { runId, environmentEpoch: environmentServices().processes.environmentEpoch }),
     })
@@ -398,10 +406,34 @@ const git = async (
       detail: answer.detail,
     };
   }
+  const stdout = headForCap(
+    redactTokens(fromWorkspaceText(at.id, answer.stdout)),
+    answer.cut?.stdout === true,
+    maxOutputBytes,
+  );
+  const stderr = headForCap(
+    passedThrough(redactTokens(fromWorkspaceText(at.id, answer.stderr))),
+    answer.cut?.stderr === true,
+    maxOutputBytes,
+  );
+  if (stdout === null || stderr === null)
+    return {
+      exitCode: 128,
+      stdout: "",
+      stderr: routerLine(
+        `${T3FLARE_FATAL}${
+          maxOutputBytes === undefined
+            ? "the Workspace cut git's output, and t3 set no cap to judge the cut by"
+            : `git's output passed t3's ${maxOutputBytes}-byte cap, but its head came back within the cap (its Workspace paths written as /w paths), so t3 cannot tell it was cut`
+        }`,
+      ),
+      route: "error",
+      detail: "head shrank under t3's cap",
+    };
   return {
     exitCode: answer.exitCode,
-    stdout: redactTokens(fromWorkspaceText(at.id, answer.stdout)),
-    stderr: passedThrough(redactTokens(fromWorkspaceText(at.id, answer.stderr))),
+    stdout,
+    stderr,
     route:
       options.route ??
       (answer.stale !== undefined ? `stale-${answer.stale}` : answer.cached === true ? "cache" : "container"),
@@ -410,6 +442,20 @@ const git = async (
       startContainer && answer.exitCode !== 0 ? `: ${redactTokens(answer.stderr).trim()}` : ""
     }`,
   };
+};
+
+/**
+ * A stream of a git answer as t3 gets it (SPI-1375): `shown` (the Workspace's, its paths written as `/w` paths) as it
+ * is, unless the Workspace flagged it `cut` (`GitAnswer.cut`, never judged by its length); then its head one byte past
+ * t3's cap `maxOutputBytes`, so t3's own rule for output past its cap applies. Null when that head is within the cap
+ * (the rewritten paths took more than the Workspace's slack, or a cut came back without a cap): t3 would read a cut
+ * answer as whole.
+ */
+export const headForCap = (shown: string, cut: boolean, maxOutputBytes: number | undefined): string | null => {
+  if (!cut) return shown;
+  if (maxOutputBytes === undefined) return null;
+  const head = headBytes(shown, maxOutputBytes + 1);
+  return utf8AtLeast(head, maxOutputBytes + 1) ? head : null;
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
