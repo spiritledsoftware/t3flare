@@ -3,9 +3,9 @@
 // result says which it cut (`truncated`), a flag the Workspace DO's `exec` does not pass on.
 //
 // A script that bounds its own output runs whole (`output: false`): the Container file tools' scripts (`LISTING_BYTES`,
-// `GREP_OUTPUT_BYTES`), a leak dump's slices (`DUMP_SLICE_BYTES`) and a checkpoint diff cut to the size t3 asks for.
-// Every other command (t3's git reads and actions among them) keeps computer's default and is still tailed to 64 KiB
-// without a word, as before SPI-1364; a follow-up ticket owns that.
+// `GREP_OUTPUT_BYTES`), a leak dump's slices (`DUMP_SLICE_BYTES`), a checkpoint diff cut to the size t3 asks for, and
+// t3's git reads and actions, each stream cut to its head just past t3's cap (`gitOutput.ts`, SPI-1375). Every other
+// command keeps computer's default and is still tailed to 64 KiB without a word.
 import { shellWord } from "./checkpointScripts.ts";
 
 /**

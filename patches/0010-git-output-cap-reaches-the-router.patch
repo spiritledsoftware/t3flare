@@ -1,0 +1,14 @@
+diff --git a/apps/server/src/vcs/GitVcsDriverCore.ts b/apps/server/src/vcs/GitVcsDriverCore.ts
+index 3b7bb9a..18708c7 100644
+--- a/apps/server/src/vcs/GitVcsDriverCore.ts
++++ b/apps/server/src/vcs/GitVcsDriverCore.ts
+@@ -1083,6 +1083,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
+           GIT_OPTIONAL_LOCKS: "0",
+           ...input.env,
+           ...trace2Monitor.env,
++          // t3flare: this call's output cap reaches the Cloud Environment's process router, whose Workspace answers the
++          // head of git's output, so the cap below applies to it as it does here (SPI-1375). Git ignores it.
++          T3FLARE_GIT_MAX_OUTPUT_BYTES: String(maxOutputBytes),
+         };
+         const env = { ...baseEnv, ...explicitBareRepositoryEnv(baseEnv, hostPlatform) };
+         const spawnEnv = { ...env, ...windowsLongPathConfigEnv(hostPlatform, env) };

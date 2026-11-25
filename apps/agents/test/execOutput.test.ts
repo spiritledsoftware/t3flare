@@ -1,6 +1,6 @@
 // SPI-1364: computer keeps only the last 2,000 lines or 64 KiB of an exec's output by default. A script that bounds its
-// own output runs whole (`output: false`); every other command keeps computer's default, as before (a follow-up owns
-// that). A checkpoint diff is cut on the Container to the size t3 asks for.
+// own output runs whole (`output: false`); every other command keeps computer's default. A checkpoint diff is cut on the
+// Container to the size t3 asks for; t3's git runs are `gitOutput.test.ts`'s (SPI-1375).
 // @effect-diagnostics nodeBuiltinImport:off
 import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";

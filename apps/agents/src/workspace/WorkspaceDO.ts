@@ -44,7 +44,14 @@ import type {
   TerminalOpenInput,
 } from "@t3flare/workspace-client";
 import { type CliAgent, isCliAgent, type PromptTemplate, type SkillDiscovery, SKILLS_MOUNT } from "@t3flare/skills";
-import { describeFailure, fitFoundEntries, HARNESS_ROOT, REPO_ROOT, startRefusal } from "@t3flare/workspace-client";
+import {
+  describeFailure,
+  fitFoundEntries,
+  gitOutputCut,
+  HARNESS_ROOT,
+  REPO_ROOT,
+  startRefusal,
+} from "@t3flare/workspace-client";
 
 import * as git from "isomorphic-git";
 
@@ -130,6 +137,7 @@ import { authoredScript, captureScript, restoreScript, shellWord } from "./check
 import { captureTurn, type LastCapture } from "./checkpointCapture.ts";
 import { type FileChunk, fileOps, grepPaths } from "./files.ts";
 import { diffScript, execOutput } from "./execOutput.ts";
+import { gitAnswerOf, gitExecOf, gitOutcome, keptFor, keptWhole } from "./gitOutput.ts";
 import { dropOrphanedRuns, gitDeadlineMs, RunCancels } from "./runCancels.ts";
 import {
   deleteRef,
@@ -1690,15 +1698,18 @@ export class WorkspaceDO extends ContainerHost {
     const rev = passive ? this.#reads.revision(run.readScope ?? "repo") : -1;
     let startedBy: string | undefined;
     if (key !== null) {
-      const hit = this.#reads.get(key, rev);
+      // SPI-1375: a kept answer serves this read only if it holds the head t3's cap asks for (`keptFor`).
+      const kept = this.#reads.get(key, rev);
+      const hit = kept === undefined ? undefined : keptFor(kept, run.maxOutputBytes);
+      const last = this.#reads.last(key);
       const decision = passiveDecision({
         cachedNow: hit !== undefined,
         running: this.containerRunning(),
-        hasLastAnswer: this.#reads.last(key) !== undefined,
+        hasLastAnswer: last !== undefined && keptFor(last.answer, run.maxOutputBytes) !== undefined,
         allowed: allowed !== undefined,
         emulated: allowed?.name === "remotes",
       });
-      if (hit !== undefined) return { ran: true, ...hit, ms: 0, cached: true };
+      if (hit !== undefined) return { ran: true, ...gitAnswerOf(hit), ms: 0, cached: true };
       if (decision === "stale") return this.#stale(run, key);
       if (decision === "run-starting-container") {
         startedBy = allowed!.name;
@@ -1707,10 +1718,10 @@ export class WorkspaceDO extends ContainerHost {
         );
       }
     }
-    const script = `exec git ${run.argv.map(shellWord).join(" ")}`;
     try {
+      // SPI-1375: whole, and cut in the Container to its head just past t3's cap: never computer's silent tail.
       const result = await this.exec({
-        script,
+        ...gitExecOf(run),
         cwd: run.cwd,
         env: { ...this.#identityEnv(), ...run.env },
         ...(run.stdin === undefined ? {} : { stdin: run.stdin }),
@@ -1719,12 +1730,13 @@ export class WorkspaceDO extends ContainerHost {
         passive,
         ...(run.runId === undefined ? {} : { runId: run.runId }),
       });
-      const answer = { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr };
+      const outcome = gitOutcome(result, run.maxOutputBytes);
+      if (!outcome.ok) return { ran: false, reason: "container_refused", detail: outcome.detail };
       // Kept at the revision from before it ran: a change while it ran makes the next read run again.
       if (key !== null && keepsAnswer(result.status)) {
         // A cache write that fails never fails the read: the command ran, and its answer goes back uncached.
         try {
-          this.#reads.put(key, rev, answer);
+          this.#reads.put(key, rev, outcome.answer);
         } catch (error) {
           console.log(
             JSON.stringify({
@@ -1739,7 +1751,7 @@ export class WorkspaceDO extends ContainerHost {
       if (!passive || startedBy !== undefined) this.ctx.waitUntil(this.#prime().catch(() => undefined));
       return {
         ran: true,
-        ...answer,
+        ...gitAnswerOf(outcome.answer),
         ms: result.ms,
         ...(startedBy === undefined ? {} : { startedContainer: startedBy }),
       };
@@ -1826,7 +1838,10 @@ export class WorkspaceDO extends ContainerHost {
     return { ran: true, exitCode: 0, stdout, stderr: "", ms: 0, cached: true, stale: "patched" };
   }
 
-  /** Stale answers made since the files last changed, by read key: a client polling status patches once per change. */
+  /**
+   * Stale answers made since the files last changed, by read key and t3's cap (`gitOutputCut`, SPI-1375): a client
+   * polling status patches once per change.
+   */
   readonly #staleMemo = new Map<string, { readonly global: number; readonly answer: GitAnswer }>();
 
   /**
@@ -1835,29 +1850,40 @@ export class WorkspaceDO extends ContainerHost {
    */
   async #stale(run: GitRun, key: string): Promise<GitAnswer> {
     const global = currentRevision(this.ctx.storage.sql);
-    const memo = this.#staleMemo.get(key);
+    const memoKey = `${key} ${gitOutputCut(run.maxOutputBytes)}`;
+    const memo = this.#staleMemo.get(memoKey);
     if (memo !== undefined && memo.global === global) return memo.answer;
     const started = Date.now();
+    // SPI-1375: a last answer the Container cut is only a head, which a patch would change in length and not in truth;
+    // it is answered as it is, its cut flagged, so the router gives t3 its head past t3's cap.
+    const own = this.#reads.last(key);
+    const ownAnswer = own === undefined ? undefined : keptFor(own.answer, run.maxOutputBytes);
     let outcome: StaleOutcome;
-    try {
-      outcome = await staleRead(run, {
-        last: async (argv) =>
-          argv === run.argv ? this.#reads.last(key) : this.#reads.last(await readKey({ ...run, argv })),
-        journalSince: (rev) => this.#journalSince(rev, global),
-        withinGuard: async () => withinGuard(await this.#repo()),
-        facts: async (base) => repoFacts(await this.#repo(), base),
-      });
-    } catch (error) {
-      console.warn(
-        JSON.stringify({
-          t3flare: "stale-read-patch-failed",
-          argv: run.argv,
-          error: String(error),
-        }),
-      );
-      const last = this.#reads.last(key);
-      outcome = last === undefined ? { found: false } : { found: true, answer: last.answer, stale: "last-answer" };
-    }
+    if (ownAnswer !== undefined && gitAnswerOf(ownAnswer).cut !== undefined)
+      outcome = { found: true, answer: ownAnswer, stale: "last-answer" };
+    else
+      try {
+        outcome = await staleRead(run, {
+          // SPI-1375: only a whole last answer is patched (`keptWhole`).
+          last: async (argv) => {
+            const last = argv === run.argv ? own : this.#reads.last(await readKey({ ...run, argv }));
+            const answer = last === undefined ? undefined : keptWhole(last.answer, run.maxOutputBytes);
+            return answer === undefined ? undefined : { rev: last!.rev, answer };
+          },
+          journalSince: (rev) => this.#journalSince(rev, global),
+          withinGuard: async () => withinGuard(await this.#repo()),
+          facts: async (base) => repoFacts(await this.#repo(), base),
+        });
+      } catch (error) {
+        console.warn(
+          JSON.stringify({
+            t3flare: "stale-read-patch-failed",
+            argv: run.argv,
+            error: String(error),
+          }),
+        );
+        outcome = ownAnswer === undefined ? { found: false } : { found: true, answer: ownAnswer, stale: "last-answer" };
+      }
     if (!outcome.found) {
       const emulated = await this.#emulatedRead(run).catch(() => undefined);
       if (emulated !== undefined) return emulated;
@@ -1871,12 +1897,12 @@ export class WorkspaceDO extends ContainerHost {
       console.log(JSON.stringify({ t3flare: "stale-read-last-answer", argv: run.argv, why: outcome.why }));
     const answer: GitAnswer = {
       ran: true,
-      ...outcome.answer,
+      ...gitAnswerOf(outcome.answer),
       ms: outcome.stale === "patched" ? Date.now() - started : 0,
       cached: true,
       stale: outcome.stale,
     };
-    this.#staleMemo.set(key, { global, answer });
+    this.#staleMemo.set(memoKey, { global, answer });
     if (this.#staleMemo.size > 200) this.#staleMemo.delete(this.#staleMemo.keys().next().value!);
     return answer;
   }

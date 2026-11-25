@@ -352,6 +352,20 @@ export const worktreeCommandOf = (args: ReadonlyArray<string>): WorktreeCommand 
 export const T3FLARE_FATAL = "fatal: t3flare: ";
 
 /**
+ * The variable Patch 0010 sets on every git t3 spawns (SPI-1375): that call's output cap, GitVcsDriverCore's
+ * `maxOutputBytes`, as a decimal, or `Infinity` when it set none. Never git's: `gitEnvOf` passes on only git's own.
+ */
+export const GIT_OUTPUT_CAP_ENV = "T3FLARE_GIT_MAX_OUTPUT_BYTES";
+
+/** t3's output cap for a git it spawned with `env` (`GIT_OUTPUT_CAP_ENV`): undefined for none, or with no Patch 0010. */
+export const gitOutputCapOf = (env: Readonly<Record<string, unknown>> | undefined): number | undefined => {
+  const value = env?.[GIT_OUTPUT_CAP_ENV];
+  if (typeof value !== "string" || !/^\d+$/.test(value)) return undefined;
+  const cap = Number(value);
+  return Number.isSafeInteger(cap) ? cap : undefined;
+};
+
+/**
  * Where a project's worktree may go: `/w/.wt/<the cwd's project dir>/<one segment>` (t3 builds it from the basename of
  * the project's cwd and the branch). Answers the worktree Workspace's id, or the reason it is refused.
  */

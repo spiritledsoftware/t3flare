@@ -159,7 +159,86 @@ export interface GitRun {
    * the t3 that could cancel the run is gone, and the Workspace ends it (SPI-1382).
    */
   readonly environmentEpoch?: number;
+  /**
+   * t3's output cap for this call (GitVcsDriverCore's `maxOutputBytes`, carried by Patch 0010), in bytes of each of
+   * stdout and stderr; absent when t3 set none. The Workspace answers each stream's head, at most `gitOutputCut` bytes,
+   * so t3's own rule for output past its cap (fail, or keep the head and mark it) applies as it does locally (SPI-1375).
+   */
+  readonly maxOutputBytes?: number;
 }
+
+/**
+ * The bytes past t3's cap that the Workspace also answers of each stream: the router writes the Workspace's paths as `/w`
+ * paths, which can make a head shorter (`/workspace/repo` is 15 bytes, `/w/<id>` as few as 4), and cuts it to one byte
+ * past the cap afterwards. A named constant (ADR-0048), not a limit: it only needs to outlast that shrinking, at most 11
+ * bytes a path, so a head cut short by it takes some 6,000 Workspace paths in 64 KiB.
+ */
+export const GIT_HEAD_SLACK_BYTES = 64 * 1024;
+
+/**
+ * The most bytes of each stream the Workspace answers of one git command, where t3 set no cap or one above it; past it
+ * the run fails, naming it. A named constant (ADR-0048) under the Workspace DO's 128 MB isolate; it is also t3's largest
+ * cap of its own (16 MiB: its ref snapshot, review metadata and branch listing), which passes it like any other cap.
+ *
+ * Its peak, read from computer 0.11.2's `drainModuleResult`: as an exec answers, a stream's chunks, their joined bytes
+ * and the decoded string are all held (3 copies; 4 when the text is not Latin-1, which V8 holds at 2 bytes a character),
+ * then the string and its copy crossing DO RPC. The Workspace adds no copy of a stream longer than a cache row:
+ * `utf8AtLeast` and `headBytes` encode at most a cut's worth, and the read cache counts an answer's JSON bytes without
+ * making it, so one past a row (8 MiB) is never serialized. An answer it keeps, its JSON at most a row's 8 MiB of UTF-8,
+ * adds that JSON (up to 16 MiB held, as V8 holds non-Latin-1 text at 2 bytes a character) and SQLite's 8 MiB UTF-8
+ * copy as it writes the row: up to 24 MiB more for a moment, for answers of 8 MiB or less. So one 16 MiB stream peaks
+ * near 48 MiB (64 MiB not Latin-1), and two at once (t3's `listRefs`, the review guide's two diffs) near 96 to 128 MB:
+ * the isolate's edge in the worst case.
+ */
+export const GIT_WHOLE_OUTPUT_BYTES = 16 * 1024 * 1024;
+
+/**
+ * Where the Container cuts each stream of a git run with t3's cap `maxOutputBytes` (`head -c`): one byte past the cap,
+ * so t3 sees it was passed, and `GIT_HEAD_SLACK_BYTES` more. A cap above `GIT_WHOLE_OUTPUT_BYTES`, or none, is held to
+ * that bound: its cut is the bound's, and an answer past the bound is refused.
+ */
+export const gitOutputCut = (maxOutputBytes: number | undefined): number =>
+  Math.min(maxOutputBytes === undefined ? GIT_WHOLE_OUTPUT_BYTES : Math.floor(maxOutputBytes), GIT_WHOLE_OUTPUT_BYTES) +
+  1 +
+  GIT_HEAD_SLACK_BYTES;
+
+/** Code units of a string encoded at once by the two functions below: a bounded copy, whatever the string's length. */
+const ENCODE_CHUNK = 64 * 1024;
+
+/** `text`'s first `units` UTF-16 units, one more when the last would split a surrogate pair. */
+const sliceWhole = (text: string, units: number): string => {
+  const last = text.charCodeAt(units - 1);
+  return text.slice(0, last >= 0xd800 && last <= 0xdbff ? units + 1 : units);
+};
+
+/**
+ * Whether `text` takes at least `bytes` UTF-8 bytes. A UTF-16 unit is 1 to 3 bytes, so only a length that leaves it in
+ * doubt is counted, a chunk at a time and stopping at `bytes`: never a whole copy of `text`.
+ */
+export const utf8AtLeast = (text: string, bytes: number): boolean => {
+  if (text.length >= bytes) return true;
+  if (text.length * 3 < bytes) return false;
+  const encoder = new TextEncoder();
+  let counted = 0;
+  for (let at = 0; at < text.length && counted < bytes;) {
+    const chunk = sliceWhole(text.slice(at, at + ENCODE_CHUNK + 1), ENCODE_CHUNK);
+    counted += encoder.encode(chunk).byteLength;
+    at += chunk.length;
+  }
+  return counted >= bytes;
+};
+
+/**
+ * `text`'s first `bytes` UTF-8 bytes, decoded as the Container's cut is (a character the cut splits becomes U+FFFD), so
+ * a head of a head reads as the shorter cut would have. Encodes at most its first `bytes` units, never all of `text`.
+ */
+export const headBytes = (text: string, bytes: number): string => {
+  if (text.length * 3 <= bytes) return text;
+  const head = sliceWhole(text, bytes);
+  const encoded = new TextEncoder().encode(head);
+  if (encoded.byteLength <= bytes) return head.length === text.length ? text : head;
+  return new TextDecoder().decode(encoded.subarray(0, bytes));
+};
 
 export type GitAnswer =
   | {
@@ -169,6 +248,11 @@ export type GitAnswer =
       readonly stderr: string;
       readonly ms: number;
       readonly cached?: boolean;
+      /**
+       * The streams the Container cut at `gitOutputCut` (SPI-1375): the router gives t3 their head one byte past its cap
+       * from this flag, never from their length, which a stale read's patch can change. Absent: neither was cut.
+       */
+      readonly cut?: { readonly stdout: boolean; readonly stderr: boolean };
       /** A passive read answered while the Container was stopped: the last real answer, patched with the write journal where its shape allows. */
       readonly stale?: "patched" | "last-answer";
       /** Step 2b: an allow-listed `.git` read with no answer at all started the stopped Container (its name). */

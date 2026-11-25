@@ -79,3 +79,9 @@ Shadows 4 (unchanged), Patches 8.
 Shadows 4 (unchanged), Patches 9.
 
 - Patch `0009-terminal-history-lives-in-its-log.patch`: t3's terminal `Manager.ts` keeps each Terminal's history in its log file, not in memory. Memory holds only output not yet written; a snapshot reads the log's tail (`readHistoryTail`) and that output. The client protocol is unchanged. See U107 in `docs/upstream-fragility.md`. A Layer cannot reach it: `makeWithOptions` takes no history store, and the history lives in the session state its closure owns. A Shadow would copy the 3,960-line file.
+
+## Counts after SPI-1375
+
+Shadows 4 (unchanged), Patches 10.
+
+- Patch `0010-git-output-cap-reaches-the-router.patch`: one entry in the env `executeRaw` in `GitVcsDriverCore.ts` spawns git with, `T3FLARE_GIT_MAX_OUTPUT_BYTES`, the call's `maxOutputBytes`, so the process router can ask the Workspace for the head of git's output just past t3's cap rather than take computer's silent 64 KiB tail; see U108 in `docs/upstream-fragility.md`. A Layer cannot reach it: the spawner (ours) sees only the command, its args, cwd and env, and the cap is a local of `executeRaw`; a Layer over `GitVcsDriver` would see only outside callers' `execute`, while t3's own reads go through `executeGit` to the inner `execute` closure, before any service boundary. A Shadow would copy the 6,600-line file.

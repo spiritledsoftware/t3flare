@@ -11,6 +11,7 @@ import { scrollbackStore } from "../src/workspace/agentScrollback.ts";
 import { repoFileSizes } from "../src/workspace/changeLog.ts";
 import { fileOps } from "../src/workspace/files.ts";
 import { keepPrimed, primeArgvs, primeReadsFor } from "../src/workspace/gitDirReads.ts";
+import { keptFor } from "../src/workspace/gitOutput.ts";
 import { readCache, readKey } from "../src/workspace/readCache.ts";
 import { mountWithFallback, skillSetMount, skillSetStore } from "../src/workspace/skillSet.ts";
 
@@ -142,8 +143,11 @@ export class VfsProbe extends DurableObject {
       1,
     );
     const primed: Array<readonly [string, boolean]> = [];
-    for (const argv of argvs)
-      primed.push([argv.join(" "), cache.last(await readKey({ argv, cwd: REPO_ROOT })) !== undefined]);
+    // Kept, and whole (SPI-1375): each serves t3's read at its default cap of 1 MB (`keptFor`).
+    for (const argv of argvs) {
+      const last = cache.last(await readKey({ argv, cwd: REPO_ROOT }));
+      primed.push([argv.join(" "), last !== undefined && keptFor(last.answer, 1_000_000) !== undefined]);
+    }
     let othersLeft = 0;
     for (let at = 0; at < others; at++) if (cache.last(`t3-read-${at}`) !== undefined) othersLeft++;
     return { primed, othersLeft };

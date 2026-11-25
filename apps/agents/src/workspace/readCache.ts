@@ -7,11 +7,10 @@
 // patched with the write journal (`./staleReads.ts`, M3), never starting the Container.
 import { REPO_ROOT } from "@t3flare/workspace-client";
 
-export interface CachedAnswer {
-  readonly exitCode: number;
-  readonly stdout: string;
-  readonly stderr: string;
-}
+import type { GitAnswerStreams } from "./gitOutput.ts";
+
+/** A kept answer (`gitOutput.ts`); `put` keeps one given without a `cut` as whole. */
+export type CachedAnswer = GitAnswerStreams;
 
 /** REPO_ROOT's two segments, as computer's VFS keeps them (`vfs_dirents` under the root inode, 1). */
 const [ROOT_NAME, REPO_NAME] = REPO_ROOT.split("/").filter(Boolean) as [string, string];
@@ -32,9 +31,39 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS t3flare_git_reads (
 export const MAX_ANSWER_BYTES = 8 * 1024 * 1024 - 1024;
 
 /** Whether `text` fits MAX_ANSWER_BYTES; encoded only when its length leaves it in doubt (a UTF-16 unit is at most 3 UTF-8 bytes). */
-const fitsRow = (text: string): boolean =>
-  text.length <= MAX_ANSWER_BYTES &&
-  (text.length * 3 <= MAX_ANSWER_BYTES || new TextEncoder().encode(text).byteLength <= MAX_ANSWER_BYTES);
+/**
+ * The UTF-8 bytes `text` takes inside `JSON.stringify`'s output, counted without making it (SPI-1375): a quote or
+ * backslash, and `\b \f \n \r \t`, take 2; another control character, or a lone surrogate, 6 (`\u00XX`); a surrogate
+ * pair 4; any other unit its UTF-8 length. So an answer of control characters, up to 6 times its length in JSON, is
+ * measured, never serialized only to be dropped. Stops counting once past `limit`.
+ */
+const jsonBytes = (text: string, limit: number): number => {
+  let bytes = 0;
+  for (let at = 0; at < text.length && bytes <= limit; at++) {
+    const unit = text.charCodeAt(at);
+    if (unit === 0x22 || unit === 0x5c || unit === 8 || unit === 9 || unit === 10 || unit === 12 || unit === 13)
+      bytes += 2;
+    else if (unit < 0x20) bytes += 6;
+    else if (unit < 0x80) bytes += 1;
+    else if (unit < 0x800) bytes += 2;
+    else if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = text.charCodeAt(at + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        at++;
+      } else bytes += 6;
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) bytes += 6;
+    else bytes += 3;
+  }
+  return bytes;
+};
+
+/** The UTF-8 bytes of `answer`'s row (its JSON, as `put` writes it), counted without making it; past `limit`, more. */
+const rowBytes = (answer: CachedAnswer & { readonly cut: number | null }, limit: number): number => {
+  const frame = JSON.stringify({ ...answer, stdout: "", stderr: "" }).length;
+  const stdout = jsonBytes(answer.stdout, limit - frame);
+  return frame + stdout + jsonBytes(answer.stderr, limit - frame - stdout);
+};
 
 export const readKey = async (input: {
   readonly argv: ReadonlyArray<string>;
@@ -138,12 +167,17 @@ export const readCache = (sql: SqlStorage, maxRows: () => number) => {
         .toArray()[0];
       return row === undefined ? undefined : { rev: row.rev, answer: JSON.parse(row.answer) as CachedAnswer };
     },
-    /** Keeps `answer` for `key` at `rev`; an answer too large for a row (MAX_ANSWER_BYTES) is not kept. */
+    /**
+     * Keeps `answer` for `key` at `rev`, whole unless it says where it was cut; an answer too large for a row
+     * (MAX_ANSWER_BYTES) is not kept.
+     */
     put(key: string, rev: number, answer: CachedAnswer): void {
       ensure();
       if (rev < 0) return;
-      const json = JSON.stringify(answer);
-      if (!fitsRow(json)) return;
+      // Measured before it is serialized (SPI-1375): an answer past a row is never copied into JSON only to be dropped.
+      const row = { exitCode: answer.exitCode, stdout: answer.stdout, stderr: answer.stderr, cut: answer.cut ?? null };
+      if (rowBytes(row, MAX_ANSWER_BYTES) > MAX_ANSWER_BYTES) return;
+      const json = JSON.stringify(row);
       sql.exec(
         "INSERT INTO t3flare_git_reads (key, rev, answer, used_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET rev = excluded.rev, answer = excluded.answer, used_at = excluded.used_at",
         key,
