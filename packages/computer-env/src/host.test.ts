@@ -276,6 +276,114 @@ describe("WorkspaceEnvHost's searches on the Workspace (SPI-1388)", () => {
   });
 });
 
+describe("grep answers by bytes per line (SPI-1394)", () => {
+  const MiB = 1024 * 1024;
+  const answerBytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  const grep = (path: string, context: number) =>
+    request({
+      op: "grep",
+      args: ["x", path, { ignoreCase: false, regex: true, context, limit: 100, include: undefined, exclude: [] }],
+      reachContainer: true,
+    });
+  type Answer = { items: Array<{ text: string; context?: Array<{ text: string }> }>; cut?: string };
+  const valueOf = (answer: Awaited<ReturnType<WorkspaceEnvHost["handle"]>>): Answer => {
+    if (!answer.ok) throw new Error("refused");
+    return answer.value as unknown as Answer;
+  };
+
+  /** A Workspace whose grep finds `matches`, each with its context. */
+  const workspaceFinding = (matches: ReadonlyArray<{ text: string; context?: string[] }>) =>
+    new WorkspaceEnvHost({
+      fs: {
+        grep: async () =>
+          matches.map((match, at) => ({
+            path: "/workspace/repo/min.js",
+            line: at + 1,
+            text: match.text,
+            context: match.context?.map((text, line) => ({ line, text, isMatch: text === match.text })),
+          })),
+      },
+    } as unknown as Workspace);
+
+  it("cuts a matching line longer than the 4 MiB answer, marked, and names the cut", async () => {
+    const line = "x".repeat(5 * MiB);
+    const value = valueOf(await workspaceFinding([{ text: line }, { text: line }]).handle(grep("/workspace/repo", 0)));
+    expect(answerBytes(value.items)).toBeLessThanOrEqual(GREP_OUTPUT_BYTES);
+    expect(value.items).toHaveLength(1);
+    expect(value.items[0]?.text.length).toBeGreaterThan(3 * MiB);
+    expect(value.items[0]?.text).toMatch(/x … \[line cut short at the Workspace's fixed 4 MiB answer limit\]$/);
+    expect(value.cut).toBe(
+      "a match too long for the Workspace's fixed 4 MiB answer limit was cut short; 1 more found past the Workspace's fixed 4 MiB answer limit",
+    );
+  });
+
+  it("counts each match's context toward the answer, keeping short lines whole and cutting the long ones", async () => {
+    const long = "y".repeat(2 * MiB);
+    const value = valueOf(
+      await workspaceFinding([{ text: "x short", context: ["before", long, "x short", long, "after"] }]).handle(
+        grep("/workspace/repo", 2),
+      ),
+    );
+    expect(answerBytes(value.items)).toBeLessThanOrEqual(GREP_OUTPUT_BYTES);
+    const context = value.items[0]?.context?.map((line) => line.text) ?? [];
+    expect(value.items[0]?.text).toBe("x short");
+    expect([context[0], context[2], context[4]]).toEqual(["before", "x short", "after"]);
+    expect(context[1]).toMatch(/^y+ … \[line cut short/);
+    expect(context[3]).toMatch(/^y+ … \[line cut short/);
+    expect(value.cut).toBe("a match too long for the Workspace's fixed 4 MiB answer limit was cut short");
+  });
+
+  it("drops a match that would fit an answer of its own once the answer is full, as before", async () => {
+    const line = "x".repeat(MiB);
+    const value = valueOf(
+      await workspaceFinding(Array.from({ length: 5 }, () => ({ text: line }))).handle(grep("/workspace/repo", 0)),
+    );
+    expect(value.items).toHaveLength(3);
+    expect(value.items.every((match) => match.text === line)).toBe(true);
+    expect(value.cut).toBe("2 more found past the Workspace's fixed 4 MiB answer limit");
+  });
+
+  /** ripgrep's JSON events for `lines` matching in `/root/min.js`, as the Container's grep script prints them. */
+  const events = (lines: readonly string[]) =>
+    lines
+      .map((text, at) =>
+        JSON.stringify({
+          type: "match",
+          data: { path: { text: "./min.js" }, lines: { text: `${text}\n` }, line_number: at + 1 },
+        }),
+      )
+      .join("\n");
+
+  it("names the Container's read cut at GREP_OUTPUT_BYTES, which it once made silently", async () => {
+    const read = `${events(Array.from({ length: 50 }, () => "x".repeat(100 * 1024)))}\n`;
+    expect(read.length).toBeGreaterThan(GREP_OUTPUT_BYTES + 1);
+    const { host } = routedHost({ running: true, stdout: `/root\n${read.slice(0, GREP_OUTPUT_BYTES + 1)}.\n` });
+    const value = valueOf(await host.handle(grep("/root", 0)));
+    expect(value.items.length).toBeGreaterThan(30);
+    expect(value.items.length).toBeLessThan(50);
+    expect(value.cut).toBe(
+      "the search read only the first 4 MiB of ripgrep's output, the Container's fixed grep read limit",
+    );
+  });
+
+  it("leaves the Container's whole read uncut, and bounds its answer as the Workspace's", async () => {
+    const whole = routedHost({ running: true, stdout: `/root\n${events(["x a", "x b"])}\n.\n` });
+    expect(valueOf(await whole.host.handle(grep("/root", 0)))).toEqual({
+      items: [
+        { path: "/root/min.js", line: 1, text: "x a" },
+        { path: "/root/min.js", line: 2, text: "x b" },
+      ],
+    });
+
+    // Each match carries its context, so the answer can outgrow the events: 3 MiB of lines, each in 3 matches' context.
+    const lines = Array.from({ length: 3 }, () => "x".repeat(MiB));
+    const wide = routedHost({ running: true, stdout: `/root\n${events(lines)}\n.\n` });
+    const value = valueOf(await wide.host.handle(grep("/root", 2)));
+    expect(answerBytes(value.items)).toBeLessThanOrEqual(GREP_OUTPUT_BYTES);
+    expect(value.cut).toMatch(/the Workspace's fixed 4 MiB answer limit/);
+  });
+});
+
 describe("ComputerFiles across a deploy (SPI-1388)", () => {
   it("takes a Workspace DO's bare array from before the bound as the whole answer, and a Listed one as it is", async () => {
     const answering = (value: unknown) => new ComputerFiles({ fileOperation: async () => ({ ok: true, value }) });

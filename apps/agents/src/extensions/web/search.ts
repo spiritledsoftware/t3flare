@@ -53,6 +53,22 @@ export const SUMMARY_CUT_NOTE = `[The search model's summary stopped at web_sear
  */
 export const resultsBytes = (maxBytes: number): number => detailsRoomBytes(maxBytes);
 
+/**
+ * The most JSON bytes of a search's query kept where it is stored: `details.query` (for t3's web item) and the text of
+ * a failed search (SPI-1394). A sanity bound (ADR-0048) under the Session row's 8 MB, which also holds the result lists
+ * (`resultsBytes`), so a long query can never crowd them out; 8 KiB is far more than a search query needs. The
+ * model's own call arguments, and the query sent to the search model, keep it whole.
+ */
+export const SEARCH_QUERY_STORED_BYTES = 8 * 1024;
+
+/** `query` as it is stored: whole, or its start within `SEARCH_QUERY_STORED_BYTES`, marked, naming the limit. */
+export const storedQuery = (query: string): string => {
+  const end = jsonTextPrefix(query, SEARCH_QUERY_STORED_BYTES);
+  return end === query.length
+    ? query
+    : `${query.slice(0, end)} … [query cut at web_search's fixed ${SEARCH_QUERY_STORED_BYTES / 1024} KiB stored-query limit]`;
+};
+
 const encoder = new TextEncoder();
 const jsonBytes = (value: unknown): number => encoder.encode(JSON.stringify(value)).length;
 
@@ -294,8 +310,9 @@ export const webSearchTool = (
     async execute(args, _api, context) {
       if (args.query.trim() === "")
         throw new Error("Unable to search the web: query is empty (provide the text to search the web for)");
+      const stored = storedQuery(args.query);
       const target = await search.resolve();
-      if ("error" in target) throw new Error(`Unable to search the web for ${args.query}: ${target.error}`);
+      if ("error" in target) throw new Error(`Unable to search the web for ${stored}: ${target.error}`);
       const sanitize = providerTextSanitizer([target.apiKey]);
       let read: ReturnType<typeof readAnswer>;
       try {
@@ -351,13 +368,13 @@ export const webSearchTool = (
         );
       } catch (error) {
         throw new Error(
-          `Unable to search the web for ${args.query}: ${error instanceof WebToolError ? error.message : "network error"}`,
+          `Unable to search the web for ${stored}: ${error instanceof WebToolError ? error.message : "network error"}`,
           { cause: error },
         );
       }
-      if (read.failure !== undefined) throw new Error(`Unable to search the web for ${args.query}: ${read.failure}`);
+      if (read.failure !== undefined) throw new Error(`Unable to search the web for ${stored}: ${read.failure}`);
       const asked = read.results.slice(0, args.numResults ?? limits.searchResults);
-      const results = fitResults(asked, resultsBytes(output.maxBytes) - jsonTextBytes(args.query));
+      const results = fitResults(asked, Math.max(0, resultsBytes(output.maxBytes) - jsonTextBytes(stored)));
       const content =
         results.length === 0 && read.summary === ""
           ? NO_SEARCH_RESULTS
@@ -381,7 +398,7 @@ export const webSearchTool = (
         // What t3's web item shows (the differ): the query and each page found, its snippet whole.
         details: {
           provider: `model-endpoint:${target.slug}`,
-          query: args.query,
+          query: stored,
           results: results.map((page) => ({ ...page })),
         },
         ...(usage === undefined ? {} : { usage }),
