@@ -29,7 +29,7 @@ import { argsHashOf } from "../../mcp/canonical.ts";
 import { workersLog } from "../../platform/workersLog.ts";
 import { cardOf, type LiveTurn } from "./cardEvents.ts";
 import type { CliAnswer, CliAsk } from "./cliAsk.ts";
-import type { ParkedCall, ParkedCard, ParkedCards, ParkedDecision } from "./parked.ts";
+import type { ParkedCall, ParkedCard, ParkedCards, ParkedChangeAnswer, ParkedDecision } from "./parked.ts";
 
 /** t3's runtime request id of a parked card's question: t3 answers it as `async-answer:<id>`. */
 export const parkRequestPrefix = (driver: string) => `runtime-request:${driver}:${PARK_QUESTION_MARKER}:`;
@@ -90,6 +90,38 @@ const CHANGE_OPTIONS: typeof PARK_OPTIONS = [
   { label: "Approve", description: "The change applies, and the agent is told the outcome.", decision: "accept" },
   { label: "Decline", description: "The change closes, and the agent is told so.", decision: "decline" },
 ];
+
+/**
+ * A parked change approved on its Change page only, raised again after an Approve on its question (SPI-1435): Approve
+ * keeps its label, as an answer given on the Owner's behalf names it (SPI-1404).
+ */
+const PAGE_ONLY_OPTIONS: typeof PARK_OPTIONS = [
+  {
+    label: "Approve",
+    description: "Approved on its Change page only: answering Approve here asks again.",
+    decision: "accept",
+  },
+  CHANGE_OPTIONS[1]!,
+];
+
+/**
+ * The question a parked change approved on its Change page only is raised again with after an Approve on it (SPI-1435):
+ * `pageOnly` names the page and why.
+ */
+const pageOnlyQuestionText = (title: string, pageOnly: string): string =>
+  `${title}\n\n${pageOnly} Approve it there, and the agent is told its outcome; Decline here closes it.`;
+
+/**
+ * What the agent is told when the Owner picked Approve on a parked change approved on its Change page only (SPI-1435):
+ * nothing changed, and its outcome comes as a message when the change closes (`raised`), or, when its question could
+ * not be raised again, is read from the settings.
+ */
+const pageOnlyTurnText = (title: string, pageOnly: string, raised: boolean): string =>
+  `The owner picked Approve on the Open change that parked your turn (${title}), but nothing changed yet: ${pageOnly} ${
+    raised
+      ? "It stays open, and its outcome comes to this thread as a message when the owner answers it."
+      : "It stays open; read the settings later to see whether it applied."
+  } Do not repeat the change.`;
 
 /** The id of a parked approval's one question (`decisionQuestion`): an answer given on the Owner's behalf names it. */
 export const PARK_DECISION_QUESTION = "decision";
@@ -177,7 +209,7 @@ export interface ParkerDeps {
   /** Park after in ms (0: never park). */
   readonly parkAfterMs: () => number;
   readonly parked: () => ParkedCards | undefined;
-  readonly answerParkedChange: (changeId: string, approve: boolean) => Promise<string>;
+  readonly answerParkedChange: (changeId: string, approve: boolean) => Promise<ParkedChangeAnswer>;
   /** The CLI's own request's whole call by its native id (`nativeCalls.ts`), or undefined. */
   readonly nativeCallOf: (nativeId: string) => unknown;
   /** Ends the session's process. */
@@ -417,14 +449,29 @@ export const parker = (deps: ParkerDeps) => {
   });
 
   /**
-   * Raises a parked card's question again on the live turn, as a new parked card, and drops the old one: false when no
-   * turn is live or the new record cannot be kept (the old card stays then).
+   * Raises a parked card's question again on the live turn as `questions`, a new parked card, and drops the old record
+   * if it is still kept: false when no turn is live or the new record cannot be kept (the old record stays then).
    */
-  const askAgain = Effect.fn("Park.askAgain")(function* (card: ParkedCard) {
+  const raiseAgain = Effect.fn("Park.raiseAgain")(function* (
+    card: ParkedCard,
+    questions: ReadonlyArray<OrchestrationV2UserInputQuestion>,
+  ) {
     const turn = deps.live();
     if (turn === undefined) return false;
+    const asked = yield* commit(turn, [
+      { card: { ...card, id: newParkId(deps.driver) }, title: card.title, questions, settle: Effect.void },
+    ]);
+    if (!asked) return false;
+    // A record that cannot be dropped stays: its question was answered, and nothing answers it again.
+    yield* Effect.try({ try: () => deps.parked()?.discard(card.id), catch: () => "undropped" }).pipe(Effect.ignore);
+    return true;
+  });
+
+  /** Asks a parked card's question again when its answer could not be read (`raiseAgain`). */
+  const askAgain = (card: ParkedCard) => {
     const text = `${card.title}\n\nYour earlier answer to this parked card could not be read: answer it again.`;
-    const questions =
+    return raiseAgain(
+      card,
       card.kind === "question"
         ? [
             {
@@ -436,15 +483,9 @@ export const parker = (deps: ParkerDeps) => {
               required: true,
             } as unknown as OrchestrationV2UserInputQuestion,
           ]
-        : [decisionQuestion(text, card.kind === "change" ? CHANGE_OPTIONS : PARK_OPTIONS)];
-    const asked = yield* commit(turn, [
-      { card: { ...card, id: newParkId(deps.driver) }, title: card.title, questions, settle: Effect.void },
-    ]);
-    if (!asked) return false;
-    // A record that cannot be dropped stays: its question was answered, and nothing answers it again.
-    yield* Effect.try({ try: () => deps.parked()?.discard(card.id), catch: () => "undropped" }).pipe(Effect.ignore);
-    return true;
-  });
+        : [decisionQuestion(text, card.kind === "change" ? CHANGE_OPTIONS : PARK_OPTIONS)],
+    );
+  };
 
   /** A card or request raised while the park ends the turn: parked as the others were. */
   const parkLate = Effect.fn("Park.parkLate")(function* (
@@ -558,16 +599,29 @@ export const parker = (deps: ParkerDeps) => {
       // A steered answer reaches a CLI that restarts on a steer (Claude Code, OpenCode) as an interrupt and a restart:
       // its allowance outlives the interrupted turn's end, for the restarted turn. Codex and pi steer in place.
       allowanceTurns = Math.max(allowanceTurns, steered && deps.steerRestartsTurn ? 2 : 1);
-      const outcome =
+      const changed =
         card.kind === "change" && card.changeId !== undefined
           ? yield* Effect.promise(() =>
               deps
                 .answerParkedChange(card.changeId!, decision !== "decline")
-                .catch((error: unknown) => `it could not be answered (${String(error)})`),
+                .catch((error: unknown): ParkedChangeAnswer => ({
+                  kind: "outcome",
+                  text: `it could not be answered (${String(error)})`,
+                })),
             )
           : undefined;
+      if (changed?.kind === "page-only") {
+        // SPI-1435: an Approve on a change approved on its Change page only changed nothing. Its question is raised
+        // again, a new parked record on the same change, so the Owner can still answer, and a page answer reaches the
+        // agent once through it (`parkedChanges.ts`). The record answered above is gone already.
+        const raised = yield* raiseAgain(card, [
+          decisionQuestion(pageOnlyQuestionText(card.title, changed.text), PAGE_ONLY_OPTIONS),
+        ]);
+        workersLog(raised ? "log" : "warn", { t3flare: "cli-park-page-only", kind: card.kind, raised });
+        return pageOnlyTurnText(card.title, changed.text, raised);
+      }
       workersLog("log", { t3flare: "cli-park-answered", kind: card.kind, decision });
-      return answerTurnText(card, decision, reply, outcome);
+      return answerTurnText(card, decision, reply, changed?.text);
     }),
     /** The live turn ended: its park is done, and an answer turn's unused allowance goes once its turns are over. */
     turnEnded: () => {

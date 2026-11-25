@@ -25,7 +25,7 @@ import type { UsageStore } from "../usage/records.ts";
 import type { BrowserRunBinding, BrowserRunFetcher } from "../preview/browserRun.ts";
 import type { PreviewStore } from "../preview/store.ts";
 import type { Updates } from "../updates/records.ts";
-import type { ParkedCards } from "../provider/cli/parked.ts";
+import type { ParkedCards, ParkedChangeAnswer } from "../provider/cli/parked.ts";
 
 export interface EnvironmentServices {
   readonly agents: AgentsBindings;
@@ -76,9 +76,10 @@ export interface EnvironmentServices {
   readonly parked?: ParkedCards;
   /**
    * Answers a parked Open change (SPI-1389) as the Owner did on its parked question: approve or decline. Resolves with
-   * the change's outcome as the agent is told it. Absent (a test's services): the outcome is not known.
+   * the change's outcome as the agent is told it, or that it is approved on its Change page only (SPI-1435). Absent (a
+   * test's services): the outcome is not known.
    */
-  readonly answerParkedChange?: (changeId: string, approve: boolean) => Promise<string>;
+  readonly answerParkedChange?: (changeId: string, approve: boolean) => Promise<ParkedChangeAnswer>;
   /**
    * The MCP call time limit (SPI-1359, `mcpCallSeconds`) in ms, as stored now: read at each CLI spawn for the CLI's own
    * tool timeout (`cliToolTimeoutSec`). Absent (a test's services): the default.

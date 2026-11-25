@@ -51,7 +51,7 @@ import { type CliAnswer, type CliAsk, registerCliAsker } from "./cliAsk.ts";
 import { takeEnvironmentSkillsAt } from "./environmentSkillsTake.ts";
 import { cardOf, type LiveTurn } from "./cardEvents.ts";
 import { parker, parkRequestPrefix } from "./park.ts";
-import type { ParkedCards } from "./parked.ts";
+import type { ParkedCards, ParkedChangeAnswer } from "./parked.ts";
 import { failureOf, withRelayFailure } from "./relayFailure.ts";
 import { workersLog } from "../../platform/workersLog.ts";
 
@@ -151,7 +151,7 @@ export interface WrapOptions {
   /** SPI-1389: where parked cards are kept. Default: the Environment DO's (`EnvironmentServices.parked`). */
   readonly parked?: () => ParkedCards | undefined;
   /** SPI-1389: answers a parked Open change. Default: the Environment DO's (`EnvironmentServices.answerParkedChange`). */
-  readonly answerParkedChange?: (changeId: string, approve: boolean) => Promise<string>;
+  readonly answerParkedChange?: (changeId: string, approve: boolean) => Promise<ParkedChangeAnswer>;
   /**
    * SPI-1389: the CLI's own request's whole call by its native id. Default: what the session's process's stdout gave
    * (`ChannelProcess.nativeCalls`).
@@ -291,9 +291,9 @@ export const wrapCliAdapter = (
     options.nativeCallOf ?? ((session: CliSession, nativeId: string) => session.process?.nativeCalls?.callOf(nativeId));
   const answerParkedChange =
     options.answerParkedChange ??
-    (async (changeId: string, approve: boolean) => {
+    (async (changeId: string, approve: boolean): Promise<ParkedChangeAnswer> => {
       const answer = environmentServices().answerParkedChange;
-      if (answer === undefined) return "read the settings to see whether it applied";
+      if (answer === undefined) return { kind: "outcome", text: "read the settings to see whether it applied" };
       return answer(changeId, approve);
     });
   /** SPI-1172: a failed turn's terminal or error item, with the relay's classification of the process's last answer. */

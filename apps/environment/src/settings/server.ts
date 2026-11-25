@@ -66,6 +66,7 @@ import { type McpAsker, type McpQuestionAnswer, type McpQuestionCard, PARKED_REA
 
 import { planPurge, purgeNow, type WorkspaceActionsDeps } from "../agents/workspaceActions.ts";
 import { workspacesView } from "../agents/workspaceView.ts";
+import type { ParkedChangeAnswer } from "../provider/cli/parked.ts";
 
 import { containerCostTable } from "../harness/containerCost.ts";
 import { changePagePath, OPEN_CHANGES_PATH } from "../harness/paths.ts";
@@ -1373,12 +1374,26 @@ export const parkedChangeText = (parked: string, url: string | undefined): strin
 /**
  * Answers a parked Open change (SPI-1389) as the Owner did on its parked question, as the card would: approve or decline.
  * The outcome as the agent is told it; a change already closed (answered on its Change page first) tells that outcome.
+ * An Approve on a change still open that is approved on its Change page only answers nothing: `page-only`, naming the
+ * page and why (SPI-1435).
  */
 export const answerParkedChange = async (
   deps: SettingsServerDeps,
   changeId: string,
   approve: boolean,
-): Promise<string> => {
+): Promise<ParkedChangeAnswer> => {
+  const open = deps.changes.get(changeId);
+  if (approve && open?.state === "open" && open.needsPage !== undefined) {
+    const url = changeUrlOf(deps, changeId);
+    const where =
+      url === undefined
+        ? "its Change page (its link is on the Settings page's Open changes list)"
+        : `its Change page: ${url}`;
+    return {
+      kind: "page-only",
+      text: `It is approved on its Change page only. ${PAGE_REASON[open.needsPage](where)}`,
+    };
+  }
   const answered = await answerOpenChange(answerDepsOf(deps), changeId, {
     by: "card",
     answerer: { kind: "card" },
@@ -1387,9 +1402,9 @@ export const answerParkedChange = async (
   const record = deps.changes.get(changeId);
   const outcome = answered.ok ? answered.outcome : answered.closed;
   if (record === undefined || outcome === undefined)
-    return `it is no longer open (${answered.ok ? "" : answered.error})`;
+    return { kind: "outcome", text: `it is no longer open (${answered.ok ? "" : answered.error})` };
   const result = resultOf(outcome, record, { appliesAt: "" });
-  return (result.kind === "result" ? result.text : result.message).trim();
+  return { kind: "outcome", text: (result.kind === "result" ? result.text : result.message).trim() };
 };
 
 /** How long an own agent's close waits for an applying answer (`closeOrSettle`), at the Outside request time limit. */

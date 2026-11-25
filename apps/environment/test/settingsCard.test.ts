@@ -297,12 +297,12 @@ describe("the asked change's wait (SPI-1316, SPI-1389)", () => {
     // The card names the change it stands for, so a parked card's record keeps it.
     expect(run.cards[0]!.changeId).toBe(record.id);
     expect(run.withdrawn).toEqual([]);
-    expect(await answerParkedChange(run.deps, record.id, true)).toMatch(
+    expect((await answerParkedChange(run.deps, record.id, true)).text).toMatch(
       /^Applied: the owner approved it on the card\./,
     );
     expect(run.deps.changes.get(record.id)).toMatchObject({ state: "applied" });
     // Answered already (on the page first, or twice): its outcome, nothing applied again.
-    expect(await answerParkedChange(run.deps, record.id, false)).toMatch(/^Applied/);
+    expect((await answerParkedChange(run.deps, record.id, false)).text).toMatch(/^Applied/);
   });
 
   it("a parked change declined on its question closes declined", async () => {
@@ -310,10 +310,52 @@ describe("the asked change's wait (SPI-1316, SPI-1389)", () => {
     const run = fixture;
     await run.call(run.durable(), "change_environment", ASKED);
     const record = opened(run)!;
-    expect(await answerParkedChange(run.deps, record.id, false)).toContain(
+    expect((await answerParkedChange(run.deps, record.id, false)).text).toContain(
       "Not changed: the owner declined it on the card.",
     );
     expect(run.store.loadEnvironment().revision).toBe(0);
+  });
+
+  it("Approve on a parked change approved on its Change page only names the page and why, and leaves it open (SPI-1435)", async () => {
+    fixture = settingsFixture({ answer: { decision: "cancel", reason: PARKED_REASON } });
+    const run = fixture;
+    await addMcpServer(
+      run.deps.ops,
+      { server: "keyed", url: "https://keyed.example/mcp", auth: { kind: "header", header: "X-Key" }, value: "old" },
+      { actor: { caller: "owner:o" } },
+    );
+    await run.call(run.durable(), "change_mcp", {
+      expectedRevision: 1,
+      change: { op: "header-value", server: "keyed" },
+    });
+    const record = opened(run)!;
+    expect(record.needsPage).toBe("secret");
+    const answer = await answerParkedChange(run.deps, record.id, true);
+    expect(answer.kind).toBe("page-only");
+    expect(answer.text).toContain("approved on its Change page only");
+    expect(answer.text).toContain(`${PANEL}/changes/`);
+    expect(answer.text).toContain("It takes a secret");
+    expect(answer.text).not.toContain("no longer open");
+    expect(run.deps.changes.get(record.id)).toMatchObject({ state: "open" });
+    // Decline on the question still closes it.
+    expect(await answerParkedChange(run.deps, record.id, false)).toEqual({
+      kind: "outcome",
+      text: expect.stringContaining("Not changed: the owner declined it on the card."),
+    });
+    // Really closed now: an Approve tells its outcome, never the page.
+    expect(await answerParkedChange(run.deps, record.id, true)).toEqual({
+      kind: "outcome",
+      text: expect.stringContaining("Not changed"),
+    });
+  });
+
+  it("Approve on a parked change that is really gone says it is no longer open (SPI-1435)", async () => {
+    fixture = settingsFixture({ answer: { decision: "cancel", reason: PARKED_REASON } });
+    const run = fixture;
+    expect(await answerParkedChange(run.deps, "no-such-change", true)).toEqual({
+      kind: "outcome",
+      text: expect.stringContaining("it is no longer open"),
+    });
   });
 
   it("the Settings server's instructions name no deadline for an asked change (SPI-1389)", () => {
@@ -371,7 +413,7 @@ describe("a parked change closed elsewhere (SPI-1404)", () => {
     expect(dismissed).toEqual([]);
     // `answerText` reads the record when the answer's message comes, and tells the agent the page's outcome.
     expect(parked.get(PARK_ID)).toBeDefined();
-    expect(await answerParkedChange(run.deps, changeId, true)).toMatch(/^Applied: .*on the Change page/);
+    expect((await answerParkedChange(run.deps, changeId, true)).text).toMatch(/^Applied: .*on the Change page/);
     // t3 holds the answer now: a second run does nothing.
     question = "answered";
     expect(await reconcile()).toEqual({ answered: 0, dismissed: 0, dropped: 0 });
