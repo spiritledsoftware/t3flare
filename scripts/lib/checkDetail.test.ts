@@ -7,6 +7,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, it } from "node:test";
 
+import { t3ErrorsHeading, T3_NOT_FAILING_LABEL } from "../../apps/environment/scripts/lib/typecheckFilter.ts";
 import { checkDetail, FIRST_ERROR_LINES, LONG_DETAIL_CHARS } from "./checkDetail.ts";
 const fixture = (name: string) => fs.readFileSync(path.join(import.meta.dirname, "fixtures", name), "utf8");
 /** More than LONG_DETAIL_CHARS of other output, as a long check's later task groups print it. */
@@ -62,6 +63,27 @@ void describe("checkDetail", () => {
     ].join("\n");
     const head = checkDetail(output, LONG_DETAIL_CHARS).split("\n\n── tail ──\n")[0]!;
     assert.match(head, /── \[@t3flare\/environment#typecheck\] ──\nsrc\/runtime\.ts\(62,14\): error TS2322/);
+    assert.doesNotMatch(head, /t3code/);
+  });
+
+  void it("leaves out t3's errors under their not-failing label, with or without the heading over them", () => {
+    const t3Error =
+      `${T3_NOT_FAILING_LABEL}../../t3code/apps/server/src/a.ts(1,1): error TS2345: Argument of type 'X' is not ` +
+      "assignable.\n  Type 'X' is not assignable to type 'Y'.";
+    const output = [
+      "── [@t3flare/environment#typecheck] ──",
+      "src/runtime.ts(62,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+      "",
+      t3ErrorsHeading(2),
+      t3Error,
+      t3Error,
+      "",
+      // A log cut above the heading still shows the label.
+      t3Error,
+      filler,
+    ].join("\n");
+    const head = checkDetail(output, LONG_DETAIL_CHARS).split("\n\n── tail ──\n")[0]!;
+    assert.match(head, /src\/runtime\.ts\(62,14\): error TS2322/);
     assert.doesNotMatch(head, /t3code/);
   });
 

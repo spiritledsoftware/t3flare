@@ -1,5 +1,6 @@
-// The repository's checks (ADR-0030; was scripts/check.ts). `pnpm run check` runs `check:all`: every task it depends
-// on must pass before a push to main. The tasks run at once, as check.ts ran them, and nothing is cached (plan D5).
+// The repository's checks (ADR-0030). `pnpm run check` runs `check:all` through scripts/check.ts, which names the
+// failing task when one fails (SPI-1346): every task it depends on must pass before a push to main. The tasks run at
+// once, and nothing is cached (plan D5).
 //
 //   - check:patches: every t3 Patch applies to the pinned t3code (`git apply --check`)
 //   - check:fs: every node:fs member t3's bundled modules read is implemented by a State directory shim, or allowed

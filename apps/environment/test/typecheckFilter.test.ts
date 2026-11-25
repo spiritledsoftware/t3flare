@@ -7,6 +7,8 @@ import {
   parseDiagnostics,
   T3_ERRORS_COUNT,
   t3ErrorsHeading,
+  t3ErrorsReport,
+  T3_NOT_FAILING_LABEL,
   typecheckVerdict,
   workerdOwnership,
 } from "../scripts/lib/typecheckFilter.ts";
@@ -58,6 +60,18 @@ describe("the typecheck's verdict", () => {
   it("prints a heading over t3's errors that the bump reads their count back from", () => {
     expect(T3_ERRORS_COUNT.exec(`ours\n\n${t3ErrorsHeading(3)}\n${T3_ERROR}`)?.[1]).toBe("3");
     expect(T3_ERRORS_COUNT.exec(OUR_ERROR)).toBeNull();
+  });
+
+  it("labels each of t3's errors as not failing, so a line read alone (grepped, or in a cut log) says so", () => {
+    const { t3Errors, ours } = typecheckVerdict(2, `${T3_ERROR}\n${T3_ERROR.replace("286", "287")}\n`, cwd, t3Root);
+    const report = t3ErrorsReport(t3Errors);
+    expect(T3_ERRORS_COUNT.exec(report)?.[1]).toBe("2");
+    const errorLines = report.split("\n").filter((line) => /error TS\d+/.test(line));
+    expect(errorLines).toHaveLength(2);
+    for (const line of errorLines) expect(line.startsWith(`${T3_NOT_FAILING_LABEL}../../t3code/`)).toBe(true);
+    expect(report).toContain(`\n  Type 'Uint8Array<ArrayBufferLike>' is not assignable`);
+    expect(ours).toHaveLength(0);
+    expect(t3ErrorsReport([])).toBe("");
   });
 
   it("fails beside a t3 error when the compiler printed anything else, or died by a signal", () => {
