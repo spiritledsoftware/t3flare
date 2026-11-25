@@ -39,7 +39,10 @@ const harness = (): StoredHarness => {
   return added.harness;
 };
 
-/** A host whose engine lists `TOOLS`, or fails its discovery with `discoverError`, and fails every request with `error`. */
+/**
+ * A host whose engine lists `TOOLS`, or fails its discovery with `discoverError`, and fails every request with
+ * `error`.
+ */
 const setup = (options: { error?: unknown; discoverError?: unknown; callTimeoutMs?: number } = {}) => {
   const engine: McpEngineBinding = {
     discover: async () =>
@@ -108,6 +111,13 @@ describe("an MCP time limit, hit, names itself (SPI-1432)", () => {
     const set = `fs did not answer within its 604,800-second time limit; change it under ${CALL_PLACE}`;
     expect(await call(host)).toMatchObject({ message: `The MCP call failed: ${set}. ${MAY_HAVE_RUN}` });
     expect(await read(host)).toEqual({ kind: "refused", message: `The read failed: ${set}.` });
+  });
+
+  it("a call time limit turned off while a call ran names the 60 s that fired, not the off deadline", async () => {
+    const host = setup({ error: timedOut({ limit: "call", ms: 60_000 }), callTimeoutMs: 0 });
+    expect(await call(host)).toMatchObject({
+      message: `The MCP call failed: fs did not answer within its 60-second time limit; change it under ${CALL_PLACE}. ${MAY_HAVE_RUN}`,
+    });
   });
 
   it("a call whose connection outlives the connect time limit names that limit", async () => {

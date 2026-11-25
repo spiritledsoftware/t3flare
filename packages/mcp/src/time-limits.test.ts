@@ -1,6 +1,6 @@
 /**
- * A timeout names the time limit it ran past, with its value as applied (SPI-1432): the connect's, one listing's, a tool
- * call's, or another request's (the call's when the host gave it none of its own), so the host can say which.
+ * A timeout names the time limit it ran past, with its value as applied (SPI-1432): the connect's, one listing's, a
+ * tool call's, or another request's (the call's when the host gave it none of its own), so the host can say which.
  */
 // @effect-diagnostics asyncFunction:off preferEffectArray:off
 import * as Effect from "effect/Effect";

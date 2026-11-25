@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./oauth": "./src/oauth.ts",
+    "./oauth-http": "./src/oauth-http.ts",
     "./types": "./src/types.ts",
     "./elicitation-url": "./src/elicitation-url.ts",
     "./testing": "./src/testing.ts",

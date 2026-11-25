@@ -345,8 +345,8 @@ export interface McpTimeLimitHit {
 }
 
 /**
- * No answer within the request's timeout: with which limit it was and its value (`limit`, `ms`) where the engine set it,
- * and for a listing what it listed (`listed`), so the host can name it. All optional, so a host and an engine of
+ * No answer within the request's timeout: with which limit it was and its value (`limit`, `ms`) where the engine set
+ * it, and for a listing what it listed (`listed`), so the host can name it. All optional, so a host and an engine of
  * different versions still decode each other's.
  */
 export class TimedOut extends Schema.TaggedError<TimedOut, { readonly brand: unique symbol }>()("TimedOut", {

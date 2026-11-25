@@ -21,6 +21,7 @@ import {
   MCP_REQUEST_OFF_MS,
   didNotAnswerIn,
   fixedLimitHit,
+  OFF_DEADLINE_MS,
   offDeadlineMs,
   type McpServerSetting,
   mcpServersOf,
@@ -181,14 +182,16 @@ const errorText = (error: unknown): string => {
 /** The MCP call time limit's place on the Settings page, for the sentence that says it is off. */
 const CALL_LIMIT: SettingRef = { environment: "mcpCallSeconds" };
 
-/** A wait in words where it has a name: the off deadline (`OFF_DEADLINE_MS`) is the setting's maximum, a week. */
-const spanOf = (ms: number): string | undefined => (ms === 7 * 24 * 60 * 60_000 ? "a week" : undefined);
+/** A wait in words where it has a name: the off deadline (`OFF_DEADLINE_MS`), the setting's maximum, is a week. */
+const spanOf = (ms: number): string | undefined => (ms === OFF_DEADLINE_MS ? "a week" : undefined);
 
 /**
  * A `TimedOut` the engine tagged with its limit (SPI-1432), as the sentence that names it (ADR-0049 §4): which limit,
  * its value as applied, and where to change it; a fixed limit as fixed. `callOff`: whether the MCP call time limit is
- * off, from the host's own setting (a value set to the maximum is not off). Undefined for anything else, a `TimedOut`
- * without the tag (an engine before SPI-1432) included, which reads as before (`errorText`).
+ * off, from the host's own setting (a value set to the maximum is not off). The call is named as off only when its
+ * deadline was also the off one, so a setting changed while the call ran never misnames the limit that fired.
+ * Undefined for anything else, a `TimedOut` without the tag (an engine before SPI-1432) included, which reads as
+ * before (`errorText`).
  */
 const timeLimitText = (error: unknown, server: string, callOff: boolean): string | undefined => {
   const record = (error ?? {}) as { _tag?: unknown; limit?: unknown; ms?: unknown; listed?: unknown };
@@ -203,8 +206,9 @@ const timeLimitText = (error: unknown, server: string, callOff: boolean): string
       return `${listing} took over ${timeLimitHit(seconds, "second", { environment: "mcpListSeconds" })}`;
     }
     case "call":
-      // Off, a call still has a deadline (`OFF_DEADLINE_MS`), which no setting raises: named, with no "change it under".
-      return callOff
+      // Off, a call still has a deadline (`OFF_DEADLINE_MS`), which no setting raises: named, with no
+      // "change it under".
+      return callOff && ms === OFF_DEADLINE_MS
         ? `${server} ${didNotAnswerIn(ms, `the most t3flare lets an MCP call run while the MCP call time limit (${settingPlace(CALL_LIMIT)}) is off`, spanOf(ms))}`
         : `${server} did not answer within ${timeLimitHit(seconds, "second", CALL_LIMIT)}`;
     case "request":
