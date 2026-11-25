@@ -58,6 +58,13 @@ people up most:
 
 `pnpm run check` runs the patch, workspace and lock checks, the `node:fs` coverage check (`check:fs`), the typechecks,
 lint and tests. It must pass before you open a pull request.
+When it fails, its last lines name the task that failed, with its error, and list the tasks vp stopped because of it
+as stopped, not failed. Errors labelled `[t3, not failing]` are t3's own, which the typecheck reports and passes.
+
+To typecheck one package while you work, run `pnpm --filter @t3flare/<pkg> run typecheck` (and `run lint` for oxlint)
+from the root; for the root `scripts/`, `vp run typecheck:scripts`. These run the Effect diagnostics and type-aware lint
+rules (`globalDate`, `unbound-method`) that vitest doesn't. A bare `tsc --noEmit` is not the same: it skips them, and
+fails on t3code's `schemaClassMissingBrand` suggestions.
 
 Every pull request runs [`ci.yml`](.github/workflows/ci.yml): `check` (that same command, required to merge) and
 `secrets` (a gitleaks scan of the PR's commits). CI gets no secrets and a read-only token, so it never deploys anything

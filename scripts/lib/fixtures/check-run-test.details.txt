@@ -1,0 +1,145 @@
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    Vite+ Task Runner • Execution Summary
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Statistics:   45 tasks • 0 cache hits • 0 cache misses • 45 cache disabled • 16 failed
+Performance:  no task has caching enabled
+
+Task Details:
+────────────────────────────────────────────────
+  [1] @t3flare/codemode-sandbox#lint: ~/apps/codemode-sandbox$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [2] @t3flare/session-protocol#lint: ~/packages/session-protocol$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [3] @t3flare/mcp-worker#lint: ~/apps/mcp-worker$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src test vitest.config.ts ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [4] @t3flare/infra#lint: ~/infra$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error github.ts allow-actions-prs.ts github-app-setup.ts src ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [5] t3flare#lint:scripts: $ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error scripts ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [6] @t3flare/agents#lint: ~/apps/agents$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src test scripts build.ts ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [7] @t3flare/workspace-client#typecheck: ~/packages/workspace-client$ effect-tsgo tsrs --noEmit ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [8] @t3flare/models#typecheck: ~/packages/models$ effect-tsgo tsrs --noEmit ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [9] @t3flare/models#lint: ~/packages/models$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src test ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [10] @t3flare/computer-env#typecheck: ~/packages/computer-env$ effect-tsgo tsrs --noEmit ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [11] @t3flare/harness-registry#typecheck: ~/packages/harness-registry$ effect-tsgo tsrs --noEmit ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [12] t3flare#typecheck:scripts: ~/scripts$ effect-tsgo tsrs --noEmit ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [13] @t3flare/skills#typecheck: ~/packages/skills$ effect-tsgo tsrs --noEmit ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [14] @t3flare/skills#lint: ~/packages/skills$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [15] @t3flare/effect-durable#typecheck: ~/packages/effect-durable$ effect-tsgo tsrs --noEmit ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [16] @t3flare/mcp#lint: ~/packages/mcp$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src vitest.config.ts ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [17] @t3flare/github-app#typecheck: ~/packages/github-app$ effect-tsgo tsrs --noEmit ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [18] @t3flare/workspace-client#lint: ~/packages/workspace-client$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [19] @t3flare/harness-registry#lint: ~/packages/harness-registry$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [20] @t3flare/github-app#lint: ~/packages/github-app$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [21] @t3flare/computer-env#lint: ~/packages/computer-env$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src vitest.config.ts ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [22] @t3flare/mcp#typecheck: ~/packages/mcp$ effect-tsgo tsrs --noEmit ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [23] @t3flare/effect-durable#lint: ~/packages/effect-durable$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src vitest.config.ts ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [24] @t3flare/sandbox-image#typecheck: ~/apps/sandbox-image$ effect-tsgo tsrs --noEmit ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [25] @t3flare/sandbox-image#lint: ~/apps/sandbox-image$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [26] t3flare#check:patches: ~/apps/environment$ node build.ts --check ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [27] @t3flare/session-protocol#typecheck: ~/packages/session-protocol$ effect-tsgo tsrs --noEmit ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [28] t3flare#check:fmt: $ vp fmt --check ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [29] @t3flare/codemode-sandbox#typecheck: ~/apps/codemode-sandbox$ effect-tsgo tsrs --noEmit ✓
+      → Cache disabled in task configuration
+  ·······················································
+  [30] @t3flare/skills#test: ~/packages/skills$ vitest run ✗ (exit code: 1)
+      → Cache disabled in task configuration
+  ·······················································
+  [31] @t3flare/mcp#test: ~/packages/mcp$ vitest run ✗ (exit code: 137)
+      → Cache disabled in task configuration
+  ·······················································
+  [32] t3flare#test:scripts: $ node --test 'scripts/**/*.test.ts' ✗ (exit code: 137)
+      → Cache disabled in task configuration
+  ·······················································
+  [33] t3flare#check:fs: ~/apps/environment$ node build.ts --check-fs ✗ (exit code: 137)
+      → Cache disabled in task configuration
+  ·······················································
+  [34] @t3flare/github-app#test: ~/packages/github-app$ vitest run ✗ (exit code: 137)
+      → Cache disabled in task configuration
+  ·······················································
+  [35] @t3flare/workspace-client#test: ~/packages/workspace-client$ vitest run ✗ (exit code: 137)
+      → Cache disabled in task configuration
+  ·······················································
+  [36] @t3flare/environment#lint: ~/apps/environment$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src test scripts build.ts alchemy.run.ts stage-files.ts stage-names.ts vitest.config.ts ✗ (exit code: 137)
+      → Cache disabled in task configuration
+  ·······················································
+  [37] @t3flare/infra#test: ~/infra$ vitest run ✗ (exit code: 137)
+      → Cache disabled in task configuration
+  ·······················································
+  [38] @t3flare/mcp-worker#typecheck: ~/apps/mcp-worker$ effect-tsgo tsrs --noEmit ✗ (exit code: 137)
+      → Cache disabled in task configuration
+  ·······················································
+  [39] @t3flare/agents#typecheck: ~/apps/agents$ effect-tsgo tsrs --noEmit ✗ (exit code: 137)
+      → Cache disabled in task configuration
+  ·······················································
+  [40] t3flare#check:workspace: $ node scripts/gen-workspace.ts --check ✗ (exit code: 137)
+      → Cache disabled in task configuration
+  ·······················································
+  [41] t3flare#check:lock: $ node scripts/verify-lock.ts ✗ (exit code: 137)
+      → Cache disabled in task configuration
+  ·······················································
+  [42] @t3flare/environment#test: ~/apps/environment$ vitest run ✗ (exit code: 137)
+      → Cache disabled in task configuration
+  ·······················································
+  [43] @t3flare/mcp-worker#test: ~/apps/mcp-worker$ vitest run ✗ (exit code: 137)
+      → Cache disabled in task configuration
+  ·······················································
+  [44] @t3flare/agents#test: ~/apps/agents$ vitest run ✗ (exit code: 137)
+      → Cache disabled in task configuration
+  ·······················································
+  [45] @t3flare/harness-registry#test: ~/packages/harness-registry$ vitest run ✗ (exit code: 137)
+      → Cache disabled in task configuration
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -1,0 +1,82 @@
+$ node scripts/worktree-setup.ts && node scripts/workspace-guard.ts && vp run --log grouped --concurrency-limit 16 check:all
+[@t3flare/session-protocol#lint] ~/packages/session-protocol$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src ⊘ cache disabled
+[@t3flare/mcp#typecheck] ~/packages/mcp$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+[@t3flare/models#typecheck] ~/packages/models$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+[t3flare#typecheck:scripts] ~/scripts$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+[@t3flare/skills#typecheck] ~/packages/skills$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+[@t3flare/codemode-sandbox#lint] ~/apps/codemode-sandbox$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src ⊘ cache disabled
+[t3flare#check:workspace] $ node scripts/gen-workspace.ts --check ⊘ cache disabled
+[@t3flare/harness-registry#typecheck] ~/packages/harness-registry$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+[@t3flare/mcp-worker#lint] ~/apps/mcp-worker$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src test vitest.config.ts ⊘ cache disabled
+[@t3flare/workspace-client#typecheck] ~/packages/workspace-client$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+[@t3flare/agents#lint] ~/apps/agents$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src test scripts build.ts ⊘ cache disabled
+[@t3flare/github-app#typecheck] ~/packages/github-app$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+[@t3flare/infra#lint] ~/infra$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error github.ts allow-actions-prs.ts github-app-setup.ts src ⊘ cache disabled
+[@t3flare/computer-env#typecheck] ~/packages/computer-env$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+[@t3flare/environment#lint] ~/apps/environment$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src test scripts build.ts alchemy.run.ts stage-files.ts stage-names.ts vitest.config.ts ⊘ cache disabled
+[@t3flare/effect-durable#typecheck] ~/packages/effect-durable$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+
+[t3flare#lint:scripts] $ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error scripts ⊘ cache disabled
+
+[@t3flare/mcp#lint] ~/packages/mcp$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src vitest.config.ts ⊘ cache disabled
+
+[@t3flare/models#lint] ~/packages/models$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src test ⊘ cache disabled
+
+[t3flare#check:lock] $ node scripts/verify-lock.ts ⊘ cache disabled
+
+[@t3flare/skills#lint] ~/packages/skills$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src ⊘ cache disabled
+
+[@t3flare/sandbox-image#typecheck] ~/apps/sandbox-image$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+
+[t3flare#check:patches] ~/apps/environment$ node build.ts --check ⊘ cache disabled
+
+[@t3flare/harness-registry#lint] ~/packages/harness-registry$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src ⊘ cache disabled
+
+[@t3flare/mcp-worker#test] ~/apps/mcp-worker$ vitest run ⊘ cache disabled
+
+[@t3flare/workspace-client#lint] ~/packages/workspace-client$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src ⊘ cache disabled
+
+[@t3flare/agents#test] ~/apps/agents$ vitest run ⊘ cache disabled
+
+[@t3flare/github-app#lint] ~/packages/github-app$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src ⊘ cache disabled
+
+[@t3flare/infra#test] ~/infra$ vitest run ⊘ cache disabled
+
+[@t3flare/computer-env#lint] ~/packages/computer-env$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src vitest.config.ts ⊘ cache disabled
+
+[@t3flare/environment#test] ~/apps/environment$ vitest run ⊘ cache disabled
+
+[@t3flare/effect-durable#lint] ~/packages/effect-durable$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src vitest.config.ts ⊘ cache disabled
+
+[t3flare#test:scripts] $ node --test 'scripts/**/*.test.ts' ⊘ cache disabled
+
+[@t3flare/mcp#test] ~/packages/mcp$ vitest run ⊘ cache disabled
+
+[@t3flare/session-protocol#typecheck] ~/packages/session-protocol$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+
+[t3flare#check:fmt] $ vp fmt --check ⊘ cache disabled
+
+[@t3flare/skills#test] ~/packages/skills$ vitest run ⊘ cache disabled
+
+[@t3flare/sandbox-image#lint] ~/apps/sandbox-image$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src ⊘ cache disabled
+
+[t3flare#check:fs] ~/apps/environment$ node build.ts --check-fs ⊘ cache disabled
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+---
+vp run: 23/39 successful. (Run `vp run --last-details` for full details)
+[ELIFECYCLE] Command failed with exit code 1.

@@ -4,6 +4,7 @@
 
 - In a new git worktree of this repository, run `node scripts/worktree-setup.ts`, then `pnpm install --frozen-lockfile` at the root, before any other command: a prepared checkout's `t3code/.git` can point nowhere, and then `git switch`, `git status` and `git add` fail; until the install, `pnpm run` and `pnpm exec` fail.
 - Run `pnpm run check` before you push a change for review: it is the required `check` on every pull request.
+- When `check` fails, its last lines name the failing task; tasks vp stopped (exit 137) are not failures, and `[t3, not failing]` lines are t3's own. Typecheck one package with `pnpm --filter @t3flare/<pkg> run typecheck` (`run lint` for oxlint), from the root; `vp run typecheck:scripts` for root `scripts/`. They run the Effect diagnostics and lint rules (`globalDate`, `unbound-method`) vitest skips; a bare `tsc --noEmit` is not the same.
 - Test deploys go to a throwaway Stage of your own Deployment, from `apps/environment/scripts/stage.ts`, which needs Docker running. `prod` belongs to its Deployment repository's CI.
 - Render the Settings page locally with `node apps/environment/scripts/panel-preview.ts serve`, which answers its API from in-memory fixture state: the live page sits behind Access.
 - Credential files stay unread and unprinted: `~/.config/t3flare/dev.env`, `~/.alchemy/**`, `apps/environment/.alchemy/stages/*`, the gh config.

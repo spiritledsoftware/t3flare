@@ -133,3 +133,26 @@ byte, and pnpm rewrites the lock), and tests' `test/fixtures/` and `__snapshots_
 bytes (`harnessPage.test.ts` compares its snapshot file whole). The reformat commit is
 listed in `.git-blame-ignore-revs`, so `git blame` passes over it (`git config blame.ignoreRevsFile
 .git-blame-ignore-revs`; GitHub reads the file by itself).
+
+## Refinement (SPI-1346, 2026-11-25): a failed `check` names the task that failed
+
+vp's fail-fast (**Costs**) kills the tasks still running when one fails. They exit 137 and count as failed, so a run
+with one lint error ends `vp run: 11/27 successful.` with 16 failures and names none of them, and the failing task's
+error sits mid-log among the killed tasks' partial output; a log cut short loses it. `vp run` has no option to keep
+going or to print a summary that tells the two apart, so this is not vp configuration: `pnpm run check` now runs
+`scripts/check.ts`, which runs the same `vp run --log grouped --concurrency-limit 16 check:all`. It forwards vp's output
+unchanged as it arrives and exits with vp's code. When the check fails it runs `vp run --last-details`, which lists every
+task that ran in the order it finished with its exit code, and ends the output with a block: the first task that exited
+non-zero other than by a signal, with up to 40 lines of its grouped section; the tasks that exited 137 or 143 as
+stopped, not failed; and any other task that failed by itself. When every task that did not pass was killed, the block
+says that no task failed by itself and that the machine may have run out of memory, and names no culprit. The parser is
+`scripts/lib/checkFailure.ts`, tested on recorded runs (`scripts/lib/fixtures/check-run-*`), and shares its error-line
+and section reading with the bump report's `checkDetail.ts`. A passing run prints nothing new.
+
+`@t3flare/environment#typecheck` now prefixes each of t3's errors it reports without failing (fragility U10) with
+`[t3, not failing] `, so a line read alone, grepped or in a cut log, says so; its heading is unchanged, as the bump reads
+the count back from it. The typecheck runs `<root>/node_modules/.bin/effect-tsgo`, so `node
+apps/environment/scripts/typecheck.ts` works from any directory. One package's typecheck alone is `pnpm --filter
+@t3flare/<pkg> run typecheck` (and `run lint` for oxlint), from the root, and `vp run typecheck:scripts` for the root
+`scripts/`. They run the Effect diagnostics and the type-aware lint rules (`globalDate`, `unbound-method`) that vitest
+doesn't; a bare `tsc --noEmit` runs neither, and fails on t3code's `schemaClassMissingBrand` suggestions.

@@ -19,6 +19,17 @@ export interface Diagnostic {
 export const t3ErrorsHeading = (count: number): string =>
   `${count} error(s) in t3's own files, which only this program's configuration sees (fragility U10); not failing:`;
 export const T3_ERRORS_COUNT = /^(\d+) error\(s\) in t3's own files, which only this program's configuration sees/m;
+/**
+ * The prefix on each of t3's errors' first line (SPI-1346): their continuation lines are indented, so every line that
+ * reads `error TS…` says it is not failing, even grepped or in a log cut above the heading.
+ */
+export const T3_NOT_FAILING_LABEL = "[t3, not failing] ";
+
+/** What the typecheck prints for t3's errors: their heading, then each error under its label; nothing for none. */
+export const t3ErrorsReport = (t3Errors: ReadonlyArray<Diagnostic>): string =>
+  t3Errors.length === 0
+    ? ""
+    : [t3ErrorsHeading(t3Errors.length), ...t3Errors.map((d) => `${T3_NOT_FAILING_LABEL}${d.text}`)].join("\n");
 
 const START = /^(.+?)\((\d+),(\d+)\): (error|warning|suggestion|message) TS\d+: /;
 
