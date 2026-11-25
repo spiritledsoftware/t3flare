@@ -11,7 +11,8 @@
 // in the Environment (`provider/attachments.ts`), from a fresh discovery, not from this list.
 import type { WireSkillDiscovery } from "@t3flare/computer-env";
 import { frozenSection } from "@t3flare/effect-durable";
-import { formatSkills } from "@t3flare/skills";
+import { limitHit, limitValue } from "@t3flare/harness-registry";
+import { formatSkills, type OmittedLine } from "@t3flare/skills";
 import { defineExtension, type Extension, type PromptInput } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import * as Effect from "effect/Effect";
@@ -24,10 +25,20 @@ type SkillSource = { readonly discoverSkills: (context: typeof BACKGROUND_CONTEX
 const isSkillSource = (env: object): env is SkillSource =>
   "discoverSkills" in env && typeof env.discoverSkills === "function";
 
+/**
+ * The listing's line for the Repo skills past the cap, naming it as the Repo skills listed setting (ADR-0049 §4): its
+ * value when the Workspace carried it, and where to change it.
+ */
+export const repoSkillsOmitted: OmittedLine = (omitted, repoSkills) =>
+  limitHit(
+    `${omitted.toLocaleString("en-US")} more skills in this repository are not listed: the listing stopped at its ${repoSkills === undefined ? "" : `${limitValue(repoSkills, "skill")} `}Repo skills listed limit`,
+    { environment: "repoSkillsListed" },
+  );
+
 /** The section's text for `env`: the listing in `<skills>`, empty when there is nothing to list, undefined without a Workspace. */
 export const skillsSectionText = async (env: PromptInput["env"]): Promise<string | undefined> => {
   if (env === undefined || !isSkillSource(env)) return undefined;
-  const listing = formatSkills(await env.discoverSkills(BACKGROUND_CONTEXT));
+  const listing = formatSkills(await env.discoverSkills(BACKGROUND_CONTEXT), repoSkillsOmitted);
   return listing === "" ? "" : `<skills>\n${listing}\n</skills>`;
 };
 

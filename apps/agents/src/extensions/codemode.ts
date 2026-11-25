@@ -6,7 +6,11 @@
 // No guard lives here: every guard is in the tools (the `permissions` wraps, t3-mcp's own check), and pi-durable runs a
 // script's nested call through the registered, wrapped tool, so a call from a script is judged exactly as a direct one.
 import {
+  type CodemodeExecuteOptions,
   type CodemodeRemote,
+  type CodemodeResult,
+  type CodemodeRun,
+  type CodemodeRunOptions,
   type CodemodeSandboxBase,
   RemoteCodemodeSandbox,
 } from "@earendil-works/pi-codemode/portable";
@@ -17,7 +21,7 @@ import {
   createCodemodeExtension,
 } from "@earendil-works/pi-durable/codemode";
 import { createToolSearchTool, TOOL_SEARCH_TOOL_NAME } from "@earendil-works/pi-durable/tool-search";
-import type { Exposure } from "@t3flare/harness-registry";
+import { type Exposure, limitHit, limitValue } from "@t3flare/harness-registry";
 import { PROPOSE_PLAN_TOOL } from "@t3flare/session-protocol";
 
 /** The sandbox Durable Object namespace, as the agents Worker binds it from the codemode Worker (`scriptName`). */
@@ -26,14 +30,55 @@ export interface CodemodeSandboxNamespace {
 }
 
 /**
+ * pi-codemode's failure when a script uses up its compute budget (`runtime/inline.js`, `kind: "timeout"`), with the
+ * budget the sandbox ran it with. A script's own deadline (`timeout_ms`) fails as "Execution timed out after N ms".
+ */
+const BUDGET_SPENT = /^Execution exceeded its interrupt budget of (\d+)$/;
+
+/** A script stopped by its compute budget, `polls`, as the Script compute budget names itself (ADR-0049 §4). */
+export const computeBudgetText = (polls: number): string =>
+  limitHit(`Execution stopped at its ${limitValue(polls, "poll")} Script compute budget`, {
+    extension: "codemode",
+    key: "interruptBudget",
+  });
+
+/** `result`, with a spent compute budget named as its setting (SPI-1433); any other result as it is. */
+export const budgetNamed = (result: CodemodeResult): CodemodeResult => {
+  if (result.ok || result.error.kind !== "timeout") return result;
+  const spent = BUDGET_SPENT.exec(result.error.message);
+  return spent === null
+    ? result
+    : { ...result, error: { ...result.error, message: computeBudgetText(Number(spent[1])) } };
+};
+
+/** The remote sandbox, its results through `budgetNamed`: pi-durable's code mode runs scripts with `start`. */
+class BudgetNamingSandbox extends RemoteCodemodeSandbox {
+  override execute(code: string, options?: CodemodeExecuteOptions): Promise<CodemodeResult> {
+    return super.execute(code, options).then(budgetNamed);
+  }
+
+  override start(code: string, options: CodemodeRunOptions): CodemodeRun {
+    const run = super.start(code, options);
+    const result = run.result.then(budgetNamed);
+    return {
+      result,
+      get finished() {
+        return run.finished;
+      },
+      deliver: (seq, now, id, outcome) => run.deliver(seq, now, id, outcome),
+    };
+  }
+}
+
+/**
  * A sandbox that runs each of a Session's scripts on the Session's own object (`name`), never another Session's, with the
- * Owner's compute budget (`codemode.interruptBudget`, SPI-1364).
+ * Owner's compute budget (`codemode.interruptBudget`, SPI-1364), which names itself when a script uses it up.
  */
 export const remoteSandbox = (
   namespace: CodemodeSandboxNamespace,
   name: string,
   interruptBudget: number,
-): CodemodeSandboxBase => new RemoteCodemodeSandbox({ remote: () => namespace.getByName(name), interruptBudget });
+): CodemodeSandboxBase => new BudgetNamingSandbox({ remote: () => namespace.getByName(name), interruptBudget });
 
 /** t3's own tools as a code mode namespace (`tools.mcp__t3_code__…` in a script). */
 export const T3_NAMESPACE: CodemodeNamespace = {

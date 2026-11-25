@@ -88,6 +88,7 @@ describe("withEnvironmentSkills", () => {
     skills: [repoSkill("fruit-code"), repoSkill("tdd")],
     skipped: [{ path: "/workspace/repo/.claude/skills/x/SKILL.md", reason: "no description" }],
     omitted: 2,
+    repoSkills: 2,
   };
   const environment = [{ name: "fruit-code", description: "The Environment's.", disableModelInvocation: true }];
 
@@ -110,6 +111,8 @@ describe("withEnvironmentSkills", () => {
         { path: "/workspace/repo/.claude/skills/x/SKILL.md", reason: "no description" },
       ],
       omitted: 2,
+      // The cap the listing names (SPI-1433), as discovery found it.
+      repoSkills: 2,
     });
   });
 
@@ -126,7 +129,7 @@ describe("withEnvironmentSkills", () => {
       skills: [repoSkill("gone", "/workspace/.agents/skills/gone/SKILL.md"), ...repo.skills],
       skipped: [{ path: "/workspace/.agents/skills/x/SKILL.md", reason: "r" }],
     };
-    expect(withEnvironmentSkills([], old)).toEqual({ skills: repo.skills, skipped: [], omitted: 2 });
+    expect(withEnvironmentSkills([], old)).toEqual({ skills: repo.skills, skipped: [], omitted: 2, repoSkills: 2 });
   });
 });
 
