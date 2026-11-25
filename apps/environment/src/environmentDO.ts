@@ -235,6 +235,14 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       },
       newKey: () => `proc-${crypto.randomUUID()}`,
     });
+    // SPI-1389: a CLI agent's parked cards, which outlive its process and this object's reset. An allowance is for its
+    // answer turn's process, which ended with the old instance: none outlives a boot.
+    const parked = parkedCards(ctx.storage.sql, (run) => ctx.storage.transactionSync(run));
+    try {
+      parked.dropAllAllowances();
+    } catch (error) {
+      console.warn(JSON.stringify({ t3flare: "park-allowances-undropped", error: String(error) }));
+    }
     bindEnvironmentServices({
       agents: env,
       modelEndpoints: () => this.#endpointStore().load(),
@@ -256,8 +264,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       previewPorts: () => this.#environmentNow().previewPorts,
       // Read at each CLI spawn (SPI-1389): the process keeps it, and its MCP tool timeout is made from it.
       parkAfterMs: () => parkAfterMsOf(this.#environmentNow()),
-      // SPI-1389: a CLI agent's parked cards outlive its process and this object's reset.
-      parked: parkedCards(ctx.storage.sql),
+      parked,
       answerParkedChange: async (changeId, approve) => {
         const { answerParkedChange } = await import("./settings/server.ts");
         return answerParkedChange(await this.#settingsDeps(), changeId, approve);
@@ -358,7 +365,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     try {
       // SPI-1079: an MCP server's question is the owner's; an agent's `t3_pending_request` on its card never reaches t3.
       const { refuseOwnerOnly } = await import("./mcp/ownerOnly.ts");
-      const refused = refuseOwnerOnly(input.body);
+      const refused = refuseOwnerOnly(input.body, this.#ownerOnlyLookups());
       if (refused !== undefined)
         return {
           status: 200,
@@ -930,6 +937,28 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     } finally {
       Idle.requestEnded();
     }
+  }
+
+  /**
+   * What the owner-only guard reads of t3's state (SPI-1389): the message a queued run will send, from t3's projection
+   * of its runs in this object's SQLite. None before t3 made the table, or when it cannot be read.
+   */
+  #ownerOnlyLookups(): { readonly queuedMessageOf: (queuedRunId: string) => string | undefined } {
+    return {
+      queuedMessageOf: (queuedRunId) => {
+        try {
+          const row = this.ctx.storage.sql
+            .exec<{ message: string | null }>(
+              "SELECT json_extract(payload_json, '$.userMessageId') AS message FROM orchestration_v2_projection_runs WHERE run_id = ?",
+              queuedRunId,
+            )
+            .toArray()[0];
+          return row?.message ?? undefined;
+        } catch {
+          return undefined;
+        }
+      },
+    };
   }
 
   /** The CLI relay's "accept for the session" answers, by thread (memory: a restart asks again). */
@@ -1619,7 +1648,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       if (url.pathname === "/mcp" && request.method === "POST") {
         // SPI-1079: an MCP server's question is the owner's; an agent's `t3_pending_request` on its card never reaches t3.
         const { refuseOwnerOnly } = await import("./mcp/ownerOnly.ts");
-        const refused = refuseOwnerOnly(await request.clone().text());
+        const refused = refuseOwnerOnly(await request.clone().text(), this.#ownerOnlyLookups());
         if (refused !== undefined)
           return new Response(refused, { status: 200, headers: { "content-type": "application/json" } });
       }

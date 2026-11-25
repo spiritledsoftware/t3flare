@@ -50,8 +50,14 @@ import { argsHashOf } from "../src/mcp/canonical.ts";
 import { PARKED_OWNER_ONLY_REFUSAL, refuseOwnerOnly } from "../src/mcp/ownerOnly.ts";
 import type { ChannelProcess } from "../src/agents/processChannel.ts";
 import { parkedCards } from "../src/provider/cli/parked.ts";
-import { nodeSqlStorage } from "./nodeSqlStorage.ts";
+import { nodeSqlStorage, nodeTransaction } from "./nodeSqlStorage.ts";
 import { PARKED_REASON } from "@t3flare/session-protocol";
+
+/** A parked-card store over a fresh in-memory SQLite, its transactions real. */
+const nodeParkedCards = () => {
+  const sql = nodeSqlStorage();
+  return parkedCards(sql, nodeTransaction(sql));
+};
 
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const AGENT = path.join(import.meta.dirname, "fixtures/fake-acp-agent.mjs");
@@ -583,14 +589,17 @@ describe("a CLI agent's turn parks after Park after, and its answer resumes it (
   it("raises each open card again as an owner-only question, answers the held calls parked, cancels the CLI's own request, keeps all three, and ends the turn and the process; each answer resumes, and an allow lets its whole call run once", () =>
     test(
       Effect.gen(function* () {
-        const store = parkedCards(nodeSqlStorage());
+        const store = nodeParkedCards();
         let parkMs = 150;
         const changes: Array<[string, boolean]> = [];
+        // The Owner's answers as t3 records them on each question; the answer messages' text is never read.
+        const recorded = new Map<string, Readonly<Record<string, unknown>>>();
         const harness = yield* session(
           {
             parkAfterMs: () => parkMs,
             parked: () => store,
             nativeCallOf: scriptedNativeCalls(),
+            recordedAnswerOf: (id) => recorded.get(id),
             answerParkedChange: async (changeId, approve) => {
               changes.push([changeId, approve]);
               return "Applied: the owner approved it on the card.";
@@ -659,7 +668,9 @@ describe("a CLI agent's turn parks after Park after, and its answer resumes it (
         // The native request's call is its whole raw input, as the process sent it.
         expect(native.call).toEqual({
           tool: "command",
-          argsHash: yield* Effect.promise(() => argsHashOf({ kind: "execute", rawInput: { command: "ls" } })),
+          argsHash: yield* Effect.promise(() =>
+            argsHashOf({ name: "execute ls", kind: "execute", rawInput: { command: "ls" } }),
+          ),
         });
         // Only the Owner answers a parked question: an agent's t3_pending_request on one is refused.
         for (const parkedCard of [tool, parkedChange])
@@ -701,6 +712,7 @@ describe("a CLI agent's turn parks after Park after, and its answer resumes it (
         // The tool's answer: a new turn that tells the agent what to repeat, with a one-time allowance for that call.
         parkMs = 0;
         // Its prompt asks the same request again, which still waits (its own answer is not in yet).
+        recorded.set(tool.id, { decision: "Allow" });
         const again = yield* startTurn(harness, {
           messageId: `async-answer:${tool.id}`,
           text: `${questionOf(tool.id).question}\nAllow`,
@@ -746,6 +758,7 @@ describe("a CLI agent's turn parks after Park after, and its answer resumes it (
           });
         });
         // The native request's answer: its repeat, the same whole call, is allowed once by the wrapper.
+        recorded.set(native.id, { decision: "Allow" });
         yield* answerTurn(native.id, "Parked\nAllow", 3);
         const done = yield* harness.until((event) => event.type === "turn.terminal");
         expect(done.type === "turn.terminal" && done.status).toBe("completed");
@@ -757,6 +770,7 @@ describe("a CLI agent's turn parks after Park after, and its answer resumes it (
         // Another command under the same title does not match an allowance for `ls`: the Owner is asked again.
         store.park({ ...native, id: `${native.id}-2` });
         store.answer(`${native.id}-2`, "accept");
+        recorded.set(parkedChange.id, { decision: "Approve" });
         yield* answerTurn(parkedChange.id, "Parked\nApprove", 4);
         const other = yield* harness.until(
           (event) =>
@@ -777,7 +791,7 @@ describe("a CLI agent's turn parks after Park after, and its answer resumes it (
   it("never parks with Park after off; a Turn limit hit while a card is open parks instead of only killing", () =>
     test(
       Effect.gen(function* () {
-        const store = parkedCards(nodeSqlStorage());
+        const store = nodeParkedCards();
         const harness = yield* session({ parkAfterMs: () => 0, turnLimitMs: () => 150, parked: () => store });
         const process = fakeProcess(harness);
         yield* startTurn(harness);

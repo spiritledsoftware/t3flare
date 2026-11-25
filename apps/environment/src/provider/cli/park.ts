@@ -179,11 +179,26 @@ export interface ParkerDeps {
   readonly now: () => number;
   /** Whether `id` is one of the wrapper's own requests (a relay card's), never the CLI's. */
   readonly ours: (id: string) => boolean;
+  /**
+   * The answers t3 recorded on the question `requestId` when the Owner answered it, by question id; undefined when t3
+   * holds none (it is not answered, or its store cannot be read).
+   */
+  readonly recordedAnswerOf: (requestId: string) => Readonly<Record<string, unknown>> | undefined;
+  /** Whether the CLI takes a steer as an interrupt and a restart (Claude Code, OpenCode), not in place (Codex, pi). */
+  readonly steerRestartsTurn: boolean;
 }
+
+/** A recorded answer's text, one line per question: an option's label, or the answers chosen, comma-separated. */
+const replyOf = (answers: Readonly<Record<string, unknown>>): string =>
+  Object.values(answers)
+    .map((answer) => (Array.isArray(answer) ? answer.join(", ") : String(answer)))
+    .join("\n");
 
 /** The park of one CLI session: its timer, its parks, the CLI's own requests, and the answers that come back. */
 export const parker = (deps: ParkerDeps) => {
   const natives = new Map<string, NativeRequest>();
+  /** The CLI requests the live turn's park has parked or is parking: each parks once. */
+  const parkedNatives = new Set<string>();
   let timer: ReturnType<typeof setTimeout> | undefined;
   /** The park ending the live turn, if any: what raises a card meanwhile parks it too. */
   let parking: ParkCause | undefined;
@@ -294,23 +309,14 @@ export const parker = (deps: ParkerDeps) => {
     } satisfies Planned;
   });
 
-  /**
-   * Keeps every planned record, then shows each question and settles each card; or, when a record cannot be kept,
-   * none of them (the cards stay live) and false.
-   */
-  /** Keeps every planned record, or none: false, and the ones kept are dropped again. */
+  /** Keeps every planned record in one transaction, or none: false when a write failed (logged). */
   const keepAll = (planned: ReadonlyArray<Planned>): boolean => {
-    const store = deps.parked();
-    const kept: Array<string> = [];
     try {
+      const store = deps.parked();
       if (store === undefined) throw new Error("no parked-card store");
-      for (const entry of planned) {
-        store.park(entry.card);
-        kept.push(entry.card.id);
-      }
+      store.parkAll(planned.map((entry) => entry.card));
       return true;
     } catch (error) {
-      for (const id of kept) store?.discard(id);
       workersLog("error", {
         t3flare: "cli-park-unkept",
         providerSessionId: deps.providerSessionId,
@@ -321,6 +327,10 @@ export const parker = (deps: ParkerDeps) => {
     }
   };
 
+  /**
+   * Keeps every planned record, then shows each question and settles each card; or, when the records cannot be kept,
+   * none of them (the cards stay live) and false.
+   */
   const commit = Effect.fn("Park.commit")(function* (turn: LiveTurn, planned: ReadonlyArray<Planned>) {
     if (!keepAll(planned)) return false;
     for (const entry of planned) {
@@ -353,6 +363,20 @@ export const parker = (deps: ParkerDeps) => {
           .replace(/\.jsonl$/, "");
   };
 
+  /** Parks the turn's open cards and CLI requests, as `park` does; false when nothing was parked. */
+  const parkOpen = Effect.fn("Park.parkOpen")(function* (turn: LiveTurn, cause: ParkCause) {
+    const parkedAt = deps.now();
+    const session = nativeSessionOf(turn);
+    // Snapshots: a request raised while a call's hash is worked out is `noteNative`'s to park, once.
+    const cards = Array.from(deps.cards);
+    const requests = Array.from(natives);
+    const planned: Array<Planned> = cards.map(([id, card]) => planCard(id, card, cause, parkedAt, session));
+    for (const [requestId] of requests) parkedNatives.add(requestId);
+    for (const [requestId, native] of requests)
+      planned.push(yield* planNative(requestId, native, cause, parkedAt, session));
+    return yield* commit(turn, planned);
+  });
+
   /**
    * Parks the live turn: every open card and pending CLI request, then the turn and the process. Nothing is parked when a
    * record cannot be kept: every card stays live.
@@ -361,15 +385,13 @@ export const parker = (deps: ParkerDeps) => {
     disarm();
     const turn = deps.live();
     if (turn === undefined || parking !== undefined || (deps.cards.size === 0 && natives.size === 0)) return;
-    // From here, a card or request raised before the turn ends is parked too (`cardOpened`, `noteNative`).
+    // From here, a card or request raised before the turn ends is parked too (`cardOpened`, `noteNative`). A park that
+    // keeps nothing, or fails on the way, lets them be again (`parking` cleared).
     parking = cause;
-    const parkedAt = deps.now();
-    const session = nativeSessionOf(turn);
-    const planned: Array<Planned> = [...deps.cards].map(([id, card]) => planCard(id, card, cause, parkedAt, session));
-    for (const [requestId, native] of natives)
-      planned.push(yield* planNative(requestId, native, cause, parkedAt, session));
-    if (!(yield* commit(turn, planned))) {
+    const parked = yield* parkOpen(turn, cause).pipe(Effect.exit);
+    if (parked._tag === "Failure" || !parked.value) {
       parking = undefined;
+      parkedNatives.clear();
       return;
     }
     workersLog("log", {
@@ -377,7 +399,6 @@ export const parker = (deps: ParkerDeps) => {
       by: cause.by,
       providerSessionId: deps.providerSessionId,
       key: deps.processKey(),
-      cards: planned.length,
     });
     // The turn ends, and the process with it (not after the idle hold), so nothing holds the Container. The
     // interrupt only lets the CLI end its turn cleanly first; the kill ends it either way.
@@ -420,10 +441,12 @@ export const parker = (deps: ParkerDeps) => {
           const native: NativeRequest = { request, title: known?.title, prompt: known?.prompt };
           natives.set(request.id, native);
           if (parking === undefined) arm();
-          else
+          else if (!parkedNatives.has(request.id)) {
+            parkedNatives.add(request.id);
             void Effect.runPromise(
               parkLate((turn, cause) => planNative(request.id, native, cause, deps.now(), nativeSessionOf(turn))),
             );
+          }
         } else {
           natives.delete(request.id);
           disarmIfNone();
@@ -467,6 +490,9 @@ export const parker = (deps: ParkerDeps) => {
     /**
      * The text an answer message gives the agent: a parked card's answer becomes what to repeat, and its allow a
      * one-time allowance. Any other message as it is. `steered`: the answer goes into a running turn.
+     *
+     * The answer is the one t3 recorded on the question (`recordedAnswerOf`), never the message's text: a queued
+     * message's text can be edited before its turn starts. A parked question with no recorded answer keeps its card.
      */
     answerText: Effect.fn("Park.answerText")(function* (
       message: { readonly messageId: string; readonly text: string },
@@ -477,11 +503,17 @@ export const parker = (deps: ParkerDeps) => {
       const store = deps.parked();
       const card = store?.get(id);
       if (store === undefined || card === undefined) return message.text;
-      const decision: ParkedDecision = card.kind === "question" ? "decline" : parkedDecisionOf(card.kind, message.text);
+      const answers = deps.recordedAnswerOf(id);
+      if (answers === undefined) {
+        workersLog("warn", { t3flare: "cli-park-answer-unread", providerSessionId: deps.providerSessionId });
+        return message.text;
+      }
+      const reply = replyOf(answers);
+      const decision: ParkedDecision = card.kind === "question" ? "decline" : parkedDecisionOf(card.kind, reply);
       store.answer(id, decision);
-      // A steered answer reaches Claude Code and OpenCode as an interrupt and a restart: its allowance outlives the
-      // interrupted turn's end, for the restarted turn.
-      allowanceTurns = Math.max(allowanceTurns, steered ? 2 : 1);
+      // A steered answer reaches a CLI that restarts on a steer (Claude Code, OpenCode) as an interrupt and a restart:
+      // its allowance outlives the interrupted turn's end, for the restarted turn. Codex and pi steer in place.
+      allowanceTurns = Math.max(allowanceTurns, steered && deps.steerRestartsTurn ? 2 : 1);
       const outcome =
         card.kind === "change" && card.changeId !== undefined
           ? yield* Effect.promise(() =>
@@ -491,12 +523,13 @@ export const parker = (deps: ParkerDeps) => {
             )
           : undefined;
       workersLog("log", { t3flare: "cli-park-answered", kind: card.kind, decision });
-      return answerTurnText(card, decision, message.text, outcome);
+      return answerTurnText(card, decision, reply, outcome);
     }),
     /** The live turn ended: its park is done, and an answer turn's unused allowance goes once its turns are over. */
     turnEnded: () => {
       parking = undefined;
       natives.clear();
+      parkedNatives.clear();
       disarm();
       if (allowanceTurns === 0) return;
       allowanceTurns -= 1;

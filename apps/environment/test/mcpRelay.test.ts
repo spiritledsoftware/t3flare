@@ -11,7 +11,13 @@ import { codexRelayOverrides, profileLaunch } from "../src/agents/cliProfiles.ts
 import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
 import { argsHashOf } from "../src/mcp/canonical.ts";
 import { parkedCards } from "../src/provider/cli/parked.ts";
-import { nodeSqlStorage } from "./nodeSqlStorage.ts";
+import { nodeSqlStorage, nodeTransaction } from "./nodeSqlStorage.ts";
+
+/** A parked-card store over a fresh in-memory SQLite, its transactions real. */
+const nodeParkedCards = () => {
+  const sql = nodeSqlStorage();
+  return parkedCards(sql, nodeTransaction(sql));
+};
 
 const tool = (
   upstream: string,
@@ -230,7 +236,7 @@ describe("the relay's MCP server", () => {
   });
 
   it("runs a call its parked card's answer allowed once without a card; another argument hash still asks (SPI-1389)", async () => {
-    const store = parkedCards(nodeSqlStorage());
+    const store = nodeParkedCards();
     const allowed = await argsHashOf({ text: "hi" });
     store.park({
       id: "park-1",

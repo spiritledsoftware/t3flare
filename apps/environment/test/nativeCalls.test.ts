@@ -58,7 +58,7 @@ describe("a CLI's own approval request's whole call (SPI-1389)", () => {
     recorder.observe(permission(1, "tc-1", "Run a command", { command: "ls" }));
     recorder.observe(permission(2, "tc-2", "Run a command", { command: "rm -rf /" }));
     recorder.observe(permission(3, "tc-3", "Run a command", { command: "ls" }));
-    expect(recorder.callOf("tc-1")).toEqual({ kind: "execute", rawInput: { command: "ls" } });
+    expect(recorder.callOf("tc-1")).toEqual({ name: "Run a command", kind: "execute", rawInput: { command: "ls" } });
     expect(await callHash(recorder, "tc-2")).not.toBe(await callHash(recorder, "tc-1"));
     expect(await callHash(recorder, "tc-3")).toBe(await callHash(recorder, "tc-1"));
   });
@@ -89,11 +89,46 @@ describe("a CLI's own approval request's whole call (SPI-1389)", () => {
     for (const message of [...edit("tc-a", "safe"), ...edit("tc-b", "evil"), ...edit("tc-c", "safe")])
       recorder.observe(message);
     expect(recorder.callOf("tc-a")).toEqual({
+      name: "Edit foo.ts",
       kind: "edit",
       rawInput: { file_path: "/w/fixture/foo.ts", new_string: "safe" },
     });
     expect(await callHash(recorder, "tc-b")).not.toBe(await callHash(recorder, "tc-a"));
     expect(await callHash(recorder, "tc-c")).toBe(await callHash(recorder, "tc-a"));
+  });
+
+  it("ACP: an MCP tool's call names the tool, so another tool with the same input is another call", async () => {
+    const recorder = nativeCallRecorder("acp");
+    // Claude Code: an MCP tool's kind is only `other`; its name is in `_meta.claudeCode.toolName`.
+    const mcp = (id: number, toolCallId: string, toolName: string) =>
+      line({
+        id,
+        method: "session/request_permission",
+        params: {
+          sessionId: "s",
+          toolCall: {
+            toolCallId,
+            title: "t3",
+            kind: "other",
+            rawInput: { projectId: "p-1" },
+            _meta: { claudeCode: { toolName } },
+          },
+          options: [],
+        },
+      });
+    recorder.observe(mcp(1, "tc-read", "mcp__t3__t3_project_read"));
+    recorder.observe(mcp(2, "tc-delete", "mcp__t3__t3_project_delete"));
+    recorder.observe(mcp(3, "tc-read-again", "mcp__t3__t3_project_read"));
+    expect(recorder.callOf("tc-read")).toMatchObject({ name: "mcp__t3__t3_project_read", kind: "other" });
+    expect(await callHash(recorder, "tc-delete")).not.toBe(await callHash(recorder, "tc-read"));
+    expect(await callHash(recorder, "tc-read-again")).toBe(await callHash(recorder, "tc-read"));
+    // OpenCode names the tool only in the title: another title is another call.
+    recorder.observe(permission(4, "tc-oc-1", "t3_project_read", { projectId: "p-1" }));
+    recorder.observe(permission(5, "tc-oc-2", "t3_project_delete", { projectId: "p-1" }));
+    expect(await callHash(recorder, "tc-oc-2")).not.toBe(await callHash(recorder, "tc-oc-1"));
+    // A call that names no tool at all keeps no call.
+    recorder.observe(permission(6, "tc-nameless", "", { projectId: "p-1" }));
+    expect(recorder.callOf("tc-nameless")).toBeUndefined();
   });
 
   it("ACP: a request whose raw input was never given has no call (its repeat asks again)", () => {
@@ -102,7 +137,7 @@ describe("a CLI's own approval request's whole call (SPI-1389)", () => {
     expect(recorder.callOf("tc-1")).toBeUndefined();
   });
 
-  it("Codex: a command's call is its command and cwd, never its reason; ids are left out", async () => {
+  it("Codex: a command's call is every param but its ids, times, offered decisions and reason", async () => {
     const recorder = nativeCallRecorder("codex");
     recorder.observe(commandApproval(1, "item-1", "ls", "List the files"));
     recorder.observe(commandApproval(2, "item-2", "rm -rf /", "List the files"));
@@ -111,9 +146,37 @@ describe("a CLI's own approval request's whole call (SPI-1389)", () => {
       method: "item/commandExecution/requestApproval",
       command: "ls",
       cwd: "/w/fixture",
+      environmentId: "local",
     });
     expect(await callHash(recorder, "item-2")).not.toBe(await callHash(recorder, "item-1"));
     expect(await callHash(recorder, "item-3")).toBe(await callHash(recorder, "item-1"));
+  });
+
+  it("Codex: the same command as another kind, in another environment, or to another host is another call", async () => {
+    const recorder = nativeCallRecorder("codex");
+    const approval = (id: number, itemId: string, extra: Record<string, unknown>) =>
+      line({
+        id,
+        method: "item/commandExecution/requestApproval",
+        params: { threadId: "t", turnId: "u", itemId, command: "curl x", cwd: "/w/fixture", kind: "command", ...extra },
+      });
+    recorder.observe(approval(1, "base", { networkApprovalContext: { host: "example.com", protocol: "https" } }));
+    recorder.observe(approval(2, "host", { networkApprovalContext: { host: "evil.example", protocol: "https" } }));
+    recorder.observe(
+      approval(3, "kind", { kind: "writeStdin", networkApprovalContext: { host: "example.com", protocol: "https" } }),
+    );
+    recorder.observe(
+      approval(4, "env", {
+        environmentId: "remote",
+        networkApprovalContext: { host: "example.com", protocol: "https" },
+      }),
+    );
+    recorder.observe(
+      approval(5, "same", { startedAtMs: 9, networkApprovalContext: { host: "example.com", protocol: "https" } }),
+    );
+    const base = await callHash(recorder, "base");
+    for (const other of ["host", "kind", "env"]) expect(await callHash(recorder, other), other).not.toBe(base);
+    expect(await callHash(recorder, "same")).toBe(base);
   });
 
   it("Codex: a file change's call holds the item's changes, so another edit of the same file is another call", async () => {

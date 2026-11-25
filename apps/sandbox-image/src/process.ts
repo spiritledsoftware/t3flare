@@ -125,8 +125,11 @@ export interface ProcessCommandInput {
   readonly keep?: { readonly dirs: ReadonlyArray<string>; readonly sessions: ReadonlyArray<string> };
 }
 
-/** A session id a keep may name in a `find -name` pattern: no shell or glob character. */
-const KEEPABLE_SESSION = /^[A-Za-z0-9._-]+$/;
+/**
+ * A session id a keep may name in a `find -path` pattern: no shell, glob or path character, and at least one letter or
+ * digit (never `.` or `..`).
+ */
+const KEEPABLE_SESSION = /^(?=.*[A-Za-z0-9])[A-Za-z0-9._-]+$/;
 
 /** Where a profile may write: the process's own home, or the synced harness directory (session directories only). */
 const writable = (marker: string, path: string): boolean =>
@@ -198,11 +201,15 @@ const linkLines = (home: string, link: ProcessLink): ReadonlyArray<string> => {
   ];
 };
 
-/** The touches that keep parked sessions' files from the prune and the CLI's own cleanup (SPI-1389). */
+/**
+ * The touches that keep parked sessions' files from the prune and the CLI's own cleanup (SPI-1389): every file whose path
+ * holds a parked session's id, its own file or one inside a directory named for it (Claude Code keeps a session's
+ * subagents and tool results there).
+ */
 const keepLines = (keep: ProcessCommandInput["keep"]): ReadonlyArray<string> => {
   const sessions = (keep?.sessions ?? []).filter((session) => KEEPABLE_SESSION.test(session));
   if (keep === undefined || sessions.length === 0) return [];
-  const names = sessions.map((session) => `-name ${quote(`*${session}*`)}`).join(" -o ");
+  const names = sessions.map((session) => `-path ${quote(`*${session}*`)}`).join(" -o ");
   return keep.dirs.map(
     (dir) =>
       `[ -d ${quote(dir)} ] && /usr/bin/find ${quote(dir)} -type f \\( ${names} \\) -exec /usr/bin/touch {} + 2>/dev/null`,

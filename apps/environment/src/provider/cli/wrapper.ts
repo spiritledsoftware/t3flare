@@ -157,7 +157,37 @@ export interface WrapOptions {
    * (`ChannelProcess.nativeCalls`).
    */
   readonly nativeCallOf?: (session: CliSession, nativeId: string) => unknown;
+  /**
+   * SPI-1389: the answers t3 recorded on a parked card's question. Default: t3's own record of the request
+   * (`recordedAnswerOf`), in the Environment DO's SQLite.
+   */
+  readonly recordedAnswerOf?: (requestId: string) => Readonly<Record<string, unknown>> | undefined;
+  /**
+   * SPI-1389: whether the CLI takes a steer as an interrupt and a restart (the ACP CLIs: Claude Code and OpenCode), so a
+   * steered answer's allowance outlives the interrupted turn. Default: it steers in place.
+   */
+  readonly steerRestartsTurn?: boolean;
 }
+
+/**
+ * The answers t3 recorded on its runtime request `requestId` when it was answered (t3's projection of the request, in
+ * the Environment DO's SQLite, written with the answer's message in one transaction); undefined when it holds none.
+ */
+export const recordedAnswerOf = (requestId: string): Readonly<Record<string, unknown>> | undefined => {
+  try {
+    const row = environmentServices()
+      .sql.exec<{ status: string; answers: string | null }>(
+        "SELECT status, json_extract(payload_json, '$.answers') AS answers FROM orchestration_v2_projection_runtime_requests WHERE runtime_request_id = ?",
+        requestId,
+      )
+      .toArray()[0];
+    if (row === undefined || row.status !== "resolved" || row.answers === null) return undefined;
+    const answers = JSON.parse(row.answers) as unknown;
+    return typeof answers === "object" && answers !== null ? (answers as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 /**
  * The turn t3's adapter is starting now (SPI-1151): its thread's cwd, for a prompt builder that t3's adapter gives no
@@ -388,6 +418,8 @@ export const wrapCliAdapter = (
           processKey: () => session.process?.key ?? null,
           now,
           ours,
+          recordedAnswerOf: options.recordedAnswerOf ?? recordedAnswerOf,
+          steerRestartsTurn: options.steerRestartsTurn === true,
         });
         const ask = (card: CliAsk, signal: AbortSignal): Promise<CliAnswer> =>
           new Promise((resolve) => {

@@ -4,7 +4,13 @@ import { describe, expect, it } from "vitest";
 
 import { argsHashOf } from "../src/mcp/canonical.ts";
 import { parkedCards, type ParkedCard } from "../src/provider/cli/parked.ts";
-import { nodeSqlStorage } from "./nodeSqlStorage.ts";
+import { nodeSqlStorage, nodeTransaction } from "./nodeSqlStorage.ts";
+
+/** A parked-card store over a fresh in-memory SQLite, its transactions real. */
+const nodeParkedCards = () => {
+  const sql = nodeSqlStorage();
+  return parkedCards(sql, nodeTransaction(sql));
+};
 
 const NOTE = { tool: "fixture/fixture_note", argsHash: "h1" };
 const card = (over: Partial<ParkedCard> = {}): ParkedCard => ({
@@ -20,13 +26,13 @@ const card = (over: Partial<ParkedCard> = {}): ParkedCard => ({
 describe("the parked cards (SPI-1389)", () => {
   it("keeps a parked card across a new store over the same SQLite (an Environment reset)", () => {
     const sql = nodeSqlStorage();
-    parkedCards(sql).park(card({ nativeSession: "s-1" }));
-    expect(parkedCards(sql).get(card().id)).toEqual(card({ nativeSession: "s-1" }));
-    expect(parkedCards(sql).get("other")).toBeUndefined();
+    parkedCards(sql, nodeTransaction(sql)).park(card({ nativeSession: "s-1" }));
+    expect(parkedCards(sql, nodeTransaction(sql)).get(card().id)).toEqual(card({ nativeSession: "s-1" }));
+    expect(parkedCards(sql, nodeTransaction(sql)).get("other")).toBeUndefined();
   });
 
   it("an allow leaves one allowance for the same call on the thread, taken once", () => {
-    const store = parkedCards(nodeSqlStorage());
+    const store = nodeParkedCards();
     store.park(card());
     expect(store.answer(card().id, "accept")).toEqual(card());
     expect(store.get(card().id)).toBeUndefined();
@@ -40,7 +46,7 @@ describe("the parked cards (SPI-1389)", () => {
   });
 
   it("allow for the session says so; a decline, or a card with no call, leaves none; a second answer finds nothing", () => {
-    const store = parkedCards(nodeSqlStorage());
+    const store = nodeParkedCards();
     store.park(card());
     store.park(card({ id: "p2", call: { ...NOTE, argsHash: "h2" } }));
     const { call: _call, ...uncalled } = card({ id: "p3", kind: "native" });
@@ -53,8 +59,24 @@ describe("the parked cards (SPI-1389)", () => {
     expect(store.take("thread-1", "tool", NOTE)).toEqual({ forSession: true });
   });
 
+  it("keeps every card of a park or, when a write fails, none; and drops every allowance at a boot", () => {
+    const sql = nodeSqlStorage();
+    const store = parkedCards(sql, nodeTransaction(sql));
+    store.parkAll([card(), card({ id: "p2" })]);
+    expect([store.get(card().id), store.get("p2")].every((record) => record !== undefined)).toBe(true);
+    // A card that cannot be written (no `parkedAt`, which the table requires) fails the whole park: none is kept.
+    expect(() =>
+      store.parkAll([card({ id: "p3" }), { ...card({ id: "p4" }), parkedAt: undefined as never }]),
+    ).toThrow();
+    expect([store.get("p3"), store.get("p4")]).toEqual([undefined, undefined]);
+    store.answer(card().id, "accept");
+    store.answer("p2", "accept");
+    store.dropAllAllowances();
+    expect(store.take("thread-1", "tool", NOTE)).toBeUndefined();
+  });
+
   it("drops a thread's unused allowances, and discards a card never shown", () => {
-    const store = parkedCards(nodeSqlStorage());
+    const store = nodeParkedCards();
     store.park(card());
     store.park(card({ id: "p3", thread: "thread-3" }));
     store.answer(card().id, "accept");
@@ -68,7 +90,7 @@ describe("the parked cards (SPI-1389)", () => {
   });
 
   it("names the CLI sessions parked cards wait on, once each, for session pruning to keep", () => {
-    const store = parkedCards(nodeSqlStorage());
+    const store = nodeParkedCards();
     store.park(card({ nativeSession: "s-1" }));
     store.park(card({ id: "p2", nativeSession: "s-1" }));
     store.park(card({ id: "p3", nativeSession: "s-2" }));

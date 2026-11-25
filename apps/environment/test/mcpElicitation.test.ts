@@ -15,7 +15,12 @@ import {
   type QuestionContext,
 } from "../src/mcp/elicitation.ts";
 import { McpHost, type McpEngineBinding } from "../src/mcp/host.ts";
-import { OWNER_ONLY_REFUSAL, PARKED_OWNER_ONLY_REFUSAL, refuseOwnerOnly } from "../src/mcp/ownerOnly.ts";
+import {
+  OWNER_ONLY_REFUSAL,
+  PARKED_OWNER_ONLY_REFUSAL,
+  QUEUED_ANSWER_REFUSAL,
+  refuseOwnerOnly,
+} from "../src/mcp/ownerOnly.ts";
 
 const context: QuestionContext = {
   server: "fixture",
@@ -531,6 +536,25 @@ describe("refuseOwnerOnly", () => {
       `[${call({ action: "respond", requestId: "t3flare-elicit-3" }, 1)},${call({ action: "list" }, 2)}]`,
     );
     expect(JSON.parse(batch!).map((answer: { id: number }) => answer.id)).toEqual([1, 2]);
+  });
+
+  it("refuses t3_queue edit and cancel on the Owner's queued answer to a parked question, and nothing else (SPI-1389)", () => {
+    const queue = (args: Record<string, unknown>) =>
+      JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "t3_queue", arguments: args } });
+    // The queued runs t3 holds: the Owner's answer to a parked question, and an ordinary message.
+    const lookups = {
+      queuedMessageOf: (runId: string) =>
+        ({ "run-answer": "async-answer:runtime-request:codex:t3flare-park:1", "run-plain": "message-7" })[runId],
+    };
+    for (const action of ["edit", "cancel"])
+      expect(
+        JSON.parse(refuseOwnerOnly(queue({ action, queuedRunId: "run-answer", text: "Allow" }), lookups)!),
+      ).toMatchObject({ result: { content: [{ text: QUEUED_ANSWER_REFUSAL }], isError: true } });
+    expect(refuseOwnerOnly(queue({ action: "edit", queuedRunId: "run-plain", text: "x" }), lookups)).toBeUndefined();
+    expect(refuseOwnerOnly(queue({ action: "list" }), lookups)).toBeUndefined();
+    expect(refuseOwnerOnly(queue({ action: "read", queuedRunId: "run-answer" }), lookups)).toBeUndefined();
+    // Without a way to read t3's queue, nothing is refused on it.
+    expect(refuseOwnerOnly(queue({ action: "edit", queuedRunId: "run-answer", text: "x" }))).toBeUndefined();
   });
 
   it("refuses read and respond on a parked card's question (SPI-1389), with its own refusal", () => {

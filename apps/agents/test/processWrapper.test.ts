@@ -51,13 +51,17 @@ echo "exit=$?"`;
       marker: "proc-keep",
       t3Path: "/w/demo",
       cwd: "/w/demo",
-      argv: ["/bin/bash", "-c", 'echo "left=$(ls /workspace/.t3flare/pi/sessions | tr "\\n" ,)"'],
-      keep: { dirs: ["/workspace/.t3flare/pi/sessions"], sessions: ["parked-1", "x*' ; rm -rf / ; '"] },
+      argv: [
+        "/bin/bash",
+        "-c",
+        'echo "left=$(ls /workspace/.t3flare/pi/sessions | tr "\\n" ,) inside=$(ls /workspace/.t3flare/pi/sessions/parked-1 | tr "\\n" ,)"',
+      ],
+      keep: { dirs: ["/workspace/.t3flare/pi/sessions"], sessions: ["parked-1", "x*' ; rm -rf / ; '", ".", ".."] },
       prune: [{ dir: "/workspace/.t3flare/pi/sessions", days: 60 }],
     });
     const script = `set -u
-mkdir -p /workspace/repo /workspace/.t3flare/pi/sessions/sub
-touch -d '90 days ago' /workspace/.t3flare/pi/sessions/2026_parked-1.jsonl /workspace/.t3flare/pi/sessions/sub/old.jsonl
+mkdir -p /workspace/repo /workspace/.t3flare/pi/sessions/sub /workspace/.t3flare/pi/sessions/parked-1
+touch -d '90 days ago' /workspace/.t3flare/pi/sessions/2026_parked-1.jsonl /workspace/.t3flare/pi/sessions/sub/old.jsonl /workspace/.t3flare/pi/sessions/parked-1/tool-result.txt
 cat > /tmp/launcher.sh <<'T3FLARE_EOF'
 ${launcher}
 T3FLARE_EOF
@@ -69,8 +73,14 @@ echo "exit=$?"`;
       timeout: 120_000,
     });
     // The parked session's file was touched before the prune, so only the other old file went.
-    expect(result.stdout.trim().split("\n"), result.stderr).toEqual(["left=2026_parked-1.jsonl,sub,", "exit=0"]);
+    expect(result.stdout.trim().split("\n"), result.stderr).toEqual([
+      "left=2026_parked-1.jsonl,parked-1,sub, inside=tool-result.txt,",
+      "exit=0",
+    ]);
+    // An unsafe id, `.` and `..` name nothing: a `.` would match, and so touch, every path.
     expect(launcher).not.toContain("rm -rf / ;");
+    expect(launcher).not.toContain("'*.*'");
+    expect(launcher).not.toContain("'*..*'");
   }, 180_000);
 
   it("runs no program from PATH while the model handle is in its environment, and setsid keeps its name (SPI-1209)", () => {

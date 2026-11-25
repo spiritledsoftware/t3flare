@@ -442,6 +442,8 @@ export const createAcpCliInstance = Effect.fn("AcpCliDriver.create")(function* <
     }),
     orchestrationAdapter: wrapCliAdapter(adapter, {
       sessions,
+      // SPI-1389: t3's ACP adapter steers by interrupting the turn and starting another.
+      steerRestartsTurn: true,
       ...(spec.cli === "claude" ? { rewriteTurnText: claudeMentionRewrite(skillsAccess) } : {}),
     }),
     textGeneration: makePiDurableTextGeneration(),

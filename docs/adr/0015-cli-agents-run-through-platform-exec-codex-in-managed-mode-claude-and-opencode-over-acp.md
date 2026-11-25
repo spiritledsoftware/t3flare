@@ -142,8 +142,8 @@ Cloudflare cannot pause a Container with its memory (`snapshotContainer` keeps f
 When a card has waited Park after (`parkAfterMinutes`, ADR-0032's SPI-1389 refinement) on a live turn, the CLI wrapper
 (`provider/cli/park.ts`):
 
-- keeps a parked record of every open card in the Environment DO's SQLite (`provider/cli/parked.ts`), all of them or
-  none: when one cannot be kept, nothing parks and every card stays live (logged as an error). A record holds the
+- keeps a parked record of every open card in the Environment DO's SQLite (`provider/cli/parked.ts`), in one
+  transaction: when one cannot be kept, nothing parks and every card stays live (logged as an error). A record holds the
   thread, the kind (`tool`, `native`, `question`, `change`), the title, the call an allow lets run (its tool and the
   SHA-256 of its whole arguments as canonical JSON), an MCP question's server, an Open change's id, and the CLI's own
   session id;
@@ -158,21 +158,27 @@ When a card has waited Park after (`parkAfterMinutes`, ADR-0032's SPI-1389 refin
   card or a CLI request raised before the interrupted turn ends is parked the same way.
 
 Stock t3 sends a non-blocking question's answer as the message `async-answer:<request id>`, which starts a new turn (or
-is steered into a running one); t3 needs no Patch. The wrapper recognises the parked id, turns the answer into what the
-agent should repeat, and records a one-time allowance:
+is steered into a running one); t3 needs no Patch. The wrapper recognises the parked id and reads the Owner's decision
+from t3's own record of the answer (its projection of the request, written with the message in one transaction), never
+from the message's text: a message t3 queues behind a busy turn can be edited before it runs. An agent's `t3_queue` edit
+or cancel of such a queued answer is refused besides (`mcp/ownerOnly.ts`, by the queued run's message). The wrapper
+turns the answer into what the agent should repeat, and records a one-time allowance:
 
 - a relay call with the same tool and arguments' hash runs once without a card;
 - a CLI request whose whole call matches runs once: the call is read off the process's stdout by the native id t3
-  gives the request (`provider/cli/nativeCalls.ts`), ACP's tool call (its kind and raw input: a command, or a file path
-  and the edit's content) or Codex's request (its command and cwd, or the file change's edits). Never by t3's title or
-  the model's reason, which another call can share. A request whose call was not read keeps no allowance, and its
-  repeat asks again.
+  gives the request (`provider/cli/nativeCalls.ts`): ACP's tool call (the tool's name, from Claude Code's
+  `_meta.claudeCode.toolName` or the title, since an MCP tool's kind is only `other`; its kind; and its raw input: a
+  command, or a file path and the edit's content), or Codex's request (every param but its ids, times, the decisions it
+  offers and the model's reason, with a file change's edits). Never by t3's title or the model's reason, which another
+  call can share. A request whose call was not read keeps no allowance, and its repeat asks again.
   An allowance lasts until it is used or its answer turn ends; a steered answer's lasts through the steer's restart too
-  (Claude Code and OpenCode take a steer as an interrupt and a restart). A repeat with other arguments asks again. A Turn
-  limit hit while a card is open parks the turn rather than only ending it.
+  where the CLI restarts on a steer (Claude Code and OpenCode; Codex and pi steer in place). The Environment drops every
+  allowance at its boot, since an answer turn's process ends with the instance that ran it. A repeat with other
+  arguments asks again. A Turn limit hit while a card is open parks the turn rather than only ending it.
 
 A parked card's CLI session is kept from session pruning while it waits: each pi or Claude Code spawn touches the files
-of the parked sessions (`ParkedCards.nativeSessions`, by the session id their names carry) before pi's prune
+of the parked sessions (`ParkedCards.nativeSessions`: every file whose path carries a session's id, in a directory
+named for it too) before pi's prune
 (`piSessionRetentionDays`) and Claude Code's own cleanup (`cleanupPeriodDays`) run, so the answer turn resumes the
 conversation it parked.
 

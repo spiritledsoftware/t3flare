@@ -2,12 +2,13 @@
 // request (`nativeRequestRef.nativeId`). A parked request's allowance matches the repeat by its whole call, read here off
 // the process's stdout: t3's approval item carries only a title and a prompt, which a model-written reason or a tool's
 // title can stand in for.
-// - ACP (Claude Code, OpenCode): `session/request_permission`'s tool call, by its `toolCallId`: its kind and raw input
-//   (a command and its arguments; a file path and the edit's content), merged over the tool call's earlier updates, as
-//   t3's adapter merges them.
-// - Codex: an `item/…/requestApproval` request's method and the params that are the call (`CODEX_CALL_PARAMS`: a
-//   command and its cwd, the permissions asked, a file change's root and the item's changes from its `item/started`), by
-//   `approvalId ?? itemId`; never its ids, timestamps or the model's reason.
+// - ACP (Claude Code, OpenCode): `session/request_permission`'s tool call, by its `toolCallId`: the tool's name (Claude
+//   Code's `_meta.claudeCode.toolName`, else the tool call's title: an MCP tool's kind is only `other`), its kind and its
+//   raw input (a command and its arguments; a file path and the edit's content), merged over the tool call's earlier
+//   updates, as t3's adapter merges them.
+// - Codex: an `item/…/requestApproval` request's method and every param but those that name the request or change
+//   between its asks (`CODEX_REQUEST_ONLY`: its ids, its timestamps, the decisions offered and the model's reason), with
+//   a file change's item's changes from its `item/started`; by `approvalId ?? itemId`.
 // - pi has no approval requests of its own.
 // A request whose call cannot be read is not kept: its park keeps no call, and the repeat asks again.
 
@@ -57,12 +58,30 @@ const parseLine = (line: string): Message | undefined => {
 };
 
 /** Codex's request params that are the call: the rest name the request (ids, a timestamp) or the model's reason. */
-const CODEX_CALL_PARAMS = ["command", "cwd", "permissions", "grantRoot"] as const;
+/**
+ * Codex's request params that are not the call: its ids (which the repeat's request has new), the decisions it offers
+ * (the client's choice, not the call), and the model's reason. A param named for a time (`…At`, `…AtMs`) goes too. Every
+ * other param stays in the call: what runs (`command`, `kind`: a command or a write to its stdin), where (`cwd`,
+ * `environmentId`), what it may reach (`permissions`, `networkApprovalContext`, `grantRoot`).
+ */
+const CODEX_REQUEST_ONLY = new Set([
+  "threadId",
+  "turnId",
+  "itemId",
+  "approvalId",
+  "callId",
+  "reason",
+  "availableDecisions",
+]);
+const codexTimeParam = /At(Ms)?$/;
 
 export const nativeCallRecorder = (protocol: NativeProtocol): NativeCallRecorder => {
   const calls = bounded<unknown>();
-  // ACP: each tool call's kind and raw input as its updates gave them. Codex: each file-change item's changes.
-  const tools = bounded<{ readonly kind?: unknown; readonly rawInput?: unknown }>();
+  // ACP: each tool call's name, kind and raw input as its updates gave them. Codex: each file-change item's changes.
+  const tools = bounded<{ readonly name?: unknown; readonly kind?: unknown; readonly rawInput?: unknown }>();
+  /** An ACP tool call's tool name: Claude Code's own, else its title. */
+  const nameOf = (toolCall: Record<string, unknown>): unknown =>
+    (toolCall._meta as { claudeCode?: { toolName?: unknown } } | undefined)?.claudeCode?.toolName ?? toolCall.title;
   const changes = bounded<unknown>();
   const observeAcp = (message: Message) => {
     const params = message.params ?? {};
@@ -74,6 +93,7 @@ export const nativeCallRecorder = (protocol: NativeProtocol): NativeCallRecorder
       ) {
         const known = tools.get(update.toolCallId) ?? {};
         tools.set(update.toolCallId, {
+          name: nameOf(update) ?? known.name,
           kind: update.kind ?? known.kind,
           rawInput: update.rawInput ?? known.rawInput,
         });
@@ -86,7 +106,10 @@ export const nativeCallRecorder = (protocol: NativeProtocol): NativeCallRecorder
     const known = tools.get(toolCall.toolCallId) ?? {};
     const rawInput = toolCall.rawInput ?? known.rawInput;
     if (rawInput === undefined || rawInput === null) return;
-    calls.set(toolCall.toolCallId, { kind: toolCall.kind ?? known.kind ?? null, rawInput });
+    const name = nameOf(toolCall) ?? known.name;
+    // A call that names no tool cannot be told from another tool's with the same input: none is kept.
+    if (typeof name !== "string" || name === "") return;
+    calls.set(toolCall.toolCallId, { name, kind: toolCall.kind ?? known.kind ?? null, rawInput });
   };
   const observeCodex = (message: Message) => {
     const params = message.params ?? {};
@@ -101,7 +124,8 @@ export const nativeCallRecorder = (protocol: NativeProtocol): NativeCallRecorder
     const nativeId = params.approvalId ?? params.itemId;
     if (typeof nativeId !== "string") return;
     const call: Record<string, unknown> = { method: message.method };
-    for (const key of CODEX_CALL_PARAMS) if (params[key] !== undefined) call[key] = params[key];
+    for (const [key, value] of Object.entries(params))
+      if (!CODEX_REQUEST_ONLY.has(key) && !codexTimeParam.test(key)) call[key] = value;
     if (message.method === "item/fileChange/requestApproval") {
       const itemChanges = typeof params.itemId === "string" ? changes.get(params.itemId) : undefined;
       if (itemChanges === undefined) return;

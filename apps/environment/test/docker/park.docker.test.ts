@@ -38,7 +38,7 @@ import { relayMessage } from "../../src/mcp/relay.ts";
 import { nativeCallRecorder, nativeProtocolOf } from "../../src/provider/cli/nativeCalls.ts";
 import { answerTurnText, parkedCallText } from "../../src/provider/cli/park.ts";
 import { parkedCards, type ParkedCard } from "../../src/provider/cli/parked.ts";
-import { nodeSqlStorage } from "../nodeSqlStorage.ts";
+import { nodeSqlStorage, nodeTransaction } from "../nodeSqlStorage.ts";
 import {
   type Cli,
   docker,
@@ -50,6 +50,12 @@ import {
   startHarness,
   T3_PATH,
 } from "./cliHarness.ts";
+
+/** A parked-card store over a fresh in-memory SQLite, its transactions real. */
+const nodeParkedCards = () => {
+  const sql = nodeSqlStorage();
+  return parkedCards(sql, nodeTransaction(sql));
+};
 
 const here = import.meta.dirname;
 const SERVER = "fixture";
@@ -88,7 +94,7 @@ type Owner = "park" | "decline";
 
 /** The Environment's relay over this test's store, served for the keyhost; what it asked and ran. */
 const relayHost = () => {
-  const store = parkedCards(nodeSqlStorage());
+  const store = nodeParkedCards();
   const asks: Array<{ readonly tool: string; readonly argsHash: string }> = [];
   const ran: Array<Readonly<Record<string, unknown>>> = [];
   const parked: Array<ParkedCard> = [];
@@ -470,7 +476,7 @@ describe("a CLI's own approval request, cancelled by a park, comes back the same
       docker(["kill", `${NAME}-${firstMarker}`], { quiet: true });
       // The park's record: the cancelled request's whole call, as the wrapper reads it and keeps it.
       const cancelled = firstCallOf(cli, path.join(logs, "1.log"));
-      const store = parkedCards(nodeSqlStorage());
+      const store = nodeParkedCards();
       const parkedCall =
         cancelled?.call === undefined ? undefined : { tool: "native", argsHash: await argsHashOf(cancelled.call) };
       const card: ParkedCard = {

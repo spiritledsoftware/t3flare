@@ -5,7 +5,8 @@
 // arguments' hash, so the repeated call runs without a second card.
 //
 // Kept in the Environment DO's SQLite, not memory: the answer can come days later, after the Environment reset (ADR-0003).
-// A record goes when it is answered; an allowance when it is taken, or when its answer turn ends without the call.
+// A record goes when it is answered; an allowance when it is taken, when its answer turn ends without the call, or when
+// the Environment boots (its answer turn's process is gone with the old instance).
 import type { SqlStorage } from "@cloudflare/workers-types/index.ts";
 
 export const PARKED_TABLE = "t3flare_parked_cards";
@@ -55,6 +56,8 @@ export type ParkedDecision = "accept" | "acceptForSession" | "decline";
 
 export interface ParkedCards {
   park(card: ParkedCard): void;
+  /** Keeps every card or, when a write fails, none (one transaction); throws then. */
+  parkAll(cards: ReadonlyArray<ParkedCard>): void;
   /** Removes a card that was never shown (its park was abandoned). */
   discard(id: string): void;
   get(id: string): ParkedCard | undefined;
@@ -64,6 +67,8 @@ export interface ParkedCards {
   take(thread: string, kind: "tool" | "native", call: ParkedCall): { readonly forSession: boolean } | undefined;
   /** Drops `thread`'s allowances its answer turn did not use. */
   dropAllowances(thread: string): void;
+  /** Drops every thread's allowances: at the Environment's boot, when no answer turn of the old instance runs on. */
+  dropAllAllowances(): void;
   /** The CLI sessions parked cards wait on, which session pruning keeps. */
   nativeSessions(): ReadonlyArray<string>;
 }
@@ -76,7 +81,11 @@ const parse = (text: string): ParkedCard | undefined => {
   }
 };
 
-export const parkedCards = (sql: Pick<SqlStorage, "exec">): ParkedCards => {
+/**
+ * The store over `sql`. `transaction` runs a function as one SQLite transaction (the Environment DO's
+ * `ctx.storage.transactionSync`), which `parkAll` writes in.
+ */
+export const parkedCards = (sql: Pick<SqlStorage, "exec">, transaction: <T>(run: () => T) => T): ParkedCards => {
   let ready = false;
   const prepare = () => {
     if (ready) return;
@@ -100,16 +109,23 @@ export const parkedCards = (sql: Pick<SqlStorage, "exec">): ParkedCards => {
     prepare();
     sql.exec(`DELETE FROM ${PARKED_TABLE} WHERE id = ?`, id);
   };
+  const park = (card: ParkedCard) => {
+    prepare();
+    sql.exec(
+      `INSERT OR REPLACE INTO ${PARKED_TABLE} (id, thread, parked_at, record) VALUES (?, ?, ?, ?)`,
+      card.id,
+      card.thread,
+      card.parkedAt,
+      JSON.stringify(card),
+    );
+  };
   return {
-    park: (card) => {
+    park,
+    parkAll: (cards) => {
       prepare();
-      sql.exec(
-        `INSERT OR REPLACE INTO ${PARKED_TABLE} (id, thread, parked_at, record) VALUES (?, ?, ?, ?)`,
-        card.id,
-        card.thread,
-        card.parkedAt,
-        JSON.stringify(card),
-      );
+      transaction(() => {
+        for (const card of cards) park(card);
+      });
     },
     discard: remove,
     get,
@@ -146,6 +162,10 @@ export const parkedCards = (sql: Pick<SqlStorage, "exec">): ParkedCards => {
     dropAllowances: (thread) => {
       prepare();
       sql.exec(`DELETE FROM ${ALLOWANCES_TABLE} WHERE thread = ?`, thread);
+    },
+    dropAllAllowances: () => {
+      prepare();
+      sql.exec(`DELETE FROM ${ALLOWANCES_TABLE}`);
     },
     nativeSessions: () => {
       prepare();

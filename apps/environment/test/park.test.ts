@@ -1,5 +1,6 @@
 // SPI-1389: the park of one CLI session (`park.ts`) over fakes: what a park keeps and shows, what it does when its
-// records cannot be kept, a card raised while the park ends the turn, and an allowance's life across a steered answer.
+// records cannot be kept, a card or request raised while the park ends the turn, where an answer's decision comes from,
+// and an allowance's life across a steered answer.
 import type { ProviderAdapterV2Event } from "@t3tools/provider-core/server/ProviderAdapter";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -10,7 +11,13 @@ import type { LiveTurn } from "../src/provider/cli/cardEvents.ts";
 import type { CliAnswer, CliAsk } from "../src/provider/cli/cliAsk.ts";
 import { parkedCallText, parker, type ParkableCard } from "../src/provider/cli/park.ts";
 import { type ParkedCards, parkedCards } from "../src/provider/cli/parked.ts";
-import { nodeSqlStorage } from "./nodeSqlStorage.ts";
+import { nodeSqlStorage, nodeTransaction } from "./nodeSqlStorage.ts";
+
+/** A parked-card store over a fresh in-memory SQLite, its transactions real. */
+const nodeParkedCards = () => {
+  const sql = nodeSqlStorage();
+  return parkedCards(sql, nodeTransaction(sql));
+};
 
 const THREAD = "thread-park";
 const askOf = (title: string, argsHash: string): CliAsk => ({
@@ -22,15 +29,45 @@ const askOf = (title: string, argsHash: string): CliAsk => ({
   park: { kind: "tool", call: { tool: "fixture/fixture_note", argsHash } },
 });
 
+/** A CLI's own pending request, as t3's adapter shows it (`runtime_request.updated`). */
+const nativeEvent = (id: string): ProviderAdapterV2Event =>
+  ({
+    type: "runtime_request.updated",
+    driver: "claudeAgent",
+    threadId: THREAD,
+    runtimeRequest: {
+      id,
+      nodeId: `node-${id}`,
+      providerTurnId: "pturn-1",
+      nativeRequestRef: { driver: "claudeAgent", nativeId: `native-${id}`, strength: "weak" },
+      kind: "command",
+      status: "pending",
+      responseCapability: { type: "live", providerSessionId: "session-park" },
+      createdAt: null,
+      resolvedAt: null,
+    },
+  }) as unknown as ProviderAdapterV2Event;
+
+interface FixtureOptions {
+  readonly store: ParkedCards | undefined;
+  readonly steerRestartsTurn?: boolean;
+  /** t3's recorded answers by request id (the Owner's, whatever a queued message's text says). */
+  readonly recorded?: Map<string, Readonly<Record<string, unknown>>>;
+  /** Called as the park reads a CLI request's whole call: where a test raises another request meanwhile. */
+  readonly onNativeCall?: (nativeId: string) => void;
+}
+
 /** One session's parker over fakes: its cards, what it showed and answered, and its turn's interrupt held open. */
-const fixture = Effect.fn("fixture")(function* (store: ParkedCards | undefined) {
+const fixture = Effect.fn("fixture")(function* (options: FixtureOptions) {
   const cards = new Map<string, ParkableCard>();
   const answers = new Map<string, CliAnswer>();
   const shown: Array<ProviderAdapterV2Event> = [];
+  const cancelled: Array<string> = [];
   const interrupted = yield* Deferred.make<void>();
   const release = yield* Deferred.make<void>();
   let kills = 0;
-  let live: LiveTurn | undefined = {
+  let store = options.store;
+  const live: LiveTurn = {
     threadId: "thread-park",
     runId: "run-1",
     rootNodeId: "node-1",
@@ -56,18 +93,23 @@ const fixture = Effect.fn("fixture")(function* (store: ParkedCards | undefined) 
     },
     offer: (events) => void shown.push(...events),
     runtime: {
-      respondToRuntimeRequest: () => Effect.void,
+      respondToRuntimeRequest: (response) => Effect.sync(() => void cancelled.push(response.requestId)),
       // The CLI takes a while to end its interrupted turn: the park's window.
       interruptTurn: () => Deferred.succeed(interrupted, undefined).pipe(Effect.andThen(Deferred.await(release))),
     },
     parkAfterMs: () => 0,
     parked: () => store,
     answerParkedChange: async () => "",
-    nativeCallOf: () => undefined,
+    nativeCallOf: (nativeId) => {
+      options.onNativeCall?.(nativeId);
+      return { name: "Bash", kind: "execute", rawInput: { command: nativeId } };
+    },
     kill: () => void kills++,
     processKey: () => "proc-1",
     now: () => 1000,
     ours: (id) => id.includes(":t3flare-"),
+    recordedAnswerOf: (id) => options.recorded?.get(id),
+    steerRestartsTurn: options.steerRestartsTurn ?? false,
   });
   const open = (id: string, ask: CliAsk) => {
     cards.set(id, { ask });
@@ -83,27 +125,26 @@ const fixture = Effect.fn("fixture")(function* (store: ParkedCards | undefined) 
     park,
     cards,
     answers,
+    cancelled,
     questions,
     open,
     interrupted,
     release,
     kills: () => kills,
-    endTurn: () => {
-      live = undefined;
-      park.turnEnded();
-    },
+    setStore: (next: ParkedCards | undefined) => void (store = next),
   };
 });
 
 const run = <A>(body: Effect.Effect<A>) => Effect.runPromise(body);
 const cause = { by: "park", minutes: 10 } as const;
+const settle = Effect.promise(() => new Promise((resolve) => setImmediate(resolve)));
 
 describe("the park (SPI-1389)", () => {
   it("keeps every card's record first, then shows its question, answers its held call, and ends the process", () =>
     run(
       Effect.gen(function* () {
-        const store = parkedCards(nodeSqlStorage());
-        const f = yield* fixture(store);
+        const store = nodeParkedCards();
+        const f = yield* fixture({ store });
         f.open("card-1", askOf("note one", "h1"));
         const parking = yield* f.park.park(cause).pipe(Effect.forkChild);
         yield* Deferred.await(f.interrupted);
@@ -123,16 +164,15 @@ describe("the park (SPI-1389)", () => {
   it("parks a card raised while the park ends the turn, not closing it as the turn's end", () =>
     run(
       Effect.gen(function* () {
-        const store = parkedCards(nodeSqlStorage());
-        const f = yield* fixture(store);
+        const store = nodeParkedCards();
+        const f = yield* fixture({ store });
         f.open("card-1", askOf("note one", "h1"));
         const parking = yield* f.park.park(cause).pipe(Effect.forkChild);
         yield* Deferred.await(f.interrupted);
         // The CLI raises another card before its interrupted turn ends.
         f.open("card-2", askOf("note two", "h2"));
-        yield* Effect.promise(() => new Promise((resolve) => setImmediate(resolve)));
+        yield* settle;
         expect(f.answers.get("card-2")).toEqual({ approved: false, parked: parkedCallText(cause, "tool") });
-        expect(f.questions()).toHaveLength(2);
         expect(f.questions().map((id) => store.get(id)?.call?.argsHash)).toEqual(["h1", "h2"]);
         yield* Deferred.succeed(f.release, undefined);
         yield* Fiber.join(parking);
@@ -140,21 +180,51 @@ describe("the park (SPI-1389)", () => {
       }),
     ));
 
-  it("parks nothing when a record cannot be kept: every card stays live and the process runs on", () =>
+  it("parks a CLI request raised while the park reads another's call once, not twice", () =>
     run(
       Effect.gen(function* () {
-        const real = parkedCards(nodeSqlStorage());
-        let writes = 0;
-        // The second record's write fails: the first is dropped again, and nothing is shown.
+        const store = nodeParkedCards();
+        let raised = false;
+        // The second request arrives while the park reads the first's call.
+        const late: { noteNative?: (event: ProviderAdapterV2Event) => void } = {};
+        const f = yield* fixture({
+          store,
+          onNativeCall: () => {
+            if (raised) return;
+            raised = true;
+            late.noteNative?.(nativeEvent("late"));
+          },
+        });
+        late.noteNative = f.park.noteNative;
+        f.park.noteNative(nativeEvent("first"));
+        const parking = yield* f.park.park(cause).pipe(Effect.forkChild);
+        yield* Deferred.await(f.interrupted);
+        yield* settle;
+        expect(f.questions()).toHaveLength(2);
+        expect([...f.cancelled].sort()).toEqual(["first", "late"]);
+        yield* Deferred.succeed(f.release, undefined);
+        yield* Fiber.join(parking);
+      }),
+    ));
+
+  it("parks nothing when a record cannot be kept: no record, every card live, the process on; a later park still can", () =>
+    run(
+      Effect.gen(function* () {
+        const sql = nodeSqlStorage();
+        const transaction = nodeTransaction(sql);
+        const real = parkedCards(sql, transaction);
+        // Its tables made first, as `parkAll` makes them before its transaction.
+        real.nativeSessions();
+        // The second record's write fails inside the transaction: the first is rolled back with it.
         const failing: ParkedCards = {
           ...real,
-          park: (card) => {
-            writes += 1;
-            if (writes === 2) throw new Error("storage reset");
-            real.park(card);
-          },
+          parkAll: (cards) =>
+            transaction(() => {
+              real.park(cards[0]!);
+              throw new Error("storage reset");
+            }),
         };
-        const f = yield* fixture(failing);
+        const f = yield* fixture({ store: failing });
         f.open("card-1", askOf("note one", "h1"));
         f.open("card-2", askOf("note two", "h2"));
         yield* f.park.park(cause);
@@ -162,40 +232,77 @@ describe("the park (SPI-1389)", () => {
         expect(f.answers.size).toBe(0);
         expect([...f.cards.keys()]).toEqual(["card-1", "card-2"]);
         expect(f.kills()).toBe(0);
-        expect(real.nativeSessions()).toEqual([]);
-        // With no store at all, the same.
-        const none = yield* fixture(undefined);
+        expect(sql.exec("SELECT COUNT(*) AS n FROM t3flare_parked_cards").toArray()).toEqual([{ n: 0 }]);
+        // The failed park left nothing set: with the store back, the next park parks.
+        f.setStore(real);
+        const parking = yield* f.park.park(cause).pipe(Effect.forkChild);
+        yield* Deferred.await(f.interrupted);
+        expect(f.questions()).toHaveLength(2);
+        yield* Deferred.succeed(f.release, undefined);
+        yield* Fiber.join(parking);
+        // With no store at all, nothing parks.
+        const none = yield* fixture({ store: undefined });
         none.open("card-1", askOf("note one", "h1"));
         yield* none.park.park(cause);
         expect([none.questions(), none.kills()]).toEqual([[], 0]);
       }),
     ));
 
-  it("keeps a steered answer's allowance past the interrupted turn's end, for the restarted turn; an answer turn's goes at its end", () =>
+  it("takes the Owner's decision from t3's record of the answer, never the message's text (an edited queued message)", () =>
     run(
       Effect.gen(function* () {
-        const store = parkedCards(nodeSqlStorage());
-        const f = yield* fixture(store);
+        const store = nodeParkedCards();
+        const recorded = new Map<string, Readonly<Record<string, unknown>>>();
+        const f = yield* fixture({ store, recorded });
         const call = { tool: "fixture/fixture_note", argsHash: "h1" };
-        const parkCard = (id: string) =>
-          store.park({ id, thread: THREAD, kind: "tool", title: "note", call, parkedAt: 1 });
-        const answer = (id: string, steered: boolean) =>
-          f.park.answerText({ messageId: `async-answer:${id}`, text: "Parked\nAllow" }, steered);
-        parkCard("runtime-request:claudeAgent:t3flare-park:1");
-        yield* answer("runtime-request:claudeAgent:t3flare-park:1", true);
-        // Claude Code and OpenCode take a steer as an interrupt and a restart: the interrupted turn ends first.
-        f.park.turnEnded();
+        const id = "runtime-request:claudeAgent:t3flare-park:1";
+        store.park({ id, thread: THREAD, kind: "tool", title: "note", call, parkedAt: 1 });
+        // Not answered yet: the message passes as it is, and the card stays parked.
+        const unread = yield* f.park.answerText({ messageId: `async-answer:${id}`, text: "Parked\nAllow" }, false);
+        expect(unread).toBe("Parked\nAllow");
+        expect(store.get(id)).toBeDefined();
+        // The Owner declined; an agent edited the queued message to "Allow".
+        recorded.set(id, { decision: "Decline" });
+        const text = yield* f.park.answerText({ messageId: `async-answer:${id}`, text: "Parked\nAllow" }, false);
+        expect(text).toContain("The owner declined your parked call");
+        expect(store.take(THREAD, "tool", call)).toBeUndefined();
+        // And the other way round: the Owner's Allow stands, whatever the text says.
+        const allowed = "runtime-request:claudeAgent:t3flare-park:2";
+        store.park({ id: allowed, thread: THREAD, kind: "tool", title: "note", call, parkedAt: 1 });
+        recorded.set(allowed, { decision: "Allow" });
+        yield* f.park.answerText({ messageId: `async-answer:${allowed}`, text: "Parked\nDecline" }, false);
         expect(store.take(THREAD, "tool", call)).toEqual({ forSession: false });
-        parkCard("runtime-request:claudeAgent:t3flare-park:2");
-        yield* answer("runtime-request:claudeAgent:t3flare-park:2", true);
-        f.park.turnEnded();
-        f.park.turnEnded();
-        expect(store.take(THREAD, "tool", call)).toBeUndefined();
+      }),
+    ));
+
+  it("keeps a steered answer's allowance through the steer's restart where the CLI restarts on a steer, else one turn", () =>
+    run(
+      Effect.gen(function* () {
+        const call = { tool: "fixture/fixture_note", argsHash: "h1" };
+        const answered = Effect.fn("answered")(function* (steerRestartsTurn: boolean, steered: boolean) {
+          const store = nodeParkedCards();
+          const id = "runtime-request:claudeAgent:t3flare-park:1";
+          const f = yield* fixture({ store, steerRestartsTurn, recorded: new Map([[id, { decision: "Allow" }]]) });
+          store.park({ id, thread: THREAD, kind: "tool", title: "note", call, parkedAt: 1 });
+          yield* f.park.answerText({ messageId: `async-answer:${id}`, text: "" }, steered);
+          return { store, f };
+        });
+        // Claude Code and OpenCode take a steer as an interrupt and a restart: the interrupted turn ends first.
+        const restarting = yield* answered(true, true);
+        restarting.f.park.turnEnded();
+        expect(restarting.store.take(THREAD, "tool", call)).toEqual({ forSession: false });
+        const restartingUnused = yield* answered(true, true);
+        restartingUnused.f.park.turnEnded();
+        restartingUnused.f.park.turnEnded();
+        expect(restartingUnused.store.take(THREAD, "tool", call)).toBeUndefined();
+        // Codex and pi steer in place: the steered turn's end is the allowance's.
+        const inPlace = yield* answered(false, true);
+        inPlace.f.park.turnEnded();
+        expect(inPlace.store.take(THREAD, "tool", call)).toBeUndefined();
         // An answer that starts its own turn: its allowance goes when that turn ends unused.
-        parkCard("runtime-request:claudeAgent:t3flare-park:3");
-        yield* answer("runtime-request:claudeAgent:t3flare-park:3", false);
-        f.park.turnEnded();
-        expect(store.take(THREAD, "tool", call)).toBeUndefined();
+        const ownTurn = yield* answered(true, false);
+        ownTurn.f.park.turnEnded();
+        expect(ownTurn.store.take(THREAD, "tool", call)).toBeUndefined();
       }),
     ));
 });

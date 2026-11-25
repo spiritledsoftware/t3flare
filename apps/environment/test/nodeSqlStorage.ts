@@ -26,3 +26,18 @@ export const nodeSqlStorage = (
   };
   return { exec, db, databaseSize: 0 } as unknown as SqlStorage & { readonly db: DatabaseSync };
 };
+
+/** A transaction over `sql`'s SQLite, as the Environment DO's `ctx.storage.transactionSync` runs one: all or nothing. */
+export const nodeTransaction =
+  (sql: { readonly db: DatabaseSync }) =>
+  <T>(run: () => T): T => {
+    sql.db.exec("BEGIN");
+    try {
+      const result = run();
+      sql.db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      sql.db.exec("ROLLBACK");
+      throw error;
+    }
+  };
