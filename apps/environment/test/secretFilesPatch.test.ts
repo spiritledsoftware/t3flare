@@ -177,7 +177,7 @@ describe("patch 0011: secret files go where the thread runs", () => {
     expect(path.dirname(result.file)).toBe(SECRET_FILES_DIR);
     expect(result.again).toBe(result.file);
     expect(workspace.files.get(result.file)).toBe("AEB'$(id)");
-    expect(workspace.pushes()).toBe(1);
+    expect(workspace.pushes()).toBe(2);
     expect(result.reused).toBe("ref_unavailable");
     expect(storedRequests(values)).toEqual([]);
   });

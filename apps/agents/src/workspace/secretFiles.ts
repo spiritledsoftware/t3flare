@@ -28,23 +28,35 @@ export interface SecretFileDeps {
 export type SecretFileAnswer = { readonly path: string } | { readonly missing: true } | { readonly refused: string };
 
 /**
+ * Removes the secret files past their day; how many. The Workspace DO runs it at each wake, before any command, and at
+ * each alarm while its Container runs, so no command reads one past its day.
+ */
+export const sweepSecretFiles = async (deps: Pick<SecretFileDeps, "now" | "list" | "remove">): Promise<number> => {
+  const now = deps.now();
+  let removed = 0;
+  for (const entry of await deps.list(SECRET_FILES_DIR)) {
+    if (!NAME.test(entry.name) || now - entry.mtimeMs <= SECRET_FILE_TTL_MS) continue;
+    await deps.remove(`${SECRET_FILES_DIR}/${entry.name}`);
+    removed += 1;
+  }
+  return removed;
+};
+
+/**
  * Secret file `name`: answered as it is when there, so a retry of the same request gets the file the first wrote,
- * unchanged; else written from `text`. Files past their day go first.
+ * unchanged; else written from `text`. Pushed to a running Container either way: a retry after a failed push finishes it.
  */
 export const placeSecretFile = async (
   deps: SecretFileDeps,
   input: { readonly name: string; readonly text?: string },
 ): Promise<SecretFileAnswer> => {
   if (!NAME.test(input.name)) return { refused: `t3flare: not a secret file name: ${input.name}` };
-  const now = deps.now();
-  for (const entry of await deps.list(SECRET_FILES_DIR)) {
-    if (NAME.test(entry.name) && now - entry.mtimeMs > SECRET_FILE_TTL_MS)
-      await deps.remove(`${SECRET_FILES_DIR}/${entry.name}`);
-  }
+  await sweepSecretFiles(deps);
   const path = `${SECRET_FILES_DIR}/${input.name}`;
-  if (await deps.exists(path)) return { path };
-  if (input.text === undefined) return { missing: true };
-  await deps.write(path, input.text);
+  if (!(await deps.exists(path))) {
+    if (input.text === undefined) return { missing: true };
+    await deps.write(path, input.text);
+  }
   await deps.push();
   return { path };
 };

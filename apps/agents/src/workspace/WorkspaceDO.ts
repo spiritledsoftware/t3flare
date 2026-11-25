@@ -187,7 +187,7 @@ import { ContainerGate } from "./containerGate.ts";
 import { endTerminalsPastHolds, type AppliedHolds } from "./terminalHolds.ts";
 import { TerminalHost } from "./terminalHost.ts";
 import { TerminalSync } from "./terminalSync.ts";
-import { placeSecretFile, type SecretFileAnswer } from "./secretFiles.ts";
+import { placeSecretFile, type SecretFileAnswer, type SecretFileDeps, sweepSecretFiles } from "./secretFiles.ts";
 import {
   carryInScript,
   carryOutScript,
@@ -388,6 +388,8 @@ export class WorkspaceDO extends ContainerHost {
   readonly #skillSet: ReturnType<typeof skillSetStore>;
   /** What the Workspace had at the mount before it existed, moved aside once (`#ready`). */
   #priorChecked: Promise<void> | undefined;
+  /** Patch 0011's secret files swept once this wake (`#ready`). */
+  #secretsSwept: Promise<void> | undefined;
   /** The launch (its start time) whose lock failure was logged (SPI-1148, plan §4.3). */
   #lockFailureLogged: number | undefined;
   readonly #reads: ReturnType<typeof readCache>;
@@ -1109,6 +1111,9 @@ export class WorkspaceDO extends ContainerHost {
     );
     await this.#priorChecked;
     await this.#workspace.ready();
+    // Once a wake, before any command can read one; the alarm sweeps again while the Container runs.
+    this.#secretsSwept ??= this.#sweepSecretFiles();
+    await this.#secretsSwept;
   }
 
   /** Whether computer has indexed the skills' mount (its own table); a table it cannot read counts as indexed. */
@@ -1657,37 +1662,42 @@ export class WorkspaceDO extends ContainerHost {
   async placeSecretFile(input: { readonly name: string; readonly text?: string }): Promise<SecretFileAnswer> {
     this.#alive();
     await this.#ready();
+    return placeSecretFile(this.#secretFileDeps(), input);
+  }
+
+  #secretFileDeps(): SecretFileDeps {
     const fs = this.#workspace.fs;
-    return placeSecretFile(
-      {
-        now: () => Date.now(),
-        list: async (dir) => {
-          const entries = await fs.readdir(dir).catch(() => []);
-          return Promise.all(
-            entries.map(async (entry) => ({
-              name: entry.name,
-              mtimeMs: (await fs.stat(`${dir}/${entry.name}`)).mtime,
-            })),
-          );
-        },
-        exists: (path) =>
-          fs.stat(path).then(
-            () => true,
-            () => false,
-          ),
-        write: async (path, text) => {
-          const dir = path.slice(0, path.lastIndexOf("/"));
-          await fs.mkdir(dir, { recursive: true });
-          await fs.chmod(dir, 0o700);
-          await fs.writeFile(path, text);
-          await fs.chmod(path, 0o600);
-        },
-        remove: (path) => fs.rm(path, { force: true }),
-        push: async () => {
-          if (this.containerRunning()) await this.#syncEntries("push");
-        },
+    return {
+      now: () => Date.now(),
+      list: async (dir) => {
+        const entries = await fs.readdir(dir).catch(() => []);
+        return Promise.all(
+          entries.map(async (entry) => ({ name: entry.name, mtimeMs: (await fs.stat(`${dir}/${entry.name}`)).mtime })),
+        );
       },
-      input,
+      exists: (path) =>
+        fs.stat(path).then(
+          () => true,
+          () => false,
+        ),
+      write: async (path, text) => {
+        const dir = path.slice(0, path.lastIndexOf("/"));
+        await fs.mkdir(dir, { recursive: true });
+        await fs.chmod(dir, 0o700);
+        await fs.writeFile(path, text);
+        await fs.chmod(path, 0o600);
+      },
+      remove: (path) => fs.rm(path, { force: true }),
+      push: async () => {
+        if (this.containerRunning()) await this.#syncEntries("push");
+      },
+    };
+  }
+
+  /** Patch 0011's secret files past their day, removed; a failure is logged and tried again at the next sweep. */
+  async #sweepSecretFiles(): Promise<void> {
+    await sweepSecretFiles(this.#secretFileDeps()).catch((error: unknown) =>
+      console.warn(JSON.stringify({ t3flare: "secret-files-sweep-failed", reason: String(error) })),
     );
   }
 
@@ -3003,6 +3013,7 @@ export class WorkspaceDO extends ContainerHost {
     // SPI-1382: a git run whose Environment restarted is ended, else it holds the Container until its week's backstop.
     const environment = environmentStub(this.env.ENVIRONMENT);
     await dropOrphanedRuns(this.#runCancels, () => environment.environmentEpoch());
+    await this.#sweepSecretFiles();
     const lastUse = (await this.ctx.storage.get<number>(LAST_USE_KEY)) ?? 0;
     // Terminals hold the Container until their last input is older than the hold (review F10: output is not use).
     const held = this.#terminalsHold() || this.#processes.holdsContainer() || this.#previewHold();

@@ -5,6 +5,7 @@ import {
   SECRET_FILE_TTL_MS,
   SECRET_FILES_DIR,
   type SecretFileDeps,
+  sweepSecretFiles,
 } from "../src/workspace/secretFiles.ts";
 
 const NAME = "0123456789abcdef0123456789abcdef";
@@ -37,17 +38,24 @@ describe("placeSecretFile", () => {
     expect(await placeSecretFile(workspace.deps, { name: NAME, text: "other" })).toEqual({ path });
     expect(await placeSecretFile(workspace.deps, { name: NAME })).toEqual({ path });
     expect(workspace.files.get(path)?.text).toBe("s3cret'$(id)");
-    expect(workspace.pushes()).toBe(1);
+    // Each answer with the path pushes again, so a retry after a failed push still reaches the Container.
+    expect(workspace.pushes()).toBe(3);
   });
 
-  it("sweeps t3's files past their day, and nothing else", async () => {
+  it("sweeps t3's files past their day, and nothing else, on its own and before a write", async () => {
     const workspace = fakeWorkspace(10 * SECRET_FILE_TTL_MS);
     const old = `${SECRET_FILES_DIR}/${"f".repeat(32)}`;
     const fresh = `${SECRET_FILES_DIR}/${"e".repeat(32)}`;
     const other = `${SECRET_FILES_DIR}/notes.txt`;
-    workspace.files.set(old, { text: "a", mtimeMs: 9 * SECRET_FILE_TTL_MS - 1 });
-    workspace.files.set(fresh, { text: "b", mtimeMs: 9 * SECRET_FILE_TTL_MS });
-    workspace.files.set(other, { text: "c", mtimeMs: 0 });
+    const seed = () => {
+      workspace.files.set(old, { text: "a", mtimeMs: 9 * SECRET_FILE_TTL_MS - 1 });
+      workspace.files.set(fresh, { text: "b", mtimeMs: 9 * SECRET_FILE_TTL_MS });
+      workspace.files.set(other, { text: "c", mtimeMs: 0 });
+    };
+    seed();
+    expect(await sweepSecretFiles(workspace.deps)).toBe(1);
+    expect([...workspace.files.keys()].sort()).toEqual([fresh, other].sort());
+    seed();
     await placeSecretFile(workspace.deps, { name: NAME, text: "v" });
     expect([...workspace.files.keys()].sort()).toEqual([fresh, `${SECRET_FILES_DIR}/${NAME}`, other].sort());
   });
