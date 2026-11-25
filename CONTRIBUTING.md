@@ -58,7 +58,8 @@ people up most:
 
 `pnpm run check` runs the patch, workspace and lock checks, the `node:fs` coverage check (`check:fs`), the typechecks,
 lint and tests: the full suite, which CI runs on every pull request and requires to merge. Run it locally when you want
-the full run; while you work, the targeted checks below are faster. When it fails, its last lines name the task that
+the full run; while you work, the targeted checks below are faster. Agents run only the targeted checks and leave the
+full run to CI, since several share one machine. When it fails, its last lines name the task that
 failed, with its error, and list the tasks vp stopped because of it as stopped, not failed. Errors labelled `[t3, not
 failing]` are t3's own, which the typecheck reports and passes.
 

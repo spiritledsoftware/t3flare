@@ -141,8 +141,8 @@ check:all` itself, but `node scripts/check.ts` (after the setup and guard script
 `scripts/check.ts` is new, a wrapper of a few dozen lines around vp; it is not the earlier `scripts/check.ts` that
 sentence names, which ran the tasks itself until this ADR replaced it with `check:all`. The full check also stops being
 what an agent runs before a push: several agents share one machine, so agents verify a change with targeted checks
-(the test files it touches, its package's typecheck and lint, the formatter on its files; AGENTS.md and
-CONTRIBUTING.md name the commands), and the full `check` runs in CI on every pull request and in the bump job.
+(the test files it touches, its package's typecheck and lint, the formatter on its files; CONTRIBUTING.md's Checks
+names the commands, and AGENTS.md points there), and the full `check` runs in CI on every pull request and in the bump job.
 
 vp's fail-fast (**Costs**) kills the tasks still running when one fails. They exit 137 and count as failed, so a run
 with one lint error ends `vp run: 11/27 successful.` with 16 failures and names none of them, and the failing task's
