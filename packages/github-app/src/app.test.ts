@@ -333,6 +333,37 @@ describe("GitHubApp", () => {
     expect(await app.token("ian-pascoe")).toBe("ghs_token1");
   });
 
+  it("keeps a failure whose wait GitHub named through `forget`, until that time (SPI-1366)", async () => {
+    let now = Date.UTC(2026, 0, 1, 12);
+    let limited = true;
+    let asked = 0;
+    const github = fakeGitHub({ now: () => now });
+    const app = new GitHubApp({
+      appId: "1",
+      privateKey: KEYS.privateKey,
+      fetch: (url, init) => {
+        asked += 1;
+        return limited
+          ? Promise.resolve(
+              Response.json({ message: "API rate limit exceeded" }, { status: 403, headers: { "retry-after": "600" } }),
+            )
+          : github.fetch(url, init);
+      },
+      now: () => now,
+    });
+
+    await expect(app.token("ian-pascoe")).rejects.toBeInstanceOf(GitHubRefused);
+    const before = asked;
+    limited = false;
+    app.forget("ian-pascoe");
+    await expect(app.token("ian-pascoe")).rejects.toBeInstanceOf(GitHubRefused);
+    expect(asked).toBe(before);
+
+    now += 600_000;
+    app.forget("ian-pascoe");
+    expect(await app.token("ian-pascoe")).toBe("ghs_token1");
+  });
+
   it("mints for an account as soon as the installations are listed again, however often it was asked meanwhile", async () => {
     let now = Date.UTC(2026, 0, 1, 12);
     let listing = false;

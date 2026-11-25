@@ -91,7 +91,8 @@ export class GitHubTokens {
 
   /**
    * Forget the last failure to mint for `request`, so its next `mint` asks GitHub at once rather than telling the failure
-   * again: for a mint the Owner asks for and retries (a repository lookup, SPI-1398), never for one t3flare repeats.
+   * again (a wait GitHub named, a rate limit, still holds): for a mint the Owner asks for and retries (a repository
+   * lookup, SPI-1398), never for one t3flare repeats.
    */
   forget(request: MintRequest): void {
     if (!this.configured) return;

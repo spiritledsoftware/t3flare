@@ -107,7 +107,8 @@ export const withRepositoryLookupTokens = (stock: Service, minter: () => LookupM
       const owner = locator.owner.toLowerCase();
       const request = { owner, repositories: [locator.name], permissions: REPOSITORY_LOOKUP_GITHUB_PERMISSIONS };
       try {
-        // The Owner asks, and asks again after installing the App or adding the repo: never the remembered failure.
+        // The Owner asks, and asks again after installing the App or adding the repo: never the remembered failure
+        // (a wait GitHub named, a rate limit, still holds: `GitHubApp.forget`).
         minter().forget(request);
         const minted = await minter().mint(request);
         return {
