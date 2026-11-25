@@ -11,7 +11,7 @@
 // - RFC 9207: an `iss` that differs from the authorization server's issuer is refused, and a server that says it sends
 //   `iss` must send it.
 // - Refresh: one in flight per server; a refreshed token replaces the old one at once (rotating refresh tokens).
-import { MCP_SIGN_IN_MINUTES } from "@t3flare/harness-registry";
+import { MCP_SIGN_IN_MINUTES, outsideRequestTimedOut } from "@t3flare/harness-registry";
 
 import type { HarnessSecrets } from "./secrets.ts";
 import type { KvStorage } from "./keys.ts";
@@ -56,7 +56,13 @@ interface Metadata {
   readonly [key: string]: unknown;
 }
 
-type Answer<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: string };
+/**
+ * The MCP Worker's answer: a failure that was the request's time limit says so (`timedOut`, SPI-1432). The same shape
+ * as the Worker's `OAuthAnswer`, repeated: this side binds the Worker's entrypoint over RPC and does not import it.
+ */
+type Answer<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly error: string; readonly timedOut?: true };
 
 /** The MCP Worker's `McpOAuth` entrypoint, as bound (`MCP_OAUTH`). */
 export interface McpOAuthBinding {
@@ -200,6 +206,23 @@ export class HarnessOAuth {
     return ms === undefined ? {} : { timeoutMs: ms };
   }
 
+  /**
+   * A failed Worker answer as the Owner reads it: a request that ran past the time limit passed to it names that limit
+   * and its value (ADR-0049 §4, SPI-1432), `who` saying which request: a start's discovery reads the MCP server's
+   * resource metadata as well as the authorization server's, so only the token requests name the authorization server.
+   * Any other failure, or a timeout with no limit passed (the Worker's own fallback, which this side does not know),
+   * keeps the Worker's words.
+   */
+  #failure(
+    answer: { readonly error: string; readonly timedOut?: true },
+    sent: { readonly timeoutMs?: number },
+    who: string,
+  ): string {
+    return answer.timedOut === true && sent.timeoutMs !== undefined
+      ? `${who} ${outsideRequestTimedOut(sent.timeoutMs)}`
+      : answer.error;
+  }
+
   #client(server: string): ClientInformation | undefined {
     const kept = this.#deps.secrets.read(server, "oauth-client");
     return kept === undefined ? undefined : (JSON.parse(kept) as ClientInformation);
@@ -244,6 +267,7 @@ export class HarnessOAuth {
     if (this.#deps.engine === undefined) return { ok: false, error: "the MCP Worker's OAuth entrypoint is not bound" };
     const state = randomState();
     const kept = this.#client(server);
+    const timeout = this.#timeout();
     const answer = await this.#deps.engine.begin({
       serverUrl,
       redirectUrl: this.redirectUrl,
@@ -251,9 +275,9 @@ export class HarnessOAuth {
       clientName: `t3flare (${this.#deps.host()})`,
       state,
       ...(kept === undefined ? {} : { client: kept }),
-      ...this.#timeout(),
+      ...timeout,
     });
-    if (!answer.ok) return answer;
+    if (!answer.ok) return { ok: false, error: this.#failure(answer, timeout, "a discovery or registration request") };
     const { codeVerifier, client, authorizationServerUrl, metadata, resource } = answer.value;
     if (kept === undefined) await this.#deps.secrets.put(server, "oauth-client", JSON.stringify(client));
     const pending: PendingState = {
@@ -322,6 +346,7 @@ export class HarnessOAuth {
     const code = url.searchParams.get("code");
     if (code === null || code === "" || this.#deps.engine === undefined)
       return page(400, "Sign-in refused", "No authorization code came back.");
+    const timeout = this.#timeout();
     const exchanged = await this.#deps.engine.exchange({
       authorizationServerUrl: pending.authorizationServerUrl,
       ...(pending.metadata === undefined ? {} : { metadata: pending.metadata }),
@@ -330,15 +355,16 @@ export class HarnessOAuth {
       code,
       codeVerifier: pending.codeVerifier,
       redirectUrl: this.redirectUrl,
-      ...this.#timeout(),
+      ...timeout,
     });
     if (!exchanged.ok) {
+      const error = this.#failure(exchanged, timeout, "the authorization server");
       this.#deps.audit?.({
         action: "mcp.oauth.failed",
         target: pending.server,
-        after: { error: exchanged.error },
+        after: { error },
       });
-      return page(502, "Sign-in failed", `The token exchange failed: ${exchanged.error}`);
+      return page(502, "Sign-in failed", `The token exchange failed: ${error}`);
     }
     const kept = await this.#keepTokens(pending.server, exchanged.value);
     const server: AuthServer = {
@@ -376,9 +402,16 @@ export class HarnessOAuth {
     const client = this.#client(server);
     if (tokens.refresh === undefined || as === undefined || client === undefined || this.#deps.engine === undefined)
       return undefined;
-    const answer = await this.#deps.engine.refresh({ ...as, client, refreshToken: tokens.refresh, ...this.#timeout() });
+    const timeout = this.#timeout();
+    const answer = await this.#deps.engine.refresh({ ...as, client, refreshToken: tokens.refresh, ...timeout });
     if (!answer.ok) {
-      console.warn(JSON.stringify({ t3flare: "mcp-oauth-refresh-failed", server, error: answer.error }));
+      console.warn(
+        JSON.stringify({
+          t3flare: "mcp-oauth-refresh-failed",
+          server,
+          error: this.#failure(answer, timeout, "the authorization server"),
+        }),
+      );
       return undefined;
     }
     return (await this.#keepTokens(server, answer.value, tokens)).access;

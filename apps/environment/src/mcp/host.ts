@@ -19,6 +19,9 @@ import {
   CARD_WAIT_MS,
   MAX_SCHEMA_BYTES,
   MCP_REQUEST_OFF_MS,
+  didNotAnswerIn,
+  fixedLimitHit,
+  OFF_DEADLINE_MS,
   offDeadlineMs,
   type McpServerSetting,
   mcpServersOf,
@@ -27,6 +30,9 @@ import {
   STORED_CHARACTER_BYTES,
   storedBytes,
   type StoredHarness,
+  type SettingRef,
+  settingPlace,
+  timeLimitHit,
   type ToolClass,
   toolNamesOf,
 } from "@t3flare/harness-registry";
@@ -173,6 +179,46 @@ const errorText = (error: unknown): string => {
   return `${tag}: ${message}`;
 };
 
+/** The MCP call time limit's place on the Settings page, for the sentence that says it is off. */
+const CALL_LIMIT: SettingRef = { environment: "mcpCallSeconds" };
+
+/** A wait in words where it has a name: the off deadline (`OFF_DEADLINE_MS`), the setting's maximum, is a week. */
+const spanOf = (ms: number): string | undefined => (ms === OFF_DEADLINE_MS ? "a week" : undefined);
+
+/**
+ * A `TimedOut` the engine tagged with its limit (SPI-1432), as the sentence that names it (ADR-0049 §4): which limit,
+ * its value as applied, and where to change it; a fixed limit as fixed. `callOff`: whether the MCP call time limit is
+ * off, from the host's own setting (a value set to the maximum is not off). The call is named as off only when its
+ * deadline was also the off one, so a setting changed while the call ran never misnames the limit that fired.
+ * Undefined for anything else, a `TimedOut` without the tag (an engine before SPI-1432) included, which reads as
+ * before (`errorText`).
+ */
+const timeLimitText = (error: unknown, server: string, callOff: boolean): string | undefined => {
+  const record = (error ?? {}) as { _tag?: unknown; limit?: unknown; ms?: unknown; listed?: unknown };
+  if (record._tag !== "TimedOut" || typeof record.ms !== "number") return undefined;
+  const { ms } = record;
+  const seconds = ms / 1000;
+  switch (record.limit) {
+    case "connect":
+      return `${server} did not answer its connection within ${timeLimitHit(seconds, "second", { environment: "mcpConnectSeconds" })}`;
+    case "list": {
+      const listing = typeof record.listed === "string" ? `Listing ${record.listed}` : `Listing ${server}`;
+      return `${listing} took over ${timeLimitHit(seconds, "second", { environment: "mcpListSeconds" })}`;
+    }
+    case "call":
+      // Off, a call still has a deadline (`OFF_DEADLINE_MS`), which no setting raises: named, with no
+      // "change it under".
+      return callOff && ms === OFF_DEADLINE_MS
+        ? `${server} ${didNotAnswerIn(ms, `the most t3flare lets an MCP call run while the MCP call time limit (${settingPlace(CALL_LIMIT)}) is off`, spanOf(ms))}`
+        : `${server} did not answer within ${timeLimitHit(seconds, "second", CALL_LIMIT)}`;
+    case "request":
+      // Given apart from the call's only while the call time limit is off: `MCP_REQUEST_OFF_MS`, t3flare's own.
+      return `${server} ${fixedLimitHit(ms, "MCP request time limit")}`;
+    default:
+      return undefined;
+  }
+};
+
 export interface McpHostDeps {
   readonly kv: KvStorage & { delete(key: string): unknown };
   readonly engine: McpEngineBinding | undefined;
@@ -283,6 +329,11 @@ export class McpHost {
     return mcpServersOf(this.#deps.settings());
   }
 
+  /** The MCP call time limit now, in ms (`mcpCallSeconds`); 0 when it is off. */
+  #callMs(): number {
+    return this.#deps.callTimeoutMs?.() ?? DEFAULT_MCP_CALL_MS;
+  }
+
   /** The engine's target for `server`, its credential resolved; undefined when it cannot be reached. */
   async #target(name: string, server: McpServerSetting): Promise<McpEngineTargetEncoded | string> {
     if (server.url === undefined) return `${name} has no URL`;
@@ -297,7 +348,7 @@ export class McpHost {
     // An off limit (SPI-1386) gives a tool call the off deadline, not none: the engine's SDK times a request it gives no
     // timeout at 60 s. Only the call is the Owner's to leave unbounded: the server's other requests keep 270 s
     // (`MCP_REQUEST_OFF_MS`), the bound they had with the call limit's old default; a limit set bounds both, as before.
-    const callMs = this.#deps.callTimeoutMs?.() ?? DEFAULT_MCP_CALL_MS;
+    const callMs = this.#callMs();
     const timeoutMs = offDeadlineMs(callMs);
     const requestTimeoutMs = callMs === 0 ? MCP_REQUEST_OFF_MS : callMs;
     return {
@@ -406,7 +457,8 @@ export class McpHost {
       return failed(`the MCP engine failed: ${String(error)}`);
     }
     this.#keepState(name, result.state as never, generation);
-    if (result.kind !== "discovered") return failed(errorText(result.error));
+    if (result.kind !== "discovered")
+      return failed(timeLimitText(result.error, name, this.#callMs() === 0) ?? errorText(result.error));
     const definitions: Record<string, Readonly<Record<string, unknown>>> = {};
     const refused: Array<{ tool: string; reason: string }> = (result.problems ?? []).map((problem) => ({
       tool: problem.tool,
@@ -671,11 +723,17 @@ export class McpHost {
       return { kind: "refused", message: `The read failed: ${String(error)}` };
     }
     this.#keepState(input.server, result.state as never, generation);
-    if (result.kind !== "complete")
+    if (result.kind !== "complete") {
+      const named =
+        result.kind === "failed" ? timeLimitText(result.error, input.server, this.#callMs() === 0) : undefined;
       return {
         kind: "refused",
-        message: `The read failed (${result.kind === "failed" ? errorText(result.error) : result.kind}).`,
+        message:
+          named === undefined
+            ? `The read failed (${result.kind === "failed" ? errorText(result.error) : result.kind}).`
+            : `The read failed: ${named}.`,
       };
+    }
     const max = this.#resultBytes();
     const read =
       result.result.kind === "inline"
@@ -754,7 +812,8 @@ export class McpHost {
     this.#keepState(name, result.state as never, generation);
     if (result.kind === "failed") {
       const tag = (result.error as { _tag?: string })._tag;
-      const message = `The MCP call failed (${errorText(result.error)}). It may have run upstream; do not repeat a change without checking.`;
+      const named = timeLimitText(result.error, name, this.#callMs() === 0);
+      const message = `The MCP call failed${named === undefined ? ` (${errorText(result.error)})` : `: ${named}`}. It may have run upstream; do not repeat a change without checking.`;
       if (tag === "NotFound") this.#deps.background?.(this.list(name).catch(() => undefined));
       return { kind: "unavailable", message, mayHaveRun: true };
     }

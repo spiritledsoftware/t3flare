@@ -11,15 +11,15 @@
 // @effect-diagnostics asyncFunction:off globalFetch:off missingPipeableSignature:off preferEffectArray:off -- the read is a Promise over `fetch`, its Schemas plain values.
 import * as Record from "effect/Record";
 import * as Schema from "effect/Schema";
-import { boundedText, MAX_METADATA_BYTES, OAUTH_FETCH_TIMEOUT_MS } from "./oauth-http.ts";
+import { boundedText, MAX_METADATA_BYTES, OAUTH_FETCH_TIMEOUT_MS, outsideRequestTimedOut } from "./oauth-http.ts";
 
 /** The request headers a public read passes on: content negotiation alone, never a credential or a cookie. */
 export const PUBLIC_FETCH_HEADERS: ReadonlyArray<string> = ["accept", "mcp-protocol-version"];
 
 /**
  * What the Registry asks `McpEngine.fetchPublic` for: a URL, the headers to pass on (others are dropped), and how long
- * the read may take (the caller's Outside request time limit, `OUTSIDE_REQUEST_SECONDS`; `OAUTH_FETCH_TIMEOUT_MS`, its
- * default, when absent, as from a caller older than the field).
+ * the read may take (the caller's Outside request time limit, `OUTSIDE_REQUEST_SECONDS`; `OAUTH_FETCH_TIMEOUT_MS`, the
+ * fallback, when absent, as from a caller older than the field).
  */
 export const McpPublicFetchRequest = Schema.Struct({
   url: Schema.String,
@@ -131,6 +131,6 @@ export const fetchPublic = async (
 
     return { status: "fetched", code: response.status, headers, body };
   } catch {
-    return refused(signal.aborted ? "The request timed out" : "The request failed");
+    return refused(signal.aborted ? `The server ${outsideRequestTimedOut(timeoutMs)}` : "The request failed");
   }
 };

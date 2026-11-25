@@ -100,6 +100,7 @@ import {
   McpTaskCreated,
   type McpTaskInputResponses,
   McpTaskSnapshot,
+  type McpTimeLimitHit,
   MCP_URL_REQUIRED_CODE,
   ProtocolViolation,
   ResendStateV1,
@@ -488,6 +489,8 @@ interface RequestPolicy {
   readonly declared?: () => boolean;
   /** Sent once more after a cut though it may have run: a request whose repeat the caller knows is safe. */
   readonly resend?: boolean;
+  /** The time limit it is sent with, which its timeout names: absent, a request's other than a call (`requestMs`). */
+  readonly limit?: McpTimeLimitHit;
 }
 
 /** What a `tools/call` attempt got: the task wire's answer, or the client's result (on Modern, maybe `input_required`). */
@@ -721,6 +724,16 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
   /** Every other request's after the connect (SPI-1386): the call timeout unless the host gives one of its own. */
   const requestMs = target.requestTimeoutMs ?? callMs;
   const walkMs = target.listTimeoutMs ?? MCP_LIST_WALK_TIMEOUT_MS;
+  /**
+   * The limits a timeout names (SPI-1432), each with the value it was applied at. A request other than a call takes the
+   * call's when the host gave it none of its own, or gave it the call's value.
+   */
+  const limits = {
+    connect: { limit: "connect", ms: connectMs },
+    list: { limit: "list", ms: walkMs },
+    call: { limit: "call", ms: callMs },
+    request: { limit: requestMs === callMs ? "call" : "request", ms: requestMs },
+  } satisfies Record<string, McpTimeLimitHit>;
   const verdicts = new Verdicts();
   const ties = new Ties();
   /** The calls that may be asked questions, by the token their request carries. */
@@ -801,14 +814,27 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
     ties,
   );
 
-  const failure = (cause: unknown, mayHaveRun = false, tasksDeclared = false) =>
+  /**
+   * `cause` as a `Failure`: `mayHaveRun` (a `tools/call` was sent), `tasksDeclared` (the request declared the tasks
+   * extension) and `timeLimit` (the limit it was sent with, which a timeout names; a request's other than a call when
+   * absent).
+   */
+  const failure = (
+    cause: unknown,
+    options: {
+      readonly mayHaveRun?: boolean;
+      readonly tasksDeclared?: boolean;
+      readonly timeLimit?: McpTimeLimitHit | undefined;
+    } = {},
+  ) =>
     classify(cause, {
-      mayHaveRun,
+      mayHaveRun: options.mayHaveRun ?? false,
       tokenSent: auth.tokenSent(),
       challenge,
       verdicts,
       serverName: target.name,
-      tasksDeclared,
+      tasksDeclared: options.tasksDeclared ?? false,
+      timeLimit: options.timeLimit ?? limits.request,
     });
 
   /** Notifications still being sent, which a close would abort: a Legacy `notifications/cancelled` above all. */
@@ -1156,7 +1182,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
 
           return client.connect(transport, options);
         },
-        catch: (cause) => failure(cause),
+        catch: (cause) => failure(cause, { timeLimit: limits.connect }),
       }).pipe(Effect.tapError(() => closeClient(client)));
 
       return { client, transport };
@@ -1315,7 +1341,8 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
 
       return Effect.tryPromise({
         try: (signal) => send(client, signal),
-        catch: (cause) => failure(cause, mayHaveRun, policy.declared?.() ?? false),
+        catch: (cause) =>
+          failure(cause, { mayHaveRun, tasksDeclared: policy.declared?.() ?? false, timeLimit: policy.limit }),
       });
     });
 
@@ -1392,6 +1419,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
           // A page has no deadline of its own: the walk's, below, ends a hung one.
           (client, signal) => listPage(client, params, { signal, timeout: walkMs }),
           false,
+          { limit: { ...limits.list, listed: kind } },
         );
 
         hints ??= Option.getOrUndefined(decodeCacheHints(page.result));
@@ -1419,7 +1447,10 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
     }).pipe(
       Effect.timeoutOrElse({
         duration: Duration.millis(walkMs),
-        orElse: () => Effect.fail(TimedOut.make({ message: `Listing ${kind} took over ${walkMs / 1000} s` })),
+        orElse: () =>
+          Effect.fail(
+            TimedOut.make({ message: `Listing ${kind} took over ${walkMs / 1000} s`, ...limits.list, listed: kind }),
+          ),
       }),
     );
 
@@ -1537,7 +1568,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
                 );
           },
           true,
-          { declared: () => offersTask(ctx) },
+          { declared: () => offersTask(ctx), limit: limits.call },
         ),
       );
 
@@ -2489,7 +2520,9 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
           Effect.timeoutOrElse({
             duration: Duration.millis(requestMs),
             orElse: () =>
-              Effect.fail(TimedOut.make({ message: `The GET stream did not open in ${requestMs / 1000} s` })),
+              Effect.fail(
+                TimedOut.make({ message: `The GET stream did not open in ${requestMs / 1000} s`, ...limits.request }),
+              ),
           }),
         );
       } else if (!getStream.open) {
