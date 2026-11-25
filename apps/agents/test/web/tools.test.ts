@@ -314,6 +314,68 @@ describe("web_search", () => {
     expect(text).toBe("Unable to search the web for q: HTTP 403 Forbidden: key [REDACTED] has no models");
   });
 
+  // SPI-1433: a search past Searches per call, which Anthropic answers with `max_uses_exceeded`, names the limit.
+  const capped = (content: ReadonlyArray<unknown>) =>
+    network(() =>
+      Response.json({
+        ...answer,
+        content: [
+          ...content,
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "srvtoolu_2",
+            content: { type: "web_search_tool_result_error", error_code: "max_uses_exceeded" },
+          },
+        ],
+      }),
+    );
+
+  it("names Searches per call, its value and where to change it, when the search model stops at it, results or not (SPI-1433)", async () => {
+    const line =
+      "The search model stopped at its 3-search Searches per call limit; change it under Tools › Web tools › Advanced › Searches per call.";
+    const tool = (transport: WebTransport) => webSearchTool(transport, endpoint, limits({ searchesPerCall: 3 }));
+    const found = textOf(await run(tool(capped(answer.content).transport), { query: "q" }));
+    expect(found).toContain("Title: One");
+    expect(found.endsWith(`\n\n${line}`)).toBe(true);
+    // No results: the answer says so, then the limit; not a failed search.
+    const none = textOf(await run(tool(capped([]).transport), { query: "q" }));
+    expect(none).not.toContain("Unable to search");
+    expect(none.endsWith(`\n\n${line}`)).toBe(true);
+    // A search that failed besides: the failure, then the limit.
+    const failed = capped([
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "s",
+        content: { type: "web_search_tool_result_error", error_code: "too_many_requests" },
+      },
+    ]);
+    expect(textOf(await run(tool(failed.transport), { query: "q" }))).toBe(
+      `Unable to search the web for q: the search failed (too_many_requests). ${line}`,
+    );
+    // Without the cut, nothing.
+    const whole = textOf(await run(tool(network(() => Response.json(answer)).transport), { query: "q" }));
+    expect(whole).not.toContain("Searches per call");
+  });
+
+  it("keeps the Searches per call line when the Tool output limit cuts the results (SPI-1433)", async () => {
+    const output = { maxBytes: 2048, maxLines: 40 };
+    const pages = Array.from({ length: 50 }, (_, index) => ({
+      type: "web_search_result",
+      url: `https://a.example/${index}`,
+      title: `Page ${index}`,
+    }));
+    const { transport } = capped([{ type: "web_search_tool_result", tool_use_id: "s", content: pages }]);
+    const outcome = await run(webSearchTool(transport, endpoint, DEFAULT_WEB_LIMITS, output), {
+      query: "q",
+      numResults: 50,
+    });
+    const text = textOf(outcome);
+    expect(text).toContain("[Output truncated");
+    expect(text.endsWith("change it under Tools › Web tools › Advanced › Searches per call.")).toBe(true);
+    expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(output.maxBytes);
+    expect(text.split("\n").length).toBeLessThanOrEqual(output.maxLines);
+  });
+
   it("says why when no endpoint can search, and sends nothing", async () => {
     const { transport, sent } = network(() => Response.json(answer));
     const none = {

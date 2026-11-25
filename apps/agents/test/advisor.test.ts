@@ -29,8 +29,10 @@ import {
   advisorExtension,
   advisorPrompt,
   advisorSettings,
+  correctiveTurnsText,
   parseFindings,
   reviewTimeoutText,
+  toolRoundsText,
   validFinding,
 } from "../src/extensions/advisor.ts";
 import { capText, toolCallRef } from "../src/extensions/advisor/evidence.ts";
@@ -237,6 +239,64 @@ describe("the Advisor", () => {
     );
   });
 
+  it("names Tool rounds per Review, its value and where to change it, when a Review uses its rounds without a report (SPI-1433)", async () => {
+    expect(toolRoundsText(8)).toBe(
+      "the Review stopped at its 8-round Tool rounds per Review limit without a report; change it under Extensions › Advisor › Advanced › Tool rounds per Review",
+    );
+    const read = (id: string) =>
+      fauxAssistantMessage([fauxToolCall("read", { path: "CHANGELOG.md" }, { id })], { stopReason: "toolUse" });
+    const { entries, status, observer } = await run(
+      { ...SETTINGS, reviewEvery: "request", maxToolRounds: 1 },
+      [bash("ls", "c1"), fauxAssistantMessage("Listed.")],
+      [read("r1"), read("r2"), read("r3")],
+    );
+    expect(status.status).toBe("done");
+    expect(observer.paused).toBe(toolRoundsText(1));
+    const notice = entries.find((entry) => entry.kind === ADVICE_ENTRY);
+    expect(notice?.data).toEqual({
+      severity: "paused",
+      message: `The Advisor paused: ${toolRoundsText(1)}. The agent keeps working; change the Advisor's settings on the Settings page to resume it.`,
+    });
+  });
+
+  it("names Corrective continuations, its value and where to change it, when a Blocker finds them used (SPI-1433)", async () => {
+    expect(correctiveTurnsText(1)).toBe(
+      "The Advisor's blocker waits for the next turn: this request stopped at its 1-continuation Corrective continuations limit; change it under Extensions › Advisor › Corrective continuations.",
+    );
+    const logged = vi.spyOn(console, "log");
+    const { entries, status } = await run(
+      { ...SETTINGS, reviewEvery: "request" },
+      [
+        bash("rm CHANGELOG.md", "c1"),
+        fauxAssistantMessage("Updated the changelog."),
+        bash("rm README.md", "c2"),
+        fauxAssistantMessage("Restored it."),
+      ],
+      [
+        report([
+          { severity: "blocker", message: "It deleted the changelog.", evidence: { refs: [toolCallRef("c1")] } },
+        ]),
+        report([{ severity: "blocker", message: "It deleted the README.", evidence: { refs: [toolCallRef("c2")] } }]),
+      ],
+    );
+    expect(status.status).toBe("done");
+    // In either order: the notice is data only, each Blocker a note for the agent.
+    expect(severities(entries).sort()).toEqual(["blocker", "blocker", "limit"]);
+    const notice = entries.find((entry) => (entry.data as { severity?: string } | undefined)?.severity === "limit");
+    expect(notice?.data).toEqual({ severity: "limit", message: correctiveTurnsText(1) });
+    // Data only: the agent never reads it.
+    expect(notice?.model).toBeUndefined();
+    expect(logged.mock.calls.map((call) => String(call[0]))).toContain(
+      JSON.stringify({
+        t3flare: "advisor-limit",
+        limit: "correctiveTurns",
+        value: 1,
+        did: "left a Blocker for the next turn",
+      }),
+    );
+    logged.mockRestore();
+  });
+
   it("delivers at most maxFindings per Review, and its prompts ask for at most that many (SPI-1320)", async () => {
     expect(SETTINGS.maxFindings).toBe(4);
     const logged = vi.spyOn(console, "log");
@@ -288,7 +348,8 @@ describe("the Advisor", () => {
         ]),
       ],
     );
-    expect(severities(entries)).toEqual(["blocker"]);
+    // With no corrective continuations, the Blocker's limit names itself (SPI-1433).
+    expect(severities(entries).sort()).toEqual(["blocker", "limit"]);
   });
 
   it("offers the Advisor no tools with maxToolRounds 0, and its Review still reports (SPI-1320)", async () => {

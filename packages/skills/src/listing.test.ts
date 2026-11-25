@@ -45,6 +45,16 @@ describe("the listing", () => {
     expect(text.split("\n").at(-1)).toBe("7 more skills in this repository are not listed.");
   });
 
+  it("ends with the line `omittedLine` gives for what the cap left out, given the cap (SPI-1433)", () => {
+    const line = (omitted: number, cap: number | undefined) => `${omitted} past ${cap}`;
+    expect(
+      formatSkills({ skills: [skill("a")], omitted: 7, repoSkills: 100 }, line)
+        .split("\n")
+        .at(-1),
+    ).toBe("7 past 100");
+    expect(formatSkills({ skills: [skill("a")], omitted: 0 }, line)).not.toContain("past");
+  });
+
   it("is empty when nothing is listed", () => {
     expect(formatSkills({ skills: [], omitted: 0 })).toBe("");
     expect(formatSkills({ skills: [skill("owner-only", { disableModelInvocation: true })], omitted: 0 })).toBe("");

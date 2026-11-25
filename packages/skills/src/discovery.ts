@@ -25,11 +25,15 @@ export interface SkippedSkill {
   readonly reason: string;
 }
 
-/** What discovery found: the Skills in precedence order, those skipped, and how many Repo skills the cap left out. */
+/**
+ * What discovery found: the Skills in precedence order, those skipped, how many Repo skills the cap left out, and the
+ * cap (`repoSkills`, `SkillLimits.repoSkills`) when it left any out, so the listing can name it.
+ */
 export interface SkillDiscovery {
   readonly skills: ReadonlyArray<Skill>;
   readonly skipped: ReadonlyArray<SkippedSkill>;
   readonly omitted: number;
+  readonly repoSkills?: number;
 }
 
 export interface ListedEntry {
@@ -284,5 +288,5 @@ export const discoverSkills = async (
     skills.push(parsed);
     repo++;
   }
-  return { skills, skipped, omitted };
+  return { skills, skipped, omitted, ...(omitted > 0 ? { repoSkills: limits.repoSkills } : {}) };
 };

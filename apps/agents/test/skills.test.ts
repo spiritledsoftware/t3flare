@@ -36,6 +36,17 @@ describe("the skills section", () => {
     expect(text).toMatch(/<\/available_skills>\n<\/skills>$/);
   });
 
+  it("ends with the Repo skills past the cap, naming Repo skills listed, its value and where to change it (SPI-1433)", async () => {
+    const text = await skillsSectionText(workspace({ skills: [fruit], skipped: [], omitted: 7, repoSkills: 100 }));
+    expect(text).toMatch(
+      /\n7 more skills in this repository are not listed: the listing stopped at its 100-skill Repo skills listed limit; change it under Environment › Advanced › Repo skills listed\.\n<\/skills>$/,
+    );
+    // A Workspace from before the cap was carried: the limit by name alone.
+    expect(await skillsSectionText(workspace({ skills: [fruit], skipped: [], omitted: 7 }))).toContain(
+      "not listed: the listing stopped at its Repo skills listed limit; change it under",
+    );
+  });
+
   it("is empty, a text that freezes, when nothing is listed; absent without a Workspace", async () => {
     expect(await skillsSectionText(workspace({ skills: [], skipped: [], omitted: 0 }))).toBe("");
     expect(await skillsSectionText(undefined)).toBeUndefined();
@@ -141,7 +152,11 @@ describe("the Workspace DO's discovery log", () => {
       Array.from({ length: 5 }, (_, at) => [`${ROOT}/.agents/skills/s${at}/SKILL.md`, skill(`s${at}`, "one")]),
     );
     const found = await workspaceSkills(readEnv(files), ROOT, [], { ...DEFAULTS, repoSkillsListed: 3 });
-    expect({ listed: found.skills.length, omitted: found.omitted }).toEqual({ listed: 3, omitted: 2 });
+    expect({ listed: found.skills.length, omitted: found.omitted, repoSkills: found.repoSkills }).toEqual({
+      listed: 3,
+      omitted: 2,
+      repoSkills: 3,
+    });
   });
 
   it("keeps packages/skills' defaults in step with the setting's default and the listing constant (SPI-1387)", () => {

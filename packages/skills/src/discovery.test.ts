@@ -154,6 +154,8 @@ describe("the rules, the same for the agent and the composer", () => {
     expect(found.skills[0]?.name).toBe("near");
     expect(found.skills.at(-1)?.name).toBe("s098");
     expect(found.omitted).toBe(4);
+    // The cap it ran with, for the listing to name (SPI-1433).
+    expect(found.repoSkills).toBe(100);
   });
 
   it("names its listing limit and value when a directory's listing stops at it (SPI-1387)", async () => {

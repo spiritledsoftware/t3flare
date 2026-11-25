@@ -46,6 +46,9 @@ import {
   ADVISOR_CONCERN_COOLDOWN_TURNS,
   ADVISOR_MAX_FINDINGS,
   ADVISOR_MAX_NITS,
+  changeItUnder,
+  limitHit,
+  limitValue,
   type SettingValue,
   timeLimitHit,
 } from "@t3flare/harness-registry";
@@ -134,7 +137,7 @@ export interface AdvisorSettings {
   readonly catchUpWaitMs: number;
 }
 
-/** A fixed Advisor limit, hit, in the log (SPI-1388, ADR-0049 §4): its name, its value and what it did. */
+/** An Advisor limit, hit, in the log (SPI-1388, ADR-0049 §4): its constant or setting, its value and what it did. */
 const limitHitLog = (limit: string, value: number, did: string): void =>
   console.log(JSON.stringify({ t3flare: "advisor-limit", limit, value, did }));
 
@@ -252,6 +255,23 @@ export const reviewTimeoutText = (reviewTimeoutMs: number): string =>
   `the Review did not finish within ${timeLimitHit(reviewTimeoutMs / 1_000, "second", { extension: "advisor", key: "reviewTimeoutSeconds" })}`;
 
 /**
+ * Why a Review that used its tool rounds (`maxToolRounds`) without a report paused the Advisor: the limit with its value
+ * and, an Advanced setting, where to change it (ADR-0049 §4). pi-durable ends such a run `unanswered`, `turn_limit`.
+ */
+export const toolRoundsText = (maxToolRounds: number): string =>
+  `the Review stopped at its ${limitValue(maxToolRounds, "round")} Tool rounds per Review limit without a report${changeItUnder({ extension: "advisor", key: "maxToolRounds" })}`;
+
+/**
+ * The Advisor's notice when a Blocker found as the agent answers gets no corrective continuation: the request used its
+ * `correctiveTurns` (none, at 0), named with where to change it (ADR-0049 §4).
+ */
+export const correctiveTurnsText = (correctiveTurns: number): string =>
+  limitHit(
+    `The Advisor's blocker waits for the next turn: this request stopped at its ${limitValue(correctiveTurns, "continuation")} Corrective continuations limit`,
+    { extension: "advisor", key: "correctiveTurns" },
+  );
+
+/**
  * The Advisor of one Session (pi-advisor's observer): turns observed through the agent's generation hooks, Reviews in
  * its Advisor Session, findings delivered to the agent's conversation.
  */
@@ -340,6 +360,11 @@ export class AdvisorObserver {
       this.#corrections++;
       return ADVISOR_CONTINUATION;
     }
+    if (this.#blockerPending) {
+      const { correctiveTurns } = this.#settings;
+      limitHitLog("correctiveTurns", correctiveTurns, "left a Blocker for the next turn");
+      await this.#notice(conversationId, "limit", correctiveTurnsText(correctiveTurns), BACKGROUND_CONTEXT);
+    }
     // The request ends: its Nit cap and Corrective Turn budget start over with the next.
     this.#blockerPending = false;
     this.#nits = 0;
@@ -372,22 +397,24 @@ export class AdvisorObserver {
   async #pause(conversationId: ConversationId, reason: string, context: ChordContext): Promise<void> {
     this.#paused = reason;
     console.warn(JSON.stringify({ t3flare: "advisor-paused", reason }));
+    await this.#notice(
+      conversationId,
+      "paused",
+      `The Advisor paused: ${reason}. The agent keeps working; change the Advisor's settings on the Settings page to resume it.`,
+      context,
+    );
+  }
+
+  /** A notice t3 shows as "Advisor <severity>": data only, the agent never reads it. */
+  async #notice(
+    conversationId: ConversationId,
+    severity: "paused" | "limit",
+    message: string,
+    context: ChordContext,
+  ): Promise<void> {
     const conversation = await (await this.#harness()).conversation(conversationId, context);
-    // Data only: t3 shows it, the agent never reads it.
     await conversation
-      ?.submit(
-        {
-          type: "write",
-          entry: {
-            kind: ADVICE_ENTRY,
-            data: {
-              severity: "paused",
-              message: `The Advisor paused: ${reason}. The agent keeps working; change the Advisor's settings on the Settings page to resume it.`,
-            },
-          },
-        },
-        context,
-      )
+      ?.submit({ type: "write", entry: { kind: ADVICE_ENTRY, data: { severity, message } } }, context)
       .catch(() => undefined);
   }
 
@@ -495,6 +522,8 @@ export class AdvisorObserver {
       await conversation.abort(context).catch(() => undefined);
       throw new Error(reviewTimeoutText(reviewTimeoutMs));
     }
+    if (settled.status !== "done" && (settled as { reason?: unknown }).reason === "turn_limit")
+      throw new Error(toolRoundsText(this.#settings.maxToolRounds));
     if (settled.status !== "done")
       throw new Error(
         `the Review ended without a report (${JSON.stringify((settled as { reason?: unknown }).reason ?? settled.status)})`,

@@ -175,6 +175,7 @@ export const withEnvironmentSkillsFor = (
       ...repo.skipped.filter((skip) => !skip.path.startsWith(`${SKILLS_MOUNT}/`)),
     ],
     omitted: repo.omitted,
+    ...(repo.repoSkills === undefined ? {} : { repoSkills: repo.repoSkills }),
   };
 };
 
