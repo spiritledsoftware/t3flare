@@ -1116,3 +1116,19 @@ Extends the SPI-1366 refinement's "The Sweep at the platform's limit" and its Gi
 - **The relist gate is per account.** An account missing from the GitHub App's installations is listed again at most
   once a retry for that account; one account's relist no longer holds back another's, newly installed. `forget(account)`
   clears that account's gate.
+
+## Refinement (SPI-1394, 2026-11-25): grep answers are budgeted by line, and `web_search` stores a bounded query
+
+Extends the SPI-1388 refinement's "ls, find and grep as pi" item; nothing above is superseded.
+
+- **grep, line by line.** The 4 MiB grep answer (`GREP_OUTPUT_BYTES`) counts each match's text and its context lines.
+  A match too big for any answer of its own is no longer dropped: its lines are cut to fit the room left, the short
+  ones kept whole, each cut one ending with a marker that names the limit, and the answer ends there. A match that
+  would fit an answer of its own is dropped once the answer is full, as before. The answer's note says both.
+- **grep on the Container.** Its read of ripgrep's events stops at `GREP_OUTPUT_BYTES`, as before, but now says so in
+  the answer's note, naming the limit; it once cut silently. Its matches then take the same 4 MiB answer bound as the
+  Workspace's, since each carries its context and the answer can outgrow the events read.
+- **`web_search`'s stored query.** `details.query` and the text of a failed search keep at most 8 KiB of the query
+  (`SEARCH_QUERY_STORED_BYTES`, a sanity bound under the Session row, ADR-0048), marked when cut. The model's own call
+  arguments and the query sent to the search model keep it whole. The stored result lists' budget never goes below
+  zero.

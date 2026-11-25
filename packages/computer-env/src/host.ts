@@ -6,6 +6,7 @@ import type { Workspace } from "@cloudflare/computer";
 import { err, type ExecutionEnv, type FileInfo, type FileKind, LineScanner, ok } from "@earendil-works/pi-durable/env";
 import { type ContainerAccess, ContainerFiles, GREP_OUTPUT_BYTES, LISTING_BYTES } from "./container-files.ts";
 import { HARNESS_ROOT, isContainerOnly } from "./container-paths.ts";
+import { jsonTextBytes, jsonTextPrefix } from "@t3flare/workspace-client";
 import { HostFailure, posixCode, toWireError } from "./failure.ts";
 import { listFiles } from "./list-files.ts";
 import { ancestors, basename, dirname, resolve } from "./paths.ts";
@@ -13,6 +14,7 @@ import {
   type DirectoryEntry,
   type EnvRequest,
   type EnvResponse,
+  type GrepMatch,
   type HostOperation,
   fromResult,
   type HostOperations,
@@ -107,25 +109,104 @@ const MOST_ENTRIES = Math.floor(LISTING_BYTES / itemBytes({ name: "", isDirector
 const MOST_FOUND = Math.floor(LISTING_BYTES / itemBytes({ path: "/", type: "dir" }));
 const MOST_MATCHES = Math.floor(GREP_OUTPUT_BYTES / itemBytes({ path: "/", line: 0, text: "" }));
 
+/** The name a cut answer gives its byte bound, with its value. */
+const boundName = (bound: number): string => `the Workspace's fixed ${bound / 1024 / 1024} MiB answer limit`;
+
 /**
  * `items`, its first ones within `bound` bytes of JSON (`LISTING_BYTES` or `GREP_OUTPUT_BYTES`, the bounds the
  * Container's scripts keep): an answer the Workspace DO can hold and send. A cut answer, or one whose search stopped at
- * `stoppedAt` items for the bound (`MOST_FOUND`, `MOST_MATCHES`), says so, naming the bound and its value.
+ * `stoppedAt` items for the bound (`MOST_FOUND`, `MOST_MATCHES`), says so, naming the bound and its value. An item too
+ * big for any answer of its own is given to `fit` with the room left, and kept as it returns it, ending the answer
+ * (SPI-1394). `readCut` is a cut the search itself made before the answer was built (the Container's read, SPI-1394),
+ * said first.
  */
-const withinBytes = <T>(items: readonly T[], bound: number, stoppedAt: number | undefined): Listed<T> => {
-  const named = `the Workspace's fixed ${bound / 1024 / 1024} MiB answer limit`;
+const withinBytes = <T>(
+  items: readonly T[],
+  bound: number,
+  stoppedAt: number | undefined,
+  { fit, readCut }: { readonly fit?: (item: T, room: number) => T | undefined; readonly readCut?: string } = {},
+): Listed<T> => {
+  const named = boundName(bound);
+  let kept: readonly T[] = items;
+  let fitted = false;
   let bytes = 2;
 
   for (const [index, item] of items.entries()) {
-    bytes += itemBytes(item);
+    const size = itemBytes(item);
 
-    if (bytes > bound) return { items: items.slice(0, index), cut: `${items.length - index} more found past ${named}` };
+    if (bytes + size <= bound) {
+      bytes += size;
+      continue;
+    }
+
+    const shrunk = fit !== undefined && 2 + size > bound ? fit(item, bound - bytes) : undefined;
+
+    fitted = shrunk !== undefined;
+    kept = shrunk === undefined ? items.slice(0, index) : [...items.slice(0, index), shrunk];
+    break;
   }
 
-  return stoppedAt === undefined
-    ? { items }
-    : { items, cut: `the search stopped at ${stoppedAt.toLocaleString("en-US")}, as many as ${named} can carry` };
+  const past = items.length - kept.length;
+  const stopped = past === 0 && !fitted && stoppedAt !== undefined;
+
+  // Each cut, in the order it happened: the search's own, a match cut to fit, the matches left out, the search's stop.
+  const notes = [
+    ...(readCut === undefined ? [] : [readCut]),
+    ...(fitted ? [`a match too long for ${named} was cut short`] : []),
+    ...(past > 0 ? [`${past} more found past ${named}`] : []),
+    ...(stopped ? [`the search stopped at ${stoppedAt.toLocaleString("en-US")}, as many as ${named} can carry`] : []),
+  ];
+
+  return notes.length === 0 ? { items: kept } : { items: kept, cut: notes.join("; ") };
 };
+
+/** `text`'s longest start that takes at most `room` bytes inside a JSON string (`jsonTextPrefix`). */
+const jsonTextHead = (text: string, room: number): string => text.slice(0, jsonTextPrefix(text, room));
+
+/**
+ * A grep match too big for any answer (`withinBytes`' `fit`), its lines (the match's and its context's) cut to fit
+ * `room` bytes of JSON, each cut one marked, naming the bound (SPI-1394). The shortest lines are kept whole and the
+ * longest share what is left. None when `room` cannot hold even the markers.
+ */
+const fitMatch =
+  (bound: number) =>
+  (match: GrepMatch, room: number): GrepMatch | undefined => {
+    const marker = ` … [line cut short at ${boundName(bound)}]`;
+    const markerBytes = jsonTextBytes(marker);
+    const context = match.context ?? [];
+    const texts = [match.text, ...context.map((line) => line.text)];
+    const withTexts = (kept: readonly string[]): GrepMatch => ({
+      ...match,
+      text: kept[0] ?? "",
+      ...(match.context === undefined
+        ? {}
+        : { context: context.map((line, at) => ({ ...line, text: kept[at + 1] ?? "" })) }),
+    });
+    const sizes = texts.map(jsonTextBytes);
+    const kept = texts.map(() => "");
+    let left = room - itemBytes(withTexts(kept));
+
+    for (const [rank, at] of texts
+      .map((_, at) => at)
+      .sort((a, b) => sizes[a]! - sizes[b]!)
+      .entries()) {
+      const share = Math.floor(left / (texts.length - rank));
+      const text = texts[at]!;
+
+      if (sizes[at]! <= share) {
+        kept[at] = text;
+        left -= sizes[at]!;
+        continue;
+      }
+
+      if (share < markerBytes) return undefined;
+
+      kept[at] = `${jsonTextHead(text, share - markerBytes)}${marker}`;
+      left -= jsonTextBytes(kept[at]!);
+    }
+
+    return withTexts(kept);
+  };
 
 /** The part of an environment that reads files, which code running next to them (the discovery of skills
  * and Prompt templates) needs. */
@@ -281,8 +362,17 @@ export class WorkspaceEnvHost {
         return attempt(path, async () => ({ items: await container.readdir(...request.args) }));
       case "find":
         return attempt(path, async () => ({ items: await container.find(...request.args) }));
+      // Its matches each carry their context, so the answer can be several times the events read: it is bounded as the
+      // Workspace's is, after any cut of the read (SPI-1394).
       case "grep":
-        return attempt(path, async () => ({ items: await container.grep(...request.args) }));
+        return attempt(path, async () => {
+          const read = await container.grep(...request.args);
+
+          return withinBytes(read.items, GREP_OUTPUT_BYTES, undefined, {
+            fit: fitMatch(GREP_OUTPUT_BYTES),
+            ...(read.cut === undefined ? {} : { readCut: read.cut }),
+          });
+        });
       default:
         return {
           ok: false,
@@ -593,6 +683,7 @@ export class WorkspaceEnvHost {
             })),
             GREP_OUTPUT_BYTES,
             limit < options.limit && matches.length >= limit ? limit : undefined,
+            { fit: fitMatch(GREP_OUTPUT_BYTES) },
           );
         }),
     };

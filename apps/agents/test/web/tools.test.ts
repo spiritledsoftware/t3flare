@@ -18,6 +18,7 @@ import {
   ANSWER_MAX_BYTES,
   readAnswer,
   resultsBytes,
+  SEARCH_QUERY_STORED_BYTES,
   SUMMARY_CUT_NOTE,
   systemPrompt,
   webSearchTool,
@@ -369,6 +370,38 @@ describe("web_search", () => {
     const outcome = await run(webSearchTool(transport, endpoint), { query });
     expect(JSON.parse(sent[0]?.body ?? "{}").messages[0].content).toBe(query);
     expect(textOf(outcome)).toContain("snippet 4");
+  });
+
+  it("stores a huge query cut at 8 KiB, marked, bounds its error text, and still fits the results (SPI-1394)", async () => {
+    // About 8 MB of JSON escapes: past what the Session row holds, and past the results' whole budget.
+    const query = '"'.repeat(4_000_000);
+    const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
+    const marker = " … [query cut at web_search's fixed 8 KiB stored-query limit]";
+    const { transport, sent } = network(() => Response.json(answer));
+    const outcome = await run(webSearchTool(transport, endpoint), { query });
+    if (!outcome.ok) throw new Error(outcome.error);
+    // The search model is sent the whole query; only what is stored is cut.
+    expect(JSON.parse(sent[0]?.body ?? "{}").messages[0].content).toBe(query);
+    const details = outcome.result.details as { query: string; results: unknown[] };
+    expect(details.query).toBe(`${'"'.repeat(SEARCH_QUERY_STORED_BYTES / 2)}${marker}`);
+    expect(details.results).toHaveLength(2);
+    expect((outcome.result.structuredOutput as { results: unknown[] }).results).toHaveLength(2);
+    expect(bytes(outcome.result)).toBeLessThan(SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES);
+
+    const failed = network(() => Response.json({ type: "error", error: { message: "overloaded" } }, { status: 529 }));
+    const text = textOf(await run(webSearchTool(failed.transport, endpoint), { query }));
+    expect(
+      text.startsWith(`Unable to search the web for ${'"'.repeat(SEARCH_QUERY_STORED_BYTES / 2)}${marker}: `),
+    ).toBe(true);
+    expect(text.length).toBeLessThan(SEARCH_QUERY_STORED_BYTES);
+
+    // A query within the limit is stored whole.
+    const whole = await run(webSearchTool(network(() => Response.json(answer)).transport, endpoint), {
+      query: "q".repeat(SEARCH_QUERY_STORED_BYTES),
+    });
+    expect((whole.ok ? whole.result.details : undefined) as { query: string }).toMatchObject({
+      query: "q".repeat(SEARCH_QUERY_STORED_BYTES),
+    });
   });
 
   it("tells the search model how many searches it may run (SPI-1321)", async () => {

@@ -294,7 +294,7 @@ describe("the Container's file operations", () => {
           include: undefined,
           exclude: ["**/node_modules/**"],
         }),
-      ).toEqual([{ path: join(directory, "package.json"), line: 1, text: '{"name":"effect"}' }]);
+      ).toEqual({ items: [{ path: join(directory, "package.json"), line: 1, text: '{"name":"effect"}' }] });
     },
   );
 
@@ -310,17 +310,19 @@ describe("the Container's file operations", () => {
         include: undefined,
         exclude: [],
       }),
-    ).toEqual([
-      {
-        path,
-        line: 2,
-        text: "export const b = 2;",
-        context: [
-          { line: 1, text: "export const a = 1;", isMatch: false },
-          { line: 2, text: "export const b = 2;", isMatch: true },
-        ],
-      },
-    ]);
+    ).toEqual({
+      items: [
+        {
+          path,
+          line: 2,
+          text: "export const b = 2;",
+          context: [
+            { line: 1, text: "export const a = 1;", isMatch: false },
+            { line: 2, text: "export const b = 2;", isMatch: true },
+          ],
+        },
+      ],
+    });
 
     expect(
       await files().grep("a = 1.", join(root, "pkg"), {
@@ -331,7 +333,7 @@ describe("the Container's file operations", () => {
         include: undefined,
         exclude: [],
       }),
-    ).toEqual([]);
+    ).toEqual({ items: [] });
   });
 });
 
@@ -348,7 +350,7 @@ describe("grep's bounds (SPI-1361)", () => {
         include: undefined,
         exclude: [],
       });
-      expect(found[0]?.context?.map((line) => line.line)).toEqual([1, 2]);
+      expect(found.items[0]?.context?.map((line) => line.line)).toEqual([1, 2]);
       // A walk over the whole range would take far longer than this.
     },
     5_000,
@@ -358,7 +360,7 @@ describe("grep's bounds (SPI-1361)", () => {
   // which the bound must cut, so it cannot shrink. It takes about 3 s alone but 30-40 s under the full check's load on
   // CI runners, past vitest's 30 s default, hence its own timeout.
   it.skipIf(!hasRg)(
-    "reads at most GREP_OUTPUT_BYTES of ripgrep's events, whatever the limit and context",
+    "reads at most GREP_OUTPUT_BYTES of ripgrep's events, whatever the limit and context, naming the cut",
     async () => {
       const path = join(root, "big.txt");
       writeFileSync(path, "match this line\n".repeat(200_000));
@@ -370,10 +372,14 @@ describe("grep's bounds (SPI-1361)", () => {
         include: undefined,
         exclude: [],
       });
-      expect(found.length).toBeGreaterThan(0);
-      expect(found.length).toBeLessThan(200_000);
+      expect(found.items.length).toBeGreaterThan(0);
+      expect(found.items.length).toBeLessThan(200_000);
       // Each event is a JSON object of well over 64 bytes, so the matches read fit the byte bound.
-      expect(found.length * 64).toBeLessThan(GREP_OUTPUT_BYTES);
+      expect(found.items.length * 64).toBeLessThan(GREP_OUTPUT_BYTES);
+      // The cut is named, with its value (SPI-1394).
+      expect(found.cut).toBe(
+        "the search read only the first 4 MiB of ripgrep's output, the Container's fixed grep read limit",
+      );
     },
     120_000,
   );

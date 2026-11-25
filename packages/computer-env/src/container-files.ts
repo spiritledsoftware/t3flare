@@ -10,7 +10,7 @@ import { failureMessage } from "@t3flare/workspace-client";
 import { HARNESS_ROOT, isContainerOnly } from "./container-paths.ts";
 import { HostFailure } from "./failure.ts";
 import { basename } from "./paths.ts";
-import type { DirectoryEntry, FindOptions, FoundEntry, GrepLine, GrepMatch, GrepOptions } from "./wire.ts";
+import type { DirectoryEntry, FindOptions, FoundEntry, GrepLine, GrepMatch, GrepOptions, Listed } from "./wire.ts";
 
 /** How a script on the Container ended: its exit status (null when it did not run to its end), and its two streams. */
 export type ContainerScriptRun = {
@@ -216,15 +216,18 @@ exit 0
  * The directory searched (`$P`, or the one of file `$P`), then ripgrep's JSON events for `$PATTERN` there, with the
  * options in the positional arguments. ripgrep runs in that directory, as it tests its globs against the path it
  * prints. With `pipefail` the pipeline's status is ripgrep's (`head` ends with 0): 1 for no match, 141 when `head`
- * stopped reading, 2 for an error, which leaves the matches found elsewhere (in a file it could not read, say).
+ * stopped reading, 2 for an error, which leaves the matches found elsewhere (in a file it could not read, say). It
+ * reads one byte past `GREP_OUTPUT_BYTES` (`$BYTES`), so events longer than that show as cut.
  */
 const GREP = String.raw`${PRELUDE}exists
 if [ -d "$P" ]; then root=$P; target=.; else root=$(dirname -- "$P"); target="./$(basename -- "$P")"; fi
 out=$(cd -- "$root" 2>&1) || failed "$out"
 cd -- "$root"
 printf '%s\n' "$root"
-# rg's stderr is dropped: unread here, it would reach the answer uncapped.
-out=$(rg --json --no-ignore --hidden --no-config "$@" -e "$PATTERN" -- "$target" 2>/dev/null | head -n "$LIMIT" | head -c "$BYTES")
+# rg's stderr is dropped: unread here, it would reach the answer uncapped. The '.' printed after the events keeps
+# their trailing newline, which $(...) would drop, so the bytes read are counted exactly; the status is still the
+# pipeline's.
+out=$(rg --json --no-ignore --hidden --no-config "$@" -e "$PATTERN" -- "$target" 2>/dev/null | head -n "$LIMIT" | head -c "$BYTES"; code=$?; printf .; exit "$code")
 code=$?
 if [ "$code" = 2 ]; then
   case "$out" in *'"type":"match"'*) ;; *) exit 1 ;; esac
@@ -235,6 +238,7 @@ printf '%s\n' "$out"
 `;
 
 const decoder = new TextDecoder();
+const encoder = new TextEncoder();
 
 /** The kinds `stat`'s `%F` names, as pi-durable's. */
 const KINDS: ReadonlyMap<string, FileKind> = new Map([
@@ -550,7 +554,11 @@ export class ContainerFiles {
     return found;
   }
 
-  async grep(pattern: string, path: string, options: GrepOptions): Promise<GrepMatch[]> {
+  /**
+   * The matches, read from at most `GREP_OUTPUT_BYTES` of ripgrep's events: a read cut there says so, naming the bound
+   * (SPI-1394), as the Workspace's answer does.
+   */
+  async grep(pattern: string, path: string, options: GrepOptions): Promise<Listed<GrepMatch>> {
     const args = [
       ...(options.ignoreCase ? ["-i"] : []),
       ...(options.regex ? [] : ["-F"]),
@@ -566,16 +574,24 @@ export class ContainerFiles {
     const out = await this.#run(
       path,
       GREP,
-      { P: path, PATTERN: pattern, LIMIT: String(events), BYTES: String(GREP_OUTPUT_BYTES) },
+      { P: path, PATTERN: pattern, LIMIT: String(events), BYTES: String(GREP_OUTPUT_BYTES + 1) },
       { args },
     );
+
+    // The events follow the directory's line, and the '.' and newline the script prints after them end them.
+    const printedFrom = out.indexOf("\n") + 1;
+    const printedTo = out.endsWith(".\n") ? out.length - 2 : out.length;
+    const cut =
+      (printedTo - printedFrom) * 3 > GREP_OUTPUT_BYTES &&
+      encoder.encode(out.slice(printedFrom, printedTo)).byteLength > GREP_OUTPUT_BYTES;
 
     // Every line of each file in order, then each match with the lines around it.
     const files = new Map<string, Map<number, GrepLine>>();
 
     const matches: Array<{ readonly path: string; readonly line: number; readonly text: string }> = [];
 
-    const [root = path, ...printed] = out.split("\n");
+    const root = printedFrom === 0 ? path : out.slice(0, printedFrom - 1);
+    const printed = out.slice(printedFrom, printedTo).split("\n");
 
     for (const raw of printed) {
       if (raw === "") continue;
@@ -605,7 +621,7 @@ export class ContainerFiles {
       }
     }
 
-    return matches.map((match) => {
+    const items = matches.map((match) => {
       if (options.context === 0) return match;
 
       const lines = files.get(match.path) ?? new Map<number, GrepLine>();
@@ -622,6 +638,13 @@ export class ContainerFiles {
 
       return { ...match, context };
     });
+
+    return cut
+      ? {
+          items,
+          cut: `the search read only the first ${GREP_OUTPUT_BYTES / 1024 / 1024} MiB of ripgrep's output, the Container's fixed grep read limit`,
+        }
+      : { items };
   }
 
   async #copyOut(path: string, script: string, env: Record<string, string>): Promise<Uint8Array> {
