@@ -3,12 +3,14 @@
 import { DEFAULT_COMMAND_MINUTES, deadlineMs, OFF_DEADLINE_MS } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
+import { commandLimit } from "../src/workspace/execLimit.ts";
 import {
   CANCEL_KILL_AFTER_MS,
   CANCELLABLE_RUN_MS,
   type DroppedRun,
   dropOrphanedRuns,
   EARLY_CANCEL_MS,
+  gitDeadline,
   gitDeadlineMs,
   RunCancels,
 } from "../src/workspace/runCancels.ts";
@@ -196,5 +198,14 @@ describe("gitDeadlineMs", () => {
     expect(commandMs).toBe(OFF_DEADLINE_MS);
     expect(gitDeadlineMs({}, commandMs)).toBe(OFF_DEADLINE_MS);
     expect(gitDeadlineMs({}, deadlineMs(2, 60_000))).toBe(120_000);
+  });
+});
+
+describe("gitDeadline (SPI-1430)", () => {
+  it("names the command time limit only for a run whose deadline is that limit's", () => {
+    const command = commandLimit(2);
+    expect(gitDeadline({}, command)).toBe(command);
+    expect(gitDeadline({ timeoutMs: 5_000 }, command)).toEqual({ timeoutMs: 5_000, limit: undefined });
+    expect(gitDeadline({ runId: "r" }, command)).toEqual({ timeoutMs: CANCELLABLE_RUN_MS, limit: undefined });
   });
 });

@@ -1,3 +1,4 @@
+// @effect-diagnostics globalDate:off
 // Container-only paths (the prod bug of 2026-11-11): a repo's submodules live on its Container's disk alone, like
 // `node_modules`, never in the Workspace DO's files. t3flare's own `t3code` submodule is 31,946 files: t3's worktree
 // creation (`git submodule update --init --recursive`) and the agent checked it out, computer pulled every file into the
@@ -7,6 +8,7 @@
 // backend is made again whenever the patterns a start needs differ: the static `CONTAINER_IGNORE`, the submodules'
 // git directories (`.git/modules`), and each path `.gitmodules` names (read from the DO's files at each start).
 import type { WorkspaceBackend } from "@cloudflare/computer";
+import { timeLimitHit } from "@t3flare/harness-registry";
 import { SKILLS_LOCK_SCRIPT } from "@t3flare/workspace-client";
 
 import { REPO_ROOT, WORKSPACE_ROOT } from "./constants.ts";
@@ -119,6 +121,27 @@ export interface ContainerOnlyOptions {
   readonly connected?: (handle: { readonly runtimeId?: string | undefined }) => Promise<void>;
 }
 
+/** computer's refusal of a running Container started with other patterns. */
+const MISMATCH = "ContainerIgnoreMismatchError";
+
+/**
+ * `connect`, its failure at or past its wait (`connectTimeoutMs`) named as the Container start wait, with its seconds and
+ * where to change it (SPI-1430), computer's error after it and kept as the `cause`: `startRefusal` still finds a budget
+ * refusal in it. A failure before the wait ran out (a refusal) is computer's, as it is.
+ */
+const startWaited = async <Handle>(connect: () => Promise<Handle>, connectTimeoutMs: number): Promise<Handle> => {
+  const started = Date.now();
+  try {
+    return await connect();
+  } catch (error) {
+    if (Date.now() - started < connectTimeoutMs || (error instanceof Error && error.name === MISMATCH)) throw error;
+    const seconds = Math.round(connectTimeoutMs / 1000);
+    const limit = timeLimitHit(seconds, "second", { environment: "containerConnectSeconds" });
+    const said = error instanceof Error ? error.message : String(error);
+    throw new Error(`the Container did not answer within ${limit}. ${said}`, { cause: error });
+  }
+};
+
 export class ContainerOnlyBackend implements WorkspaceBackend {
   readonly id: string;
   readonly type: string;
@@ -165,14 +188,15 @@ export class ContainerOnlyBackend implements WorkspaceBackend {
       this.#current = { patterns, connectTimeoutMs, backend: this.#options.make(patterns, connectTimeoutMs) };
     }
     const backend = this.#current.backend;
+    const connect = () => startWaited(() => backend.connect(host), connectTimeoutMs);
     let handle: Awaited<ReturnType<WorkspaceBackend["connect"]>>;
     try {
-      handle = await backend.connect(host);
+      handle = await connect();
     } catch (error) {
-      if (!(error instanceof Error && error.name === "ContainerIgnoreMismatchError")) throw error;
+      if (!(error instanceof Error && error.name === MISMATCH)) throw error;
       this.#options.log?.({ t3flare: "container-patterns-restart", error: String(error) });
       await this.#options.stop();
-      handle = await backend.connect(host);
+      handle = await connect();
     }
     await this.#options.connected?.(handle).catch(() => undefined);
     return handle;

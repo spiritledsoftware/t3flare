@@ -1,11 +1,11 @@
-// @effect-diagnostics nodeBuiltinImport:off globalTimers:off
+// @effect-diagnostics nodeBuiltinImport:off globalTimers:off globalDate:off
 // Container-only submodules (the prod bug of 2026-11-11): the patterns a Container starts with, and the backend made
 // again when they change.
 import * as fs from "node:fs";
 import { join } from "node:path";
 
-import { SKILLS_LOCK_SCRIPT } from "@t3flare/workspace-client";
-import { describe, expect, it } from "vitest";
+import { describeFailure, SKILLS_LOCK_SCRIPT } from "@t3flare/workspace-client";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CONTAINER_IGNORE } from "../src/workspace/constants.ts";
 import {
@@ -162,6 +162,58 @@ describe("the Container backend made again when the patterns change", () => {
     release();
     await second;
     expect(seen.slice(3)).toEqual(["start r2", "end r2"]);
+  });
+});
+
+describe("a Container start that runs out its wait names it (SPI-1430)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // A backend whose connect fails `afterMs` into the start, with `error`.
+  const failing = (error: Error, afterMs: number, connectTimeoutMs = 120_000) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    return new ContainerOnlyBackend({
+      initial: ["/a"],
+      patterns: () => Promise.resolve(["/a"]),
+      stop: () => Promise.resolve(),
+      connectTimeoutMs: () => connectTimeoutMs,
+      make: (): PatternedBackend => ({
+        id: "container-shell",
+        type: "cloudflare-container",
+        description: "a container",
+        handleFetch: () => Promise.resolve(new Response("")),
+        connect: () => {
+          vi.setSystemTime(Date.now() + afterMs);
+          return Promise.reject(error);
+        },
+      }),
+    });
+  };
+
+  it("one that failed at its deadline names the wait, its seconds and its place, with computer's error kept", async () => {
+    const original = new Error("ContainerBackend(x) [stage=ws]: /api upgrade did not arrive within 90000ms");
+    const thrown: unknown = await failing(original, 90_000, 90_000)
+      .connect({} as never)
+      .catch((error: unknown) => error);
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe(
+      "the Container did not answer within its 90-second time limit; change it under Environment › Advanced › Container start wait (seconds). ContainerBackend(x) [stage=ws]: /api upgrade did not arrive within 90000ms",
+    );
+    expect((thrown as Error).cause).toBe(original);
+  });
+
+  it("one refused before its deadline is computer's error, as it was", async () => {
+    const original = new Error("ContainerBackend(x): connect failed at stage=start");
+    await expect(failing(original, 2_000).connect({} as never)).rejects.toBe(original);
+  });
+
+  it("a budget refusal that took the whole wait still reads as the refusal", async () => {
+    const original = new Error('connect failed lastError="t3flare: the Container cannot start: the budget is spent"');
+    const thrown: unknown = await failing(original, 120_000)
+      .connect({} as never)
+      .catch((error: unknown) => error);
+    expect(describeFailure(thrown)).toBe("t3flare: the Container cannot start: the budget is spent");
   });
 });
 
