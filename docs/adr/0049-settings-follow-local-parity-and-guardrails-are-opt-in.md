@@ -17,7 +17,7 @@ limit, where stock t3 and a local agent have none. The Owner chose a different r
 2. **Guardrails are opt-in.** A guardrail is a limit that exists only because t3flare runs in the cloud, to bound cost
    or contain a failure. It is off by default, a setting the Owner turns on. Two stay on by default, by the Owner's
    choice, as tunable settings: the Terminal holds (how long a running or prompting Terminal keeps its Container), and
-   the setup scripts' time limits.
+   the setup scripts' time limits. (A third since: Park after, the SPI-1389 refinement below.)
 3. **A setting only where the Owner would choose its value.** That is cost, size, what agents may do, setup, and
    retention. A value that only guards t3flare's own machinery is a **named, generous constant**: named where it is
    set, generous enough that no real use meets it, with a comment saying what it guards. It is not a setting.
@@ -62,3 +62,13 @@ is set, and a setting's maximum is a named constraint or a sanity bound, or none
   the setting moves.
 - A new limit starts from this rule: local behaviour by default, a setting only where the Owner would choose its value,
   a named constant otherwise.
+
+## Refinement (SPI-1389, 2026-11-24): Park after is on by default
+
+§2 names two guardrails on by default. Park after (`parkAfterMinutes`, Advanced, 10 minutes, Owner-approved) is a
+third: a cloud-only mechanism, on by default, which an Owner turns off with 0. A CLI agent's process holds its Container
+while its turn waits on a card, which on the Owner's machine costs nothing. After Park after the turn parks: the card
+stays up as a question, the process ends, and the Container can stop; the Owner's answer starts a new turn that repeats
+the call it allowed (ADR-0015's SPI-1389 refinement). It is on by default because the agent meets no limit: the card
+still waits until the Owner answers it, as on stock t3, and only the Container's cost of waiting goes. Off, the agent
+holds its Container until the answer.

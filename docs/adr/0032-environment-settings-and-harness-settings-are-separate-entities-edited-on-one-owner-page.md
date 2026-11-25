@@ -309,6 +309,8 @@ bounds a copy of files, not a read of settings.
 
 ## Refinement (SPI-1316, 2026-11-23): the Answer wait
 
+_Superseded by the SPI-1389 refinement below: the Answer wait is gone; a card waits until it is answered._
+
 How long a card waits for the Owner was 10 minutes in four constants that had to agree: the MCP host's question wait
 (`QUESTION_WAIT_MS`), the CLI card's (`CLI_ASK_MS`), the Open change's lifetime (`CHANGE_TTL_MS`), and the library
 default they all came from (`MCP_ELICITATION_WAIT_MS`). They are now one Environment setting, not a Harness setting (it
@@ -1021,3 +1023,17 @@ Background job kept a headless xterm with its whole scrollback in the Workspace 
 - **The Terminal size maxima stay.** `termctrl.cols` and `termctrl.rows` keep 320 and 1,777, now fixed values: a
   sanity bound for a live Terminal's xterm, provisional (about 7 MB at both maxima, its screen and the spill margin),
   no longer derived from a count of Terminals or their scrollback.
+
+## Refinement (SPI-1389, 2026-11-24): Park after replaces the Answer wait
+
+Supersedes the SPI-1316 refinement's Answer wait (`ownerAnswerMinutes`). A card waits until the Owner answers it, as on
+stock t3 and the agents on the Owner's machine. What the Owner tunes now is **Park after** (`parkAfterMinutes`): how long
+a CLI agent's card waits on its live turn before the turn parks (ADR-0015's SPI-1389 refinement). Advanced, 10 minutes
+by default (Owner-approved, t3's own idle-session release, Patch 0003), off (0, shown as "never") or 1 to `MAX_TIMED_MINUTES`, tier
+`down-free`, in the Agents row after the Turn limit. Off never parks: the CLI agent holds its Container while its card
+waits. A stored `ownerAnswerMinutes` is dropped on resolve, never refused.
+
+Where the machinery needs a deadline, a card takes `CARD_WAIT_MS`, the off deadline (`OFF_DEADLINE_MS`, a week): an Open
+change's `expiresAt` and page token, and the MCP library's input bound. A CLI agent's MCP tool timeout follows Park after
+at its spawn: `cliToolTimeoutSec(parkAfter, call) = 2 × parkAfter + call + 30 s`, each off part counting as the off
+deadline. The process keeps the value for its life (`ChannelStart.parkAfterMs`).

@@ -32,6 +32,7 @@ import {
   type LaunchAnswer,
   type LaunchInput,
   noEndpointFor,
+  parkedKeepOf,
   type ProfileContext,
   type SpawnSettings,
   spawnSettingsOf,
@@ -298,6 +299,8 @@ const claudeLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer
       { path: `${home}/claude/projects`, target: CLAUDE_PROJECTS },
       environmentSkillsLink(`${home}/claude/skills`, dotfilesOn(context.dotfiles)),
     ],
+    // SPI-1389: a parked card's session outlives Claude Code's own cleanup (`cleanupPeriodDays`).
+    ...parkedKeepOf(CLAUDE_PROJECTS, context),
     ...(thread === undefined ? {} : { thread }),
     // SPI-1168: the Workspace DO gives the process a model handle for these endpoints, in its environment only.
     modelRelay: [...mode.endpoints],

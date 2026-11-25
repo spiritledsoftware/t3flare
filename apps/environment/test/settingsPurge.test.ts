@@ -385,7 +385,7 @@ describe("list_workspaces and the texts (ADR-0044 §5)", () => {
     expect(JSON.stringify(purge.inputSchema)).not.toContain("force");
     // GLOSSARY: the owner answers an Open change; a Purge is never "deleted" or "removed" (t3's words).
     expect(purge.description).toContain("read again when the owner answers");
-    for (const text of [settingsInstructions(600_000), settingsOwnerInstructions(600_000)]) {
+    for (const text of [settingsInstructions(), settingsOwnerInstructions()]) {
       expect(text).toContain("purge_workspace");
       expect(text).toContain("names no revision and always waits for the owner's answer");
     }

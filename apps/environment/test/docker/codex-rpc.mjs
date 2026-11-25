@@ -93,6 +93,11 @@ child.stderr.on("data", (chunk) => {
 });
 child.on("exit", (code, signal) => {
   summary.exit = { code, signal };
+  // A request the process can no longer answer fails, so the summary still prints.
+  for (const [id, waiter] of pending) {
+    pending.delete(id);
+    waiter.reject(new Error(`the process exited before answering ${waiter.method}`));
+  }
   turnDone();
 });
 

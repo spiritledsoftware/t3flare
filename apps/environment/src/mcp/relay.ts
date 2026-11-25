@@ -26,7 +26,8 @@ import {
 import type { McpAsker } from "@t3flare/session-protocol";
 
 import type { OwnCaller } from "../settings/caller.ts";
-import { ownerAnswerMsNow } from "../agents/bindings.ts";
+import type { ParkedCall } from "../provider/cli/parked.ts";
+import { argsHashOf } from "./canonical.ts";
 import { settingsInstructions } from "../settings/tools.ts";
 import type { McpCallAnswer, McpView } from "./host.ts";
 
@@ -68,14 +69,22 @@ export interface RelayDeps {
     readonly title: string;
     readonly summary: string;
     readonly detail: string;
-  }) => Promise<{ readonly approved: boolean; readonly forSession?: boolean; readonly reason?: string }>;
+    /** The call, its tool `server/upstream` and its arguments' hash (`argsHashOf`): a parked card's record (SPI-1389). */
+    readonly call: ParkedCall;
+  }) => Promise<{
+    readonly approved: boolean;
+    readonly forSession?: boolean;
+    readonly reason?: string;
+    /** The card parked (SPI-1389): the held call is answered with this, a complete tool result, and nothing runs. */
+    readonly parked?: string;
+  }>;
+  /**
+   * Takes the one-time allowance a parked card's answer left for this call on the thread (SPI-1389): the same tool,
+   * `server/upstream`, and arguments' hash. Taken, the call runs without a card. Absent: none is looked for.
+   */
+  readonly allowance?: (thread: string, call: ParkedCall) => { readonly forSession: boolean } | undefined;
   /** "Accept for the session" by thread, keyed by server, upstream name and definition hash. */
   readonly accepted: { has(thread: string, key: string): boolean; add(thread: string, key: string): void };
-  /**
-   * How long the calling process's cards wait (SPI-1316): the Answer wait it was spawned with. Default: the wait now
-   * (`ownerAnswerMsNow`).
-   */
-  readonly answerMs?: () => number;
   /**
    * How many asked changes a thread may have open at once (SPI-1322, `openPerThread`), as stored now. Default: the
    * registry's default (`settingsInstructions`).
@@ -124,7 +133,7 @@ export const relayMessage = async (input: McpRelayInput, deps: RelayDeps): Promi
         serverInfo: { name: `t3flare-${input.server}`, version: "1" },
         instructions:
           input.server === SETTINGS_SERVER
-            ? settingsInstructions((deps.answerMs ?? ownerAnswerMsNow)(), deps.openPerThread?.())
+            ? settingsInstructions(deps.openPerThread?.())
             : `Tools of the MCP server "${input.server}" through t3flare. Write tools may wait for the owner's approval on this thread.`,
       });
     }
@@ -185,21 +194,46 @@ export const relayMessage = async (input: McpRelayInput, deps: RelayDeps): Promi
       // The Settings server judges its own writes, with one card of its own (plan D7): the relay keeps only plan mode's
       // refusal for it, and raises no card.
       if (verdict.kind === "ask" && server.kind !== "settings") {
-        const answer = await deps.ask({
-          thread: input.thread,
-          askId: input.askId,
-          title: cardText(`Allow ${input.server}: ${tool.upstream}?`, 200),
-          summary: cardText(`${input.server}: ${tool.upstream}\n${JSON.stringify(args, null, 2)}`),
-          detail: `A ${tool.class} tool (${tool.class === tool.hinted ? "the tool's own hint" : "class set on the Settings page"}), called by ${input.cli}.`,
-        });
+        const call: ParkedCall = { tool: `${input.server}/${tool.upstream}`, argsHash: await argsHashOf(args) };
+        // SPI-1389: the Owner allowed this call on its parked card; the repeated call runs once without another card.
+        const allowed = deps.allowance?.(input.thread, call);
+        const answer: Awaited<ReturnType<RelayDeps["ask"]>> =
+          allowed !== undefined
+            ? { approved: true, forSession: allowed.forSession }
+            : await deps.ask({
+                thread: input.thread,
+                askId: input.askId,
+                title: cardText(`Allow ${input.server}: ${tool.upstream}?`, 200),
+                summary: cardText(`${input.server}: ${tool.upstream}\n${JSON.stringify(args, null, 2)}`),
+                detail: `A ${tool.class} tool (${tool.class === tool.hinted ? "the tool's own hint" : "class set on the Settings page"}), called by ${input.cli}.`,
+                call,
+              });
+        if (answer.parked !== undefined) {
+          log("parked");
+          return ok(id, { content: [{ type: "text", text: answer.parked }], isError: false });
+        }
         if (!answer.approved) {
           log("declined", { reason: answer.reason ?? null });
           return toolError(id, `Not run: the owner did not approve this call (${answer.reason ?? "declined"}).`);
         }
         if (answer.forSession === true) deps.accepted.add(input.thread, acceptKey);
-        log("approved", { forSession: answer.forSession === true });
+        log("approved", { forSession: answer.forSession === true, allowance: allowed !== undefined });
       } else log(verdict.kind === "ask" ? "to-settings" : "run");
-      const asker = deps.asker?.(input.thread);
+      // SPI-1389: an MCP server's question that parked its CLI turn: the held call is answered with the parked text, not
+      // what the server makes of the cancel. The Settings server answers its own parked change itself.
+      let parkedText: string | undefined;
+      const base = deps.asker?.(input.thread);
+      const asker: McpAsker | undefined =
+        base === undefined
+          ? undefined
+          : {
+              ...base,
+              ask: async (card) => {
+                const answer = await base.ask(card);
+                if (answer.parked !== undefined) parkedText = answer.parked;
+                return answer;
+              },
+            };
       const result = await deps.call({
         server: input.server,
         tool: tool.upstream,
@@ -210,6 +244,10 @@ export const relayMessage = async (input: McpRelayInput, deps: RelayDeps): Promi
         // The Settings server holds its call for the owner (plan D9): the CLI going away withdraws its Open change.
         ...(server.kind === "settings" ? { stopId: input.askId } : {}),
       });
+      if (parkedText !== undefined && server.kind !== "settings") {
+        log("parked");
+        return ok(id, { content: [{ type: "text", text: parkedText }], isError: false });
+      }
       if (result.kind === "unavailable") return toolError(id, result.message);
       return ok(id, {
         content: [{ type: "text", text: result.text }],

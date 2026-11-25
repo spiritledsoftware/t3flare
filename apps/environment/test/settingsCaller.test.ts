@@ -73,7 +73,7 @@ describe("a Settings server write from t3flare's own agent", () => {
           {
             ops: { store, mcp: host, now: () => 0 },
             modes: (caller) => (caller.thread === undefined ? undefined : durableModes(caller.thread)),
-            changes: settingsChanges(nodeSqlStorage(), () => 0),
+            changes: settingsChanges(nodeSqlStorage(), { now: () => 0 }),
             origin: () => undefined,
           },
           input,

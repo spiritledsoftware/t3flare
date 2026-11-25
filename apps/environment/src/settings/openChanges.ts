@@ -28,7 +28,6 @@ import {
   scrubUrls,
   type SettingsChanges,
   strikeWindowMs,
-  waitOf,
 } from "./changes.ts";
 import { MAX_BLOB_READS } from "../skills/checks.ts";
 
@@ -116,15 +115,13 @@ export const capRefusal = (
   const run = recent.filter((record) => record.state === "applied" || strike(record)).slice(0, strikes);
   const last = run[0]?.closed?.at ?? 0;
   const first = run.at(-1)?.closed?.at ?? 0;
-  // SPI-1316: the run's window follows the longest wait its changes took, so a long wait's spaced-out expiries still
-  // make a run, whatever the wait is now.
-  const window = strikeWindowMs(Math.max(0, ...run.map(waitOf)), limits);
+  // The Strike window, or a week when it is off (SPI-1389: no Answer wait stretches it).
+  const window = strikeWindowMs(limits);
   if (lockMs !== 0 && run.length === strikes && run.every(strike) && last - first <= window && now < last + lockMs) {
     return {
       reason: "strikes",
-      // ADR-0049 §4: the three limits that made the lock, each with the value it applied (the window as `strikeWindowMs`
-      // stretched it, SPI-1316), and where to change them.
-      text: `Not changed: your last ${strikes === 1 ? "asked change was" : `${strikes} asked changes were`} ${caller.door === "own" ? "declined or unanswered" : "declined"}, so t3flare refuses your asked changes until ${new Date(last + lockMs).toISOString()} (${durationText(lockMs)} after the last): ${strikes === 1 ? "1 strike" : `${strikes} strikes`} within ${durationText(window)} (${window > limits.strikeWindowMinutes * 60_000 ? "the Strike window, stretched to the run's longest wait for an answer" : "the Strike window"}) ${strikes === 1 ? "locks" : "lock"} a caller out for the Strike lock of ${durationText(lockMs)}${changeThemUnder([{ settingsServer: "strikes" }, { settingsServer: "strikeWindowMinutes" }, { settingsServer: "strikeLockMinutes" }])}. Ask the owner in the thread what he wants.`,
+      // ADR-0049 §4: the three limits that made the lock, each with the value it applied, and where to change them.
+      text: `Not changed: your last ${strikes === 1 ? "asked change was" : `${strikes} asked changes were`} ${caller.door === "own" ? "declined or unanswered" : "declined"}, so t3flare refuses your asked changes until ${new Date(last + lockMs).toISOString()} (${durationText(lockMs)} after the last): ${strikes === 1 ? "1 strike" : `${strikes} strikes`} within ${durationText(window)} (${limits.strikeWindowMinutes === 0 ? "the Strike window is off: a week" : "the Strike window"}) ${strikes === 1 ? "locks" : "lock"} a caller out for the Strike lock of ${durationText(lockMs)}${changeThemUnder([{ settingsServer: "strikes" }, { settingsServer: "strikeWindowMinutes" }, { settingsServer: "strikeLockMinutes" }])}. Ask the owner in the thread what he wants.`,
     };
   }
   if (limits.appliedPerHour !== 0 && changes.appliedSince(capKey, now - APPLIED_WINDOW_MS) >= limits.appliedPerHour) {
@@ -311,7 +308,7 @@ export const answerOpenChange = async (deps: AnswerDeps, id: string, answer: Ans
       ? { ok: false, status: 409, error: "this change was answered first elsewhere" }
       : { ok: true, outcome };
   }
-  const applying: ChangeRecord = { ...record, state: "applying" };
+  const applying: ChangeRecord = { ...record, state: "applying", applyingAt: now };
   if (!deps.changes.replace(id, ["open"], applying))
     return { ok: false, status: 409, error: "this change was answered first elsewhere" };
   let applied: ApplyResult;

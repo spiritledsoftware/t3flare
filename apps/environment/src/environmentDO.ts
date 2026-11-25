@@ -25,7 +25,7 @@ import {
   type McpRelayAnswer,
   type McpRelayInput,
   OUTSIDE_REQUEST_MS,
-  ownerAnswerMsOf,
+  parkAfterMsOf,
   REMOTE_RETRY_MINUTES,
   SAFE_MODE_AFTER_FAILURES,
   resolveEnvironment,
@@ -35,7 +35,8 @@ import {
   settingsServerLimitsOf,
 } from "@t3flare/harness-registry";
 
-import { bindEnvironmentServices, environmentServices, ownerAnswerMsNow } from "./agents/bindings.ts";
+import { bindEnvironmentServices, environmentServices } from "./agents/bindings.ts";
+import { type ParkedCall, parkedCards } from "./provider/cli/parked.ts";
 import { graceMoved, ownerSweep, SweepWake } from "./agents/sweepWake.ts";
 import { GitHubTokens } from "./agents/github.ts";
 import { deliverPush } from "./agents/sessionSink.ts";
@@ -234,6 +235,14 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       },
       newKey: () => `proc-${crypto.randomUUID()}`,
     });
+    // SPI-1389: a CLI agent's parked cards, which outlive its process and this object's reset. An allowance is for its
+    // answer turn's process, which ended with the old instance: none outlives a boot.
+    const parked = parkedCards(ctx.storage.sql, (run) => ctx.storage.transactionSync(run));
+    try {
+      parked.dropAllAllowances();
+    } catch (error) {
+      console.warn(JSON.stringify({ t3flare: "park-allowances-undropped", error: String(error) }));
+    }
     bindEnvironmentServices({
       agents: env,
       modelEndpoints: () => this.#endpointStore().load(),
@@ -253,8 +262,13 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       checkpointMs: () => this.#environmentNow().checkpointMinutes * 60_000,
       // SPI-1364: read at each preview browser's acquisition and URL translation, and at each routed command.
       previewPorts: () => this.#environmentNow().previewPorts,
-      // Read when a card is raised and at each CLI spawn (SPI-1316): a card already waiting keeps its deadline.
-      ownerAnswerMs: () => ownerAnswerMsOf(this.#environmentNow()),
+      // Read at each CLI spawn (SPI-1389): the process keeps it, and its MCP tool timeout is made from it.
+      parkAfterMs: () => parkAfterMsOf(this.#environmentNow()),
+      parked,
+      answerParkedChange: async (changeId, approve) => {
+        const { answerParkedChange } = await import("./settings/server.ts");
+        return answerParkedChange(await this.#settingsDeps(), changeId, approve);
+      },
       // Read at each CLI spawn (SPI-1359): the CLI's tool timeout covers the MCP call time limit as stored then.
       mcpCallMs: () => this.#environmentNow().mcpCallSeconds * 1000,
       // Read at each use (SPI-1366): the settings read at their own next use, not at a Container start.
@@ -350,8 +364,11 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     Idle.requestStarted();
     try {
       // SPI-1079: an MCP server's question is the owner's; an agent's `t3_pending_request` on its card never reaches t3.
-      const { refuseOwnerOnly } = await import("./mcp/ownerOnly.ts");
-      const refused = refuseOwnerOnly(input.body);
+      const [{ refuseOwnerOnly }, { ownerOnlyLookupsOf }] = await Promise.all([
+        import("./mcp/ownerOnly.ts"),
+        import("./mcp/ownerOnlyLookups.ts"),
+      ]);
+      const refused = refuseOwnerOnly(input.body, ownerOnlyLookupsOf(this.ctx.storage.sql));
       if (refused !== undefined)
         return {
           status: 200,
@@ -767,14 +784,11 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
           : caller.agent === DURABLE_AGENT
             ? durableModes(caller.thread)
             : cliThreadState(caller.thread),
-      changes: settingsChanges(
-        this.ctx.storage.sql,
-        Date.now,
-        (event) => console.log(JSON.stringify(event)),
-        ownerAnswerMsNow,
+      changes: settingsChanges(this.ctx.storage.sql, {
+        log: (event) => console.log(JSON.stringify(event)),
         // SPI-1322: the Settings server's limits as stored now, which a closed row's keeping covers.
-        () => settingsServerLimitsOf(store.load()),
-      ),
+        limits: () => settingsServerLimitsOf(store.load()),
+      }),
       origin: () =>
         this.env.T3FLARE_HOST === undefined && this.#host === undefined
           ? undefined
@@ -941,18 +955,20 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       const [{ relayMessage }, { approveCliTool, cliQuestionAsker, cliThreadState }, { stoppableCall }] =
         await Promise.all([import("./mcp/relay.ts"), import("./provider/cli/cliAsk.ts"), import("./mcp/callStops.ts")]);
       const accepted = this.#relayAccepted;
-      // SPI-1316: the calling process's cards wait the Answer wait it was spawned with, which its MCP tool timeout was
-      // made from; a process the channel does not know (gone, or no key) waits the wait now.
-      const waitMs =
-        (input.process === undefined ? undefined : this.#processes.answerMsOf(input.process)) ?? ownerAnswerMsNow();
+      const parked = environmentServices().parked;
       return await relayMessage(input, {
         view: () => this.mcpHost.view(),
         call: stoppableCall(this.mcpHost),
         readAppResource: (read) => this.mcpHost.readAppResource(read),
         state: cliThreadState,
-        ask: (ask) => approveCliTool({ ...ask, waitMs }),
-        asker: (thread) => cliQuestionAsker(thread, waitMs),
-        answerMs: () => waitMs,
+        ask: (ask) => approveCliTool(ask),
+        asker: (thread) => cliQuestionAsker(thread),
+        // SPI-1389: the call a parked card's answer allowed runs once without another card.
+        ...(parked === undefined
+          ? {}
+          : {
+              allowance: (thread: string, call: ParkedCall) => parked.take(thread, "tool", call),
+            }),
         openPerThread: () => settingsServerLimitsOf(harnessStore(this.ctx.storage.kv).load()).openPerThread,
         accepted: {
           has: (thread: string, key: string) => accepted.get(thread)?.has(key) === true,
@@ -1612,8 +1628,11 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       }
       if (url.pathname === "/mcp" && request.method === "POST") {
         // SPI-1079: an MCP server's question is the owner's; an agent's `t3_pending_request` on its card never reaches t3.
-        const { refuseOwnerOnly } = await import("./mcp/ownerOnly.ts");
-        const refused = refuseOwnerOnly(await request.clone().text());
+        const [{ refuseOwnerOnly }, { ownerOnlyLookupsOf }] = await Promise.all([
+          import("./mcp/ownerOnly.ts"),
+          import("./mcp/ownerOnlyLookups.ts"),
+        ]);
+        const refused = refuseOwnerOnly(await request.clone().text(), ownerOnlyLookupsOf(this.ctx.storage.sql));
         if (refused !== undefined)
           return new Response(refused, { status: 200, headers: { "content-type": "application/json" } });
       }

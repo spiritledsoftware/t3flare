@@ -74,7 +74,7 @@ export const newCardId = (): string => `${MCP_QUESTION_MARKER}-${crypto.randomUU
 /**
  * The most stored bytes (`storedBytes`) of one card. A card is pushed to t3 as one `user_input` or approval request and
  * kept in t3's event row, one 8 MB Durable Object row that also holds the request's other fields and t3's own envelope,
- * and a push past it fails unseen while the thread waits out the Answer wait. 1 MiB keeps a card far under that row. A
+ * and a push past it fails unseen while the thread waits for an answer that cannot come. 1 MiB keeps a card far under that row. A
  * server's question comes in a `tools/call` body (16 MiB) or a pause's structured content (`MCP_RESULT_KIB`), neither of
  * which bounds it this low.
  */

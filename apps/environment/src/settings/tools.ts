@@ -21,8 +21,6 @@ import {
   type ToolClass,
 } from "@t3flare/harness-registry";
 
-import { durationText } from "./changes.ts";
-
 export interface SettingsTool {
   readonly name: string;
   readonly class: ToolClass;
@@ -32,7 +30,7 @@ export interface SettingsTool {
 
 /** What the server covers, said the same to both doors (plan D17). */
 const SETTINGS_SCOPE =
-  "t3flare's own settings: the Harness settings (Pi Durable's extensions and the MCP server set), the Environment settings (Container size, idle time, budget, how long open Terminals hold the Container and how many may run, the CLI agents' processes per Workspace, the Turn limit, the Answer wait, the settings read wait, how long a clone or a checkpoint may run, Variables, Global mise config, whether Terminals and CLI agents read the Owner's dotfiles, how long usage records and pi sessions are kept, the MCP calls' time limit and result size, the Grace) and the Environment skills; and the Workspaces, which list_workspaces reads and purge_workspace asks to purge (their files only: a Workspace something in t3 references is refused, and deleting a project or thread stays t3's). These are not t3's preferences (t3_environment_preferences_update). Read tools run.";
+  "t3flare's own settings: the Harness settings (Pi Durable's extensions and the MCP server set), the Environment settings (Container size, idle time, budget, how long open Terminals hold the Container and how many may run, the CLI agents' processes per Workspace, the Turn limit, Park after, the settings read wait, how long a clone or a checkpoint may run, Variables, Global mise config, whether Terminals and CLI agents read the Owner's dotfiles, how long usage records and pi sessions are kept, the MCP calls' time limit and result size, the Grace) and the Environment skills; and the Workspaces, which list_workspaces reads and purge_workspace asks to purge (their files only: a Workspace something in t3 references is refused, and deleting a project or thread stays t3's). These are not t3's preferences (t3_environment_preferences_update). Read tools run.";
 
 /** What both doors say of a Purge (ADR-0044 §5). */
 const PURGE_NOTE =
@@ -40,21 +38,18 @@ const PURGE_NOTE =
 
 /**
  * What agents are told about the server (plan D17): its instructions and its tools' descriptions, nothing else. Built
- * when served, with the Answer wait `answerMs` its asked changes wait (SPI-1316) and how many may wait at once per
- * thread, `openPerThread` (the Settings server's limit, SPI-1322; off, 0, says no count, SPI-1386).
+ * when served, with how many asked changes may wait at once per thread, `openPerThread` (the Settings server's limit,
+ * SPI-1322; off, 0, says no count, SPI-1386). An asked change waits until the owner answers it (SPI-1389).
  */
-export const settingsInstructions = (
-  answerMs: number,
-  openPerThread: number = DEFAULT_SETTINGS_SERVER_LIMITS.openPerThread,
-): string =>
-  `${SETTINGS_SCOPE} Every settings write names the expectedRevision it read, and the thread's mode rules it: plan mode refuses writes; outside full access a write waits for the owner's card; a change that widens what agents have or can do always waits for the owner's answer on a card or its Change page (at most ${durationText(answerMs)}${openPerThread === 0 ? "" : `, ${openPerThread === 1 ? "one at a time" : `at most ${openPerThread} at a time`} per thread`}). ${PURGE_NOTE} Do not repeat a declined change.`;
+export const settingsInstructions = (openPerThread: number = DEFAULT_SETTINGS_SERVER_LIMITS.openPerThread): string =>
+  `${SETTINGS_SCOPE} Every settings write names the expectedRevision it read, and the thread's mode rules it: plan mode refuses writes; outside full access a write waits for the owner's card; a change that widens what agents have or can do always waits for the owner's answer on a card or its Change page${openPerThread === 0 ? "" : ` (${openPerThread === 1 ? "one at a time" : `at most ${openPerThread} at a time`} per thread)`}. ${PURGE_NOTE} Do not repeat a declined change.`;
 
 /**
  * The same for an Owner client (plan D11, D12): it has no thread mode, and its asked changes wait on the Change page in
- * its Elicitation mode, for the Answer wait `answerMs`.
+ * its Elicitation mode, until the owner answers (SPI-1389).
  */
-export const settingsOwnerInstructions = (answerMs: number): string =>
-  `${SETTINGS_SCOPE} Every settings write names the expectedRevision it read. ${PURGE_NOTE} A change that narrows what agents have or can do applies at once; one that widens it waits for the owner's answer on its Change page (at most ${durationText(answerMs)}): open the link the result or the question gives, and do not repeat the call; read the settings to see whether it applied. Do not repeat a declined change.`;
+export const settingsOwnerInstructions = (): string =>
+  `${SETTINGS_SCOPE} Every settings write names the expectedRevision it read. ${PURGE_NOTE} A change that narrows what agents have or can do applies at once; one that widens it waits for the owner's answer on its Change page: open the link the result or the question gives, and do not repeat the call; read the settings to see whether it applied. Do not repeat a declined change.`;
 
 /**
  * What an Owner client is told besides, by its Elicitation mode (plan D12): the mode the owner set for this client on the
@@ -157,7 +152,7 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
     name: "get_settings",
     class: "read",
     description:
-      "Reads the Harness settings (entity harness: each Pi Durable extension's switch and settings) or the Environment settings (entity environment: Container size, idle time, budget, the Terminals' holds terminalBusyHoldMinutes and terminalPromptHoldMinutes, the Turn limit turnLimitMinutes, the Answer wait ownerAnswerMinutes, the clone and checkpoint time limits cloneMinutes and checkpointMinutes, Variables, Global mise config, the dotfiles toggles terminalsReadBashrc and agentsReadDotfiles, how long history is kept usageRetentionDays and piSessionRetentionDays (Pi's and Claude Code's sessions), the MCP calls' time limit mcpCallSeconds, the MCP servers' connect and listing time limits mcpConnectSeconds and mcpListSeconds, textGenerationSeconds, idleAfterSeconds, prWatchWakeMinutes, the Repo skills listed repoSkillsListed, the Grace graceDays (0 is never), with the running Containers and costs): the revision, every setting resolved, its limits, its Change tier rule, and its disclosure: where the Settings page shows it (visible, contextual with what shows it, or advanced) as the place to point the Owner to.",
+      "Reads the Harness settings (entity harness: each Pi Durable extension's switch and settings) or the Environment settings (entity environment: Container size, idle time, budget, the Terminals' holds terminalBusyHoldMinutes and terminalPromptHoldMinutes, the Turn limit turnLimitMinutes, Park after parkAfterMinutes (how long a CLI agent's card waits before its turn parks), the clone and checkpoint time limits cloneMinutes and checkpointMinutes, Variables, Global mise config, the dotfiles toggles terminalsReadBashrc and agentsReadDotfiles, how long history is kept usageRetentionDays and piSessionRetentionDays (Pi's and Claude Code's sessions), the MCP calls' time limit mcpCallSeconds, the MCP servers' connect and listing time limits mcpConnectSeconds and mcpListSeconds, textGenerationSeconds, idleAfterSeconds, prWatchWakeMinutes, the Repo skills listed repoSkillsListed, the Grace graceDays (0 is never), with the running Containers and costs): the revision, every setting resolved, its limits, its Change tier rule, and its disclosure: where the Settings page shows it (visible, contextual with what shows it, or advanced) as the place to point the Owner to.",
     inputSchema: {
       type: "object",
       required: ["entity"],
@@ -341,7 +336,7 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
   {
     name: "change_environment",
     class: "write",
-    description: `Changes some of the Environment settings. The Container settings apply when each Workspace's Container next starts, not in one running now (terminalsReadBashrc and the Terminals' holds too); agentsReadDotfiles applies at each CLI agent's next start; turnLimitMinutes at each thread's next turn (a running turn keeps the limit it started with); ownerAnswerMinutes to cards raised after the change (a card already waiting keeps its deadline; a running CLI agent's cards keep the wait it started with); cloneMinutes at the next clone or worktree checkout and checkpointMinutes at the next checkpoint, worktree bundle or carry (one already running keeps its limit); usageRetentionDays at the next prune of the usage records (it runs as usage is recorded, at most once an hour) and to usage recorded from then on, piSessionRetentionDays at each Pi or Claude Code start; mcpCallSeconds at the next MCP call (a CLI agent's own tool timeout, which grows with it, at its next start); mcpConnectSeconds at the next connection to an MCP server, mcpListSeconds at the next discovery of an MCP server; textGenerationSeconds at the next text generation; idleAfterSeconds at the next idle check, prWatchWakeMinutes at the next sleep; repoSkillsListed at each Workspace's next Container start; the Grace (graceDays, 0 is never) applies at the next Sweep. ${ASKED_NOTE}`,
+    description: `Changes some of the Environment settings. The Container settings apply when each Workspace's Container next starts, not in one running now (terminalsReadBashrc and the Terminals' holds too); agentsReadDotfiles applies at each CLI agent's next start; turnLimitMinutes at each thread's next turn (a running turn keeps the limit it started with); parkAfterMinutes at each CLI agent's next start (a running one keeps the value it started with); cloneMinutes at the next clone or worktree checkout and checkpointMinutes at the next checkpoint, worktree bundle or carry (one already running keeps its limit); usageRetentionDays at the next prune of the usage records (it runs as usage is recorded, at most once an hour) and to usage recorded from then on, piSessionRetentionDays at each Pi or Claude Code start; mcpCallSeconds at the next MCP call (a CLI agent's own tool timeout, which grows with it, at its next start); mcpConnectSeconds at the next connection to an MCP server, mcpListSeconds at the next discovery of an MCP server; textGenerationSeconds at the next text generation; idleAfterSeconds at the next idle check, prWatchWakeMinutes at the next sleep; repoSkillsListed at each Workspace's next Container start; the Grace (graceDays, 0 is never) applies at the next Sweep. ${ASKED_NOTE}`,
     inputSchema: {
       type: "object",
       required: ["expectedRevision", "settings"],

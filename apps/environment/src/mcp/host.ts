@@ -16,6 +16,7 @@ import {
   MCP_PAUSES_PER_CALL,
   MCP_RESULT_KIB,
   type Exposure,
+  CARD_WAIT_MS,
   MAX_SCHEMA_BYTES,
   MCP_REQUEST_OFF_MS,
   offDeadlineMs,
@@ -41,7 +42,6 @@ import {
 import type { McpAsker, McpQuestionAnswer } from "@t3flare/session-protocol";
 import { sha256Hex } from "@t3flare/skills";
 
-import { askerWaitMs } from "../agents/bindings.ts";
 import type { KvStorage } from "../harness/keys.ts";
 import { OFF_MESSAGE, type OwnCaller } from "../settings/caller.ts";
 import { settingsDefinitions } from "../settings/tools.ts";
@@ -177,9 +177,8 @@ export interface McpHostDeps {
   /** The t3 host as deployed: a page question that sends the owner there is declined (SPI-1079). */
   readonly ownHost?: () => string | undefined;
   /**
-   * How long a server's question waits for the owner, in ms, read when a call starts or a pause is raised: the Answer
-   * wait (SPI-1316). An asker that names its own wait (a CLI process's spawn-time one) wins. Default:
-   * `ownerAnswerMsNow`.
+   * How long a server's question waits for the owner, in ms, read when a call starts or a pause is raised. Default:
+   * `CARD_WAIT_MS` (SPI-1389): until it is answered, as on stock t3; a CLI agent's turn parks before then.
    */
   readonly questionWaitMs?: () => number;
   /**
@@ -256,9 +255,9 @@ export class McpHost {
     return this.#deps.resultBytes?.() ?? DEFAULT_RESULT_BYTES;
   }
 
-  /** How long `asker`'s cards wait (SPI-1316): its own wait, or the Answer wait now. */
-  #waitOf(asker: McpAsker): number {
-    return askerWaitMs(asker, this.#deps.questionWaitMs);
+  /** How long a card waits (SPI-1389): until it is answered, so the off deadline the engine's input bound needs. */
+  #waitOf(): number {
+    return this.#deps.questionWaitMs?.() ?? CARD_WAIT_MS;
   }
 
   servers(): Readonly<Record<string, McpServerSetting>> {
@@ -679,7 +678,7 @@ export class McpHost {
     const generation = this.#generation(name);
     const cards = new Map<string, string>();
     // One wait for the whole call: the engine's input bound and each card's timer agree.
-    const waitMs = asker === undefined ? undefined : this.#waitOf(asker);
+    const waitMs = asker === undefined ? undefined : this.#waitOf();
     const questionHooks: McpEngineHooks =
       asker === undefined
         ? {}
@@ -756,7 +755,7 @@ export class McpHost {
     asker: McpAsker,
     context: QuestionContext,
     what: "question" | "pause",
-    waitMs: number = this.#waitOf(asker),
+    waitMs: number = this.#waitOf(),
   ): Promise<Answered> {
     const log = (event: Record<string, unknown>) =>
       console.log(

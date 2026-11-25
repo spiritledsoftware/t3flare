@@ -19,7 +19,15 @@ const register = (thread: string, decision: "accept" | "acceptForSession" | "dec
 };
 
 const ask = (thread: string, extra: Partial<Parameters<typeof approveCliTool>[0]> = {}) =>
-  approveCliTool({ thread, askId: "a", title: "Allow commissary: fixture_note?", summary: "s", detail: "d", ...extra });
+  approveCliTool({
+    thread,
+    askId: "a",
+    title: "Allow commissary: fixture_note?",
+    summary: "s",
+    detail: "d",
+    call: { tool: "commissary/fixture_note", argsHash: "h" },
+    ...extra,
+  });
 
 describe("tool cards on a CLI thread", () => {
   it("raise a permission card titled for the tool; 'for the session' is offered and kept", async () => {

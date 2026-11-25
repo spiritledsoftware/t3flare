@@ -26,15 +26,14 @@ import { isJsonObject, JsonObject } from "./json.ts";
 
 /**
  * How long a Legacy elicitation waits for the owner, from the ask, when the caller passes no `ctx.answers.inputWaitMs`:
- * this library's default, 10 minutes. t3flare's MCP host always passes the Answer wait (`ownerAnswerMinutes`,
- * SPI-1316).
+ * this library's default, 10 minutes. t3flare's MCP host always passes its card wait (`CARD_WAIT_MS`, SPI-1389).
  */
 export const MCP_ELICITATION_WAIT_MS = 10 * 60 * 1000;
 
 /**
  * How long a Legacy Sampling request may wait, from the ask, when the caller passes no `ctx.answers.inputWaitMs`: this
  * library's default, the owner's 10 minutes and the 2 minutes a sample may take. t3flare never offers sampling, and its
- * MCP host passes the Answer wait whenever it answers at all (SPI-1316).
+ * MCP host passes its card wait whenever it answers at all (SPI-1389).
  */
 export const MCP_SAMPLING_WAIT_MS = 12 * 60 * 1000;
 

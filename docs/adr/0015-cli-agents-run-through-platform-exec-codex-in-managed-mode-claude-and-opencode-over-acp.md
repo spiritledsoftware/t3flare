@@ -134,3 +134,62 @@ Stock t3 has no turn limit, so the Turn limit is off, 0, by default
 ([ADR-0049](0049-settings-follow-local-parity-and-guardrails-are-opt-in.md)): the CLI wrapper starts no timer for a
 turn, and the Session arms no alarm for one. An Owner who sets minutes opts in to it as a cost guard. [ADR-0032](0032-environment-settings-and-harness-settings-are-separate-entities-edited-on-one-owner-page.md)'s SPI-1386
 refinement says what off does elsewhere.
+
+## Refinement (SPI-1389, 2026-11-24): a CLI agent's turn parks, and its answer resumes it
+
+A CLI agent's process holds its Container while it is in a turn, so a card left waiting kept the Container running.
+Cloudflare cannot pause a Container with its memory (`snapshotContainer` keeps files only), so the turn parks instead.
+When a card has waited Park after (`parkAfterMinutes`, ADR-0032's SPI-1389 refinement) on a live turn, the CLI wrapper
+(`provider/cli/park.ts`):
+
+- keeps a parked record of every open card in the Environment DO's SQLite (`provider/cli/parked.ts`), in one
+  transaction: when one cannot be kept, nothing parks and every card stays live (logged as an error). A record holds the
+  thread, the kind (`tool`, `native`, `question`, `change`), the title, the call an allow lets run (its tool and the
+  SHA-256 of its whole arguments as canonical JSON), an MCP question's server, an Open change's id, and the CLI's own
+  session id;
+- raises each card again as t3's non-blocking `user_input` question (`responseCapability: message`), with Allow,
+  Allow for this session and Decline for an approval, Approve and Decline for an Open change, and an MCP server's own
+  options or form. Its id carries `PARK_QUESTION_MARKER`: only the Owner answers it, since the Environment refuses an
+  agent's `t3_pending_request` on it (`mcp/ownerOnly.ts`), as it refuses one on an MCP server's question;
+- answers each held relay call, an MCP server's question's included, with a complete tool result that names the limit,
+  its value and where to change it; an Open change's says the change stays open. The CLI's own pending requests are
+  cancelled;
+- interrupts the turn and ends the process at once, so nothing holds the Container (`processHost.holdsContainer`). A
+  card or a CLI request raised before the interrupted turn ends is parked the same way.
+
+Stock t3 sends a non-blocking question's answer as the message `async-answer:<request id>`, which starts a new turn (or
+is steered into a running one); t3 needs no Patch. The wrapper recognises the parked id and reads the Owner's decision
+from t3's own record of the answer (its projection of the request, written with the message in one transaction), never
+from the message's text: a message t3 queues behind a busy turn can be edited before it runs. An agent's `t3_queue` edit,
+cancel or promote of such a queued answer, and its `task_cancel` of a delegated task whose threads hold one, are refused
+besides (`mcp/ownerOnly.ts`, by t3's runs and subagents projections), so the answer's turn always runs. When t3 holds
+no answer that can be read for a resolved park question, its card is asked again as a new park question, never left
+parked against a question no one can answer twice. The wrapper turns the answer into what the agent should repeat, and
+records a one-time allowance:
+
+- a relay call with the same tool and arguments' hash runs once without a card;
+- a CLI request whose whole call matches runs once: the call is read off the process's stdout by the native id t3
+  gives the request (`provider/cli/nativeCalls.ts`): ACP's tool call (the tool's name, from Claude Code's
+  `_meta.claudeCode.toolName`, else OpenCode's `name`, else the name an earlier update gave, the title only last, since
+  an MCP tool's kind is only `other` and OpenCode gives a subagent's untitled tools its title; its kind; and its raw
+  input: a
+  command, or a file path and the edit's content), or Codex's request (every param but its ids, times, the decisions it
+  offers and the model's reason, with a file change's edits). Never by t3's title or the model's reason, which another
+  call can share. A request whose call was not read keeps no allowance, and its repeat asks again.
+  An allowance lasts until it is used or its answer turn ends; a steered answer's lasts through the steer's restart too
+  where the CLI restarts on a steer (Claude Code and OpenCode; Codex and pi steer in place). The Environment drops every
+  allowance at its boot, since an answer turn's process ends with the instance that ran it. A repeat with other
+  arguments asks again. A Turn limit hit while a card is open parks the turn rather than only ending it.
+
+A parked card's CLI session is kept from session pruning while it waits: each pi or Claude Code spawn touches the files
+of the parked sessions (`ParkedCards.nativeSessions`: every file whose path carries a session's id, in a directory
+named for it too; an id shorter than 8 characters, or `.` or `..`, is not kept, since `*id*` would name most files)
+before pi's prune
+(`piSessionRetentionDays`) and Claude Code's own cleanup (`cleanupPeriodDays`) run, so the answer turn resumes the
+conversation it parked.
+
+`test/docker/park.docker.test.ts` runs Claude Code, Codex, OpenCode and pi against the Environment's own relay, store
+and argument hash: each parks a held relay call, is killed, and its answer turn's repeat runs once on the allowance.
+Claude Code's, OpenCode's and Codex's own approval requests, cancelled by a park, come back the same in the answer turn's
+process, and their calls, read as the wrapper reads them, take the allowance once. An MCP server's question and an Open
+change are tested with the Environment's code (`cliCard.test.ts`, `settingsCard.test.ts`).

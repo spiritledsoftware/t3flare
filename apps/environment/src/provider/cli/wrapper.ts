@@ -16,29 +16,27 @@
 // - The thread's Workspace takes the Environment skill set before each turn (SPI-1153).
 // - A tool call the MCP relay asks about (ADR-0028) is raised as t3's approval card on the thread's live turn: the
 //   wrapper injects the request's events and answers it itself (`respondToRuntimeRequest`), never the CLI.
+// - Park and resume (SPI-1389, `park.ts`): a card that has waited Park after on a live turn parks it, so the Container can
+//   stop; the Owner's answer starts a new turn, which repeats the call it allowed once. A Turn limit hit while a card is
+//   open parks too.
 // - A failed turn on a Model endpoint shows the model relay's classification of the process's last answer, by the
 //   endpoint's API and auth (SPI-1172, `relayFailure.ts`), in its terminal and its error items. A failed open (Claude
 //   Code checks its key at open) carries the process's relay record too, as t3's open error's setup cause (SPI-1223).
 import type { EndpointFailureRecord } from "@t3flare/session-protocol";
 import { newHandle, toWorkspace } from "@t3flare/workspace-client";
 import {
-  type NodeId,
   type OrchestrationV2ExecutionNode,
   type OrchestrationV2ProviderCapabilities,
   type OrchestrationV2RuntimeRequest,
   type OrchestrationV2TurnItem,
+  type OrchestrationV2UserInputQuestion,
   type ProviderApprovalDecision,
   type ProviderDriverKind,
   type ProviderInstanceId,
   type ProviderSessionId,
   ProviderSetupError,
-  type ProviderThreadId,
-  type ProviderTurnId,
-  type RunId,
   RuntimeRequestId,
-  type ThreadId,
 } from "@t3tools/contracts";
-import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -47,10 +45,13 @@ import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 
-import { turnLimitMsNow } from "../../agents/bindings.ts";
+import { environmentServices, parkAfterMsNow, parkedCardsNow, turnLimitMsNow } from "../../agents/bindings.ts";
 import type { ChannelProcess } from "../../agents/processChannel.ts";
 import { type CliAnswer, type CliAsk, registerCliAsker } from "./cliAsk.ts";
 import { takeEnvironmentSkillsAt } from "./environmentSkillsTake.ts";
+import { cardOf, type LiveTurn } from "./cardEvents.ts";
+import { parker, parkRequestPrefix } from "./park.ts";
+import type { ParkedCards } from "./parked.ts";
 import { failureOf, withRelayFailure } from "./relayFailure.ts";
 import { workersLog } from "../../platform/workersLog.ts";
 
@@ -99,7 +100,7 @@ export const sessionFor = (
       turnActive: false,
       limitFiber: undefined,
       // One handle per session: were two of its processes ever live at once, the Workspace DO's `toolCaller` would name
-      // the older, and the newer's relay cards would wait the older's spawn-time Answer wait (SPI-1316).
+      // the older.
       toolHandle: newHandle(),
     };
     sessions.set(providerSessionId, session);
@@ -142,7 +143,51 @@ export interface WrapOptions {
   readonly now?: () => number;
   /** SPI-1172: the session's process's last model relay failure this turn. Default: asked of its Workspace DO. */
   readonly relayFailure?: (session: CliSession) => Promise<EndpointFailureRecord | null>;
+  /**
+   * SPI-1389: Park after in ms (0: never park). Default: the value the session's process was spawned with, which its MCP
+   * tool timeout was made from, else Park after now.
+   */
+  readonly parkAfterMs?: (session: CliSession) => number;
+  /** SPI-1389: where parked cards are kept. Default: the Environment DO's (`EnvironmentServices.parked`). */
+  readonly parked?: () => ParkedCards | undefined;
+  /** SPI-1389: answers a parked Open change. Default: the Environment DO's (`EnvironmentServices.answerParkedChange`). */
+  readonly answerParkedChange?: (changeId: string, approve: boolean) => Promise<string>;
+  /**
+   * SPI-1389: the CLI's own request's whole call by its native id. Default: what the session's process's stdout gave
+   * (`ChannelProcess.nativeCalls`).
+   */
+  readonly nativeCallOf?: (session: CliSession, nativeId: string) => unknown;
+  /**
+   * SPI-1389: the answers t3 recorded on a parked card's question. Default: t3's own record of the request
+   * (`recordedAnswerOf`), in the Environment DO's SQLite.
+   */
+  readonly recordedAnswerOf?: (requestId: string) => Readonly<Record<string, unknown>> | undefined;
+  /**
+   * SPI-1389: whether the CLI takes a steer as an interrupt and a restart (the ACP CLIs: Claude Code and OpenCode), so a
+   * steered answer's allowance outlives the interrupted turn. Default: it steers in place.
+   */
+  readonly steerRestartsTurn?: boolean;
 }
+
+/**
+ * The answers t3 recorded on its runtime request `requestId` when it was answered (t3's projection of the request, in
+ * the Environment DO's SQLite, written with the answer's message in one transaction); undefined when it holds none.
+ */
+export const recordedAnswerOf = (requestId: string): Readonly<Record<string, unknown>> | undefined => {
+  try {
+    const row = environmentServices()
+      .sql.exec<{ status: string; answers: string | null }>(
+        "SELECT status, json_extract(payload_json, '$.answers') AS answers FROM orchestration_v2_projection_runtime_requests WHERE runtime_request_id = ?",
+        requestId,
+      )
+      .toArray()[0];
+    if (row === undefined || row.status !== "resolved" || row.answers === null) return undefined;
+    const answers = JSON.parse(row.answers) as unknown;
+    return typeof answers === "object" && answers !== null ? (answers as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 /**
  * The turn t3's adapter is starting now (SPI-1151): its thread's cwd, for a prompt builder that t3's adapter gives no
@@ -152,18 +197,7 @@ export const CliTurn = Context.Reference<{ readonly cwd: string | null } | undef
   defaultValue: () => undefined,
 });
 
-/** The live turn a card is raised on: what `startTurn` said, and the provider turn id its events gave. */
-interface LiveTurn {
-  readonly threadId: ThreadId;
-  readonly runId: RunId;
-  readonly rootNodeId: NodeId;
-  readonly providerThreadId: ProviderThreadId;
-  providerTurnId: ProviderTurnId | undefined;
-  /** The highest turn item ordinal seen on the turn; a card takes the next. */
-  ordinal: number;
-}
-
-/** A card waiting on the owner. */
+/** A relay card waiting on the owner (ADR-0028). */
 interface OpenCard {
   readonly runtimeRequest: OrchestrationV2RuntimeRequest;
   readonly node: OrchestrationV2ExecutionNode;
@@ -171,6 +205,8 @@ interface OpenCard {
   readonly answer: (answer: CliAnswer) => void;
   /** A `user_input` card (an MCP server's form, SPI-1079): answered with `answers`. */
   readonly form: boolean;
+  /** What was asked: a park raises it again as a question (SPI-1389). */
+  readonly ask: CliAsk;
 }
 
 /** t3's runtime request id of a card: never one of the CLI's own (its adapter answers those). */
@@ -248,6 +284,18 @@ export const wrapCliAdapter = (
   const turnLimitMs = options.turnLimitMs ?? turnLimitMsNow;
   const relayFailure =
     options.relayFailure ?? (async (session: CliSession) => (await session.process?.modelFailure()) ?? null);
+  const parkAfterMs =
+    options.parkAfterMs ?? ((session: CliSession) => session.process?.parkAfterMs ?? parkAfterMsNow());
+  const parked = options.parked ?? parkedCardsNow;
+  const nativeCallOf =
+    options.nativeCallOf ?? ((session: CliSession, nativeId: string) => session.process?.nativeCalls?.callOf(nativeId));
+  const answerParkedChange =
+    options.answerParkedChange ??
+    (async (changeId: string, approve: boolean) => {
+      const answer = environmentServices().answerParkedChange;
+      if (answer === undefined) return "read the settings to see whether it applied";
+      return answer(changeId, approve);
+    });
   /** SPI-1172: a failed turn's terminal or error item, with the relay's classification of the process's last answer. */
   const relayedEvent = (
     session: CliSession,
@@ -314,6 +362,7 @@ export const wrapCliAdapter = (
           const card = cards.get(id);
           if (card === undefined) return [];
           cards.delete(id);
+          park.cardClosed();
           card.answer(answer);
           const now = DateTime.nowUnsafe();
           const resolved = decision !== null;
@@ -349,6 +398,29 @@ export const wrapCliAdapter = (
         const offer = (events: ReadonlyArray<ProviderAdapter.ProviderAdapterV2Event>) => {
           for (const event of events) Queue.offerUnsafe(injected, event);
         };
+        const ours = (id: string) =>
+          id.startsWith(cardRequestPrefix(adapter.driver)) || id.startsWith(parkRequestPrefix(adapter.driver));
+        // SPI-1389: the park of this session's turns (`park.ts`).
+        const park = parker({
+          driver: adapter.driver,
+          providerSessionId: input.providerSessionId,
+          thread: session.thread,
+          live: () => live,
+          cards,
+          closeCard: (id, answer) => closeCard(id, null, answer),
+          offer,
+          runtime,
+          parkAfterMs: () => parkAfterMs(session),
+          parked,
+          answerParkedChange,
+          nativeCallOf: (nativeId) => nativeCallOf(session, nativeId),
+          kill: () => session.process?.kill(),
+          processKey: () => session.process?.key ?? null,
+          now,
+          ours,
+          recordedAnswerOf: options.recordedAnswerOf ?? recordedAnswerOf,
+          steerRestartsTurn: options.steerRestartsTurn === true,
+        });
         const ask = (card: CliAsk, signal: AbortSignal): Promise<CliAnswer> =>
           new Promise((resolve) => {
             const turn = live;
@@ -361,80 +433,34 @@ export const wrapCliAdapter = (
               `${cardRequestPrefix(adapter.driver)}${card.requestKind === "mcp-elicitation" ? card.askId : crypto.randomUUID()}`,
             );
             const form = card.questions !== undefined && card.questions.length > 0;
-            const requestKind = card.requestKind ?? "permission";
-            const nodeId = IdAllocator.derive.approvalNode({ requestId: id });
-            const nativeItemRef = { driver: adapter.driver, nativeId: id, strength: "weak" as const };
-            const now = DateTime.nowUnsafe();
-            turn.ordinal += 1;
-            const runtimeRequest: OrchestrationV2RuntimeRequest = {
+            const shape = cardOf({
+              driver: adapter.driver,
+              turn,
               id,
-              nodeId,
-              providerTurnId: turn.providerTurnId,
-              nativeRequestRef: nativeItemRef,
-              kind: form ? "user_input" : requestKind,
-              status: "pending",
-              responseCapability: { type: "live", providerSessionId: input.providerSessionId, supportsFeedback: false },
-              createdAt: now,
-              resolvedAt: null,
-            };
-            const node: OrchestrationV2ExecutionNode = {
-              id: nodeId,
-              threadId: turn.threadId,
-              runId: turn.runId,
-              parentNodeId: turn.rootNodeId,
-              rootNodeId: turn.rootNodeId,
-              kind: form ? "user_input_request" : "approval_request",
-              status: "waiting",
-              countsForRun: false,
-              providerThreadId: turn.providerThreadId,
-              providerTurnId: turn.providerTurnId,
-              nativeItemRef,
-              runtimeRequestId: id,
-              checkpointScopeId: null,
-              startedAt: now,
-              completedAt: null,
-            };
-            const turnItem: OrchestrationV2TurnItem = {
-              id: IdAllocator.derive.approvalTurnItem({ requestId: id }),
-              threadId: turn.threadId,
-              runId: turn.runId,
-              nodeId,
-              providerThreadId: turn.providerThreadId,
-              providerTurnId: turn.providerTurnId,
-              nativeItemRef,
-              parentItemId: null,
-              ordinal: turn.ordinal,
-              status: "waiting",
               title: card.title,
-              startedAt: now,
-              completedAt: null,
-              updatedAt: now,
-              ...(form
+              answeredBy: { providerSessionId: input.providerSessionId },
+              body: form
                 ? {
-                    type: "user_input_request" as const,
-                    requestId: id,
-                    questions: card.questions!.map((question) => ({ ...question, options: [...question.options] })),
+                    type: "user_input_request",
+                    questions: card.questions as ReadonlyArray<OrchestrationV2UserInputQuestion>,
                   }
                 : {
-                    type: "approval_request" as const,
-                    requestId: id,
-                    requestKind,
+                    type: "approval_request",
+                    requestKind: card.requestKind ?? "permission",
                     prompt: card.detail === "" ? card.summary : `${card.summary}\n\n${card.detail}`,
-                    ...(card.options.length === 0 ? {} : { options: card.options }),
-                  }),
-            } as OrchestrationV2TurnItem;
+                    options: card.options,
+                  },
+            });
             const onAbort = () => offer(closeCard(id, null, { approved: false, reason: "withdrawn" }));
             const answer = (value: CliAnswer) => {
               signal.removeEventListener("abort", onAbort);
               resolve(value);
             };
-            cards.set(id, { runtimeRequest, node, turnItem, answer, form });
+            const { runtimeRequest, node, turnItem } = shape;
+            cards.set(id, { runtimeRequest, node, turnItem, answer, form, ask: card });
             signal.addEventListener("abort", onAbort, { once: true });
-            offer([
-              { type: "runtime_request.updated", driver: adapter.driver, threadId: turn.threadId, runtimeRequest },
-              { type: "node.updated", driver: adapter.driver, node },
-              { type: "turn_item.updated", driver: adapter.driver, turnItem },
-            ]);
+            offer(shape.events);
+            park.cardOpened(id);
           });
         const unregister = registerCliAsker(session.thread, {
           ask,
@@ -447,6 +473,7 @@ export const wrapCliAdapter = (
         yield* Effect.addFinalizer(() =>
           Effect.sync(() => {
             unregister();
+            park.dispose();
             for (const id of cards.keys()) closeCard(id, null, { approved: false, reason: "the session ended" });
           }),
         );
@@ -460,12 +487,14 @@ export const wrapCliAdapter = (
             turn.providerTurnId = event.providerTurn.id;
           if (event.type === "turn_item.updated" && event.turnItem.runId === turn.runId)
             turn.ordinal = Math.max(turn.ordinal, event.turnItem.ordinal);
+          park.noteNative(event);
           if (
             event.type !== "turn.terminal" ||
             (turn.providerTurnId !== undefined && event.providerTurnId !== turn.providerTurnId)
           )
             return [event];
           live = undefined;
+          park.turnEnded();
           return [
             ...[...cards.keys()].flatMap((id) => closeCard(id, null, { approved: false, reason: "the turn ended" })),
             event,
@@ -473,6 +502,7 @@ export const wrapCliAdapter = (
         };
         const events = runtime.events.pipe(
           Stream.flatMap((event) => Stream.fromIterable(track(event))),
+          Stream.tap((event) => park.allowNative(event).pipe(Effect.forkDetach)),
           Stream.mapEffect((event) => relayedEvent(session, event)),
           Stream.tap((event) => (event.type === "turn.terminal" ? turnEnded(session) : Effect.void)),
           Stream.filter((event) => options.dropEvent?.(event) !== true),
@@ -498,6 +528,7 @@ export const wrapCliAdapter = (
                 runId: turn.runId,
                 rootNodeId: turn.rootNodeId,
                 providerThreadId: turn.providerThread.id,
+                providerThread: turn.providerThread,
                 providerTurnId: undefined,
                 // Wrapped adapters number their items from `providerTurnOrdinal * 100 + 1`; a card takes the highest emitted
                 // plus one, and t3's position store orders items by first-seen.
@@ -508,31 +539,42 @@ export const wrapCliAdapter = (
               session.limitFiber = undefined;
               // The Turn limit as it is now, kept by this turn's timer: a change reaches only the thread's next turn. At
               // most MAX_TIMED_MINUTES (7 days), under the 24.8 days past which a JS timer overflows. Off (0, the
-              // default, SPI-1386): no timer is started.
+              // default, SPI-1386): no timer is started. A card open at the limit parks the turn instead (SPI-1389).
               const limitMs = turnLimitMs();
               if (limitMs > 0)
                 session.limitFiber = yield* Effect.sleep(limitMs).pipe(
                   Effect.andThen(
-                    Effect.sync(() => {
+                    Effect.suspend(() => {
                       workersLog("warn", {
                         t3flare: "cli-turn-limit",
                         providerSessionId: input.providerSessionId,
                         key: session.process?.key ?? null,
+                        parks: park.anyOpen(),
                       });
+                      if (park.anyOpen()) return park.park({ by: "turn-limit", minutes: limitMs / 60_000 });
                       session.process?.kill();
+                      return Effect.void;
                     }),
                   ),
                   Effect.forkDetach,
                 );
+              // SPI-1389: an answer to a parked card tells the agent what to repeat.
+              const answered = yield* park.answerText(turn.message, false);
               const text =
-                options.rewriteTurnText === undefined
-                  ? turn.message.text
-                  : yield* options.rewriteTurnText(turn.message.text, cwd);
+                options.rewriteTurnText === undefined ? answered : yield* options.rewriteTurnText(answered, cwd);
               const sent = text === turn.message.text ? turn : { ...turn, message: { ...turn.message, text } };
               // A turn that never started ends here: no `turn.terminal` follows, and the hold and the Turn limit's timer would stay.
               yield* runtime.startTurn(sent).pipe(
                 Effect.provideService(CliTurn, { cwd }),
                 Effect.onError(() => turnEnded(session)),
+              );
+            }),
+          // SPI-1389: a parked card's answer steered into a running turn tells the agent the same.
+          steerTurn: (steer) =>
+            Effect.gen(function* () {
+              const text = yield* park.answerText(steer.message, true);
+              yield* runtime.steerTurn(
+                text === steer.message.text ? steer : { ...steer, message: { ...steer.message, text } },
               );
             }),
           respondToRuntimeRequest: (response) => {

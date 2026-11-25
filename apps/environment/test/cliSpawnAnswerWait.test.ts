@@ -1,6 +1,6 @@
-// The Answer wait at a CLI agent's spawn (SPI-1316): the process's MCP tool timeout is made from the wait as stored at
-// its spawn (`cliToolTimeoutSec`), written into Codex's relay entries, and the process carries that wait to the channel
-// (`ChannelStart.answerMs`), so its relay cards keep it for its life and a raised wait never outlasts the CLI's
+// Park after at a CLI agent's spawn (SPI-1389): the process's MCP tool timeout is made from Park after as stored at its
+// spawn (`cliToolTimeoutSec`), written into Codex's relay entries, and the process carries that value to the channel
+// (`ChannelStart.parkAfterMs`), so its turns park at it for its life and a raised value never outlasts the CLI's
 // timeout.
 import * as Effect from "effect/Effect";
 import * as ChildProcess from "effect/process/ChildProcess";
@@ -38,9 +38,9 @@ const ENDPOINTS: ModelEndpoints = {
 } as unknown as ModelEndpoints;
 
 const started: Array<ChannelStart> = [];
-const bind = (ownerAnswerMs?: () => number, mcpCallMs?: () => number) =>
+const bind = (parkAfterMs?: () => number, mcpCallMs?: () => number) =>
   bindEnvironmentServices({
-    ...(ownerAnswerMs === undefined ? {} : { ownerAnswerMs }),
+    ...(parkAfterMs === undefined ? {} : { parkAfterMs }),
     ...(mcpCallMs === undefined ? {} : { mcpCallMs }),
     workspaces: {
       list: () => [],
@@ -94,8 +94,8 @@ afterEach(() => {
   bindEnvironmentServices(undefined as unknown as EnvironmentServices);
 });
 
-describe("a CLI agent's spawn takes the Answer wait (SPI-1316)", () => {
-  it("writes Codex's tool_timeout_sec from the wait at the spawn: 1,500 at the default wait, 3,900 at 30 minutes", async () => {
+describe("a CLI agent's spawn takes Park after (SPI-1389)", () => {
+  it("writes Codex's tool_timeout_sec from Park after at the spawn: 1,500 at the default, 3,900 at 30 minutes", async () => {
     vi.spyOn(console, "log").mockImplementation(() => undefined);
     // A 270-second MCP call time limit; off (the default since SPI-1386) adds the off deadline, a week, instead.
     const callMs = () => 270_000;
@@ -107,7 +107,7 @@ describe("a CLI agent's spawn takes the Answer wait (SPI-1316)", () => {
     expect(timeoutOf(started[1]!)).toBe("3900");
   });
 
-  it("gives each process of one thread the wait at its own spawn, so an older one keeps its own", async () => {
+  it("gives each process of one thread Park after at its own spawn, so an older one keeps its own", async () => {
     vi.spyOn(console, "log").mockImplementation(() => undefined);
     let wait = 45 * 60_000;
     bind(
@@ -117,7 +117,7 @@ describe("a CLI agent's spawn takes the Answer wait (SPI-1316)", () => {
     expect((await spawnCodex("spawn-kept"))._tag).toBe("Success");
     wait = 10 * 60_000;
     expect((await spawnCodex("spawn-kept"))._tag).toBe("Success");
-    expect(started.map((start) => [start.thread, start.answerMs, timeoutOf(start)])).toEqual([
+    expect(started.map((start) => [start.thread, start.parkAfterMs, timeoutOf(start)])).toEqual([
       ["spawn-kept", 45 * 60_000, "5700"],
       ["spawn-kept", 10 * 60_000, "1500"],
     ]);
@@ -129,7 +129,7 @@ describe("a CLI agent's spawn takes the MCP call time limit (SPI-1359)", () => {
     vi.spyOn(console, "log").mockImplementation(() => undefined);
     bind(undefined, () => 3600_000);
     expect((await spawnCodex("spawn-long-call"))._tag).toBe("Success");
-    // Two 10-minute waits, the hour's call, and 30 s.
+    // Two 10-minute Park afters, the hour's call, and 30 s.
     expect(timeoutOf(started[0]!)).toBe(String(1200 + 3600 + 30));
   });
 });

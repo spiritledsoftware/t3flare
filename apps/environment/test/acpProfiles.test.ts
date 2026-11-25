@@ -182,6 +182,22 @@ describe("Claude Code's profile", () => {
   });
 });
 
+describe("Claude Code keeps a parked card's session from its own cleanup (SPI-1389)", () => {
+  it("touches the parked sessions' files in its projects directory before it starts; none when nothing is parked", () => {
+    const keepOf = (parkedSessions?: ReadonlyArray<string>) => {
+      const answer = profileLaunch(
+        { cli: "claude", args: [], key: "proc-keep", cwd: "/w/demo", env: {}, allowProbe: false },
+        parkedSessions === undefined ? context : { ...context, parkedSessions },
+      );
+      if ("refused" in answer) throw new Error(answer.refused);
+      return answer.keep;
+    };
+    expect(keepOf(["claude-session-1"])).toEqual({ dirs: [CLAUDE_PROJECTS], sessions: ["claude-session-1"] });
+    expect(keepOf([])).toBeUndefined();
+    expect(keepOf()).toBeUndefined();
+  });
+});
+
 describe("Claude Code on the Model endpoints through the model relay (SPI-1168)", () => {
   const relayed: ProfileContext = {
     ...context,

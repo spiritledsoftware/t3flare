@@ -58,7 +58,7 @@ export interface ProfileContext {
   readonly piExtensionSource: string;
   /**
    * The MCP relay's entries for this process (ADR-0028): its tool handle, the servers it gets, and their MCP tool
-   * timeout in seconds (`cliToolTimeoutSec` of the Answer wait at the spawn, SPI-1316). The handle goes only into this
+   * timeout in seconds (`cliToolTimeoutSec` of Park after at the spawn, SPI-1389). The handle goes only into this
    * process's environment (review H2: never a Container-wide file).
    */
   readonly relay?: {
@@ -92,7 +92,21 @@ export interface ProfileContext {
    * setting's default.
    */
   readonly piSessionRetentionDays?: number;
+  /**
+   * SPI-1389: the CLI sessions parked cards wait on (`ParkedCards.nativeSessions`), at the spawn: pi's and Claude Code's
+   * launches keep their files from session pruning (`Launch.keep`). Absent: none.
+   */
+  readonly parkedSessions?: ReadonlyArray<string>;
 }
+
+/** The keep of a launch whose sessions live in `dir` (SPI-1389): the parked ones, when there are any. */
+export const parkedKeepOf = (
+  dir: string,
+  context: Pick<ProfileContext, "parkedSessions">,
+): { readonly keep?: NonNullable<Launch["keep"]> } =>
+  context.parkedSessions === undefined || context.parkedSessions.length === 0
+    ? {}
+    : { keep: { dirs: [dir], sessions: context.parkedSessions } };
 
 /**
  * The spawn's Environment settings a CLI's own config takes (SPI-1323), resolved once here: how many days a session
@@ -133,6 +147,8 @@ export interface Launch {
   readonly files?: ReadonlyArray<ProcessFile>;
   readonly links?: ReadonlyArray<ProcessLink>;
   readonly prune?: ReadonlyArray<{ readonly dir: string; readonly days: number }>;
+  /** SPI-1389: parked sessions kept from pruning (`ProcessStartInput.keep`). */
+  readonly keep?: { readonly dirs: ReadonlyArray<string>; readonly sessions: ReadonlyArray<string> };
   readonly thread?: string;
   /** The Model endpoints the process reaches through the relay (SPI-1167): the Workspace DO gives it a handle for these. */
   readonly modelRelay?: ReadonlyArray<string>;
@@ -620,6 +636,8 @@ const piLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer => 
     ...(spawnSettingsOf(context).sessionDays === 0
       ? {}
       : { prune: [{ dir: PI_SESSIONS, days: spawnSettingsOf(context).sessionDays }] }),
+    // SPI-1389: a parked card's session outlives the prune.
+    ...parkedKeepOf(PI_SESSIONS, context),
     ...(thread === undefined ? {} : { thread }),
     // SPI-1170: the Workspace DO gives the process a model handle for these endpoints, in its environment only.
     modelRelay: piRelay.endpoints.map((endpoint) => endpoint.id),

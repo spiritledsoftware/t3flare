@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   bindEnvironmentServices,
   type EnvironmentServices,
-  ownerAnswerMsNow,
+  parkAfterMsNow,
   turnLimitMsNow,
 } from "../src/agents/bindings.ts";
 import type { ChannelProcess } from "../src/agents/processChannel.ts";
@@ -39,7 +39,7 @@ const turnInput = {
   providerThread: { id: "pt1" },
   providerTurnOrdinal: 1,
   runtimePolicy: policy,
-  message: { text: "hello" },
+  message: { messageId: "message-1", text: "hello" },
 } as never;
 
 /** Opens a wrapped session with a fake process, starts one turn, then sets the limit to `after` and waits `waitMs`. */
@@ -105,21 +105,23 @@ describe("turnLimitMsNow", () => {
   });
 });
 
-describe("ownerAnswerMsNow (SPI-1316)", () => {
+describe("parkAfterMsNow (SPI-1389)", () => {
   afterEach(() => bindEnvironmentServices(undefined as unknown as EnvironmentServices));
 
-  it("reads the Environment's Answer wait, and the default (10 minutes) without services, a reader, or a readable store", () => {
-    bindEnvironmentServices({ ownerAnswerMs: () => 60_000 } as unknown as EnvironmentServices);
-    expect(ownerAnswerMsNow()).toBe(60_000);
+  it("reads the Environment's Park after, 0 when off, and the default (10 minutes) without services or a readable store", () => {
+    bindEnvironmentServices({ parkAfterMs: () => 60_000 } as unknown as EnvironmentServices);
+    expect(parkAfterMsNow()).toBe(60_000);
+    bindEnvironmentServices({ parkAfterMs: () => 0 } as unknown as EnvironmentServices);
+    expect(parkAfterMsNow()).toBe(0);
     bindEnvironmentServices({
-      ownerAnswerMs: () => {
+      parkAfterMs: () => {
         throw new Error("storage reset");
       },
     } as unknown as EnvironmentServices);
-    expect(ownerAnswerMsNow()).toBe(600_000);
+    expect(parkAfterMsNow()).toBe(600_000);
     bindEnvironmentServices({} as unknown as EnvironmentServices);
-    expect(ownerAnswerMsNow()).toBe(600_000);
+    expect(parkAfterMsNow()).toBe(600_000);
     bindEnvironmentServices(undefined as unknown as EnvironmentServices);
-    expect(ownerAnswerMsNow()).toBe(600_000);
+    expect(parkAfterMsNow()).toBe(600_000);
   });
 });

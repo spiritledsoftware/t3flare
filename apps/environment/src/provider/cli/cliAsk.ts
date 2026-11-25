@@ -3,9 +3,22 @@
 // when the owner does. A thread with no live turn is refused. (Before the back-to-stock cut, owner 2026-11-12, the
 // push gateway's cards came this way too; pushes no longer ask.) Since SPI-1079 an MCP server's question comes this way
 // too (`cliQuestionAsker`): an `mcp-elicitation` approval card, or a `user_input` card for a form.
-import type { ApprovalDecision, McpAsker, McpCardQuestion } from "@t3flare/session-protocol";
+//
+// A card waits until the Owner answers it (SPI-1389): no timer closes it. After Park after the wrapper parks the turn,
+// and the card's ask resolves with `parked`, the text the held call is answered with.
+import { SETTINGS_SERVER } from "@t3flare/harness-registry";
+import { type ApprovalDecision, type McpAsker, type McpCardQuestion, PARKED_REASON } from "@t3flare/session-protocol";
 
-import { askerWaitMs, ownerAnswerMsNow } from "../../agents/bindings.ts";
+import type { ParkedCall } from "./parked.ts";
+
+/**
+ * What a parked card's record keeps of an ask (SPI-1389): a relay tool card's call, which an allow lets run once; an MCP
+ * server's question's server; the Settings server's card's Open change.
+ */
+export type CliAskPark =
+  | { readonly kind: "tool"; readonly call: ParkedCall }
+  | { readonly kind: "question"; readonly server: string }
+  | { readonly kind: "change"; readonly server: string; readonly changeId: string };
 
 /** What the relay asks: the card's text, its buttons and title, and the ask's id. A tool card is t3's `permission` kind. */
 export interface CliAsk {
@@ -22,6 +35,8 @@ export interface CliAsk {
   readonly requestKind?: "permission" | "mcp-elicitation";
   /** A form's questions (SPI-1079): the card is t3's `user_input` request, answered with `answers`. */
   readonly questions?: ReadonlyArray<McpCardQuestion>;
+  /** What a parked card's record keeps of the ask (SPI-1389). */
+  readonly park: CliAskPark;
 }
 
 export interface CliAnswer {
@@ -32,9 +47,14 @@ export interface CliAnswer {
   /** The owner's decision as t3 gave it, and a `user_input` card's answers (SPI-1079). */
   readonly decision?: ApprovalDecision;
   readonly answers?: Readonly<Record<string, unknown>>;
+  /** The turn parked (SPI-1389): the text the held call is answered with. The card stays up as a question. */
+  readonly parked?: string;
 }
 
-/** A live turn's way to ask: resolves with the owner's answer, or a refusal when the turn ends or the ask is withdrawn. */
+/**
+ * A live turn's way to ask: resolves with the owner's answer, a refusal when the turn ends or the ask is withdrawn, or
+ * `parked` when the turn parks.
+ */
 export interface CliAsker {
   /** The thread's modes as its session last set them, and its Workspace (the relay's decision, review M7). */
   readonly state?: () => {
@@ -75,11 +95,8 @@ export const approveCliTool = async (input: {
   readonly title: string;
   readonly summary: string;
   readonly detail: string;
-  /**
-   * How long the card waits (SPI-1316): the Answer wait the calling process was spawned with, which its MCP tool
-   * timeout was made from. Absent: the wait now.
-   */
-  readonly waitMs?: number;
+  /** The call, its tool `server/upstream` and its arguments' hash: a parked card's record (SPI-1389). */
+  readonly call: ParkedCall;
 }): Promise<CliAnswer> => {
   const asker = askers.get(input.thread);
   if (asker === undefined) return { approved: false, reason: `no live turn to ask on (thread ${input.thread})` };
@@ -92,11 +109,18 @@ export const approveCliTool = async (input: {
   withdrawals.set(input.askId, withdrawn);
   try {
     const answer = await asker.ask(
-      { askId: input.askId, summary: input.summary, detail: input.detail, options, title: input.title },
-      AbortSignal.any([AbortSignal.timeout(askerWaitMs(input)), withdrawn.signal]),
+      {
+        askId: input.askId,
+        summary: input.summary,
+        detail: input.detail,
+        options,
+        title: input.title,
+        park: { kind: "tool", call: input.call },
+      },
+      withdrawn.signal,
     );
-    if (answer.reason === "withdrawn")
-      return { approved: false, reason: withdrawn.signal.aborted ? "the agent went away" : "no answer in time" };
+    if (answer.parked !== undefined) return { approved: false, parked: answer.parked };
+    if (answer.reason === "withdrawn") return { approved: false, reason: "the agent went away" };
     if (!answer.approved) return { approved: false, reason: answer.reason ?? "declined" };
     return { approved: true, forSession: answer.forSession === true };
   } finally {
@@ -106,13 +130,11 @@ export const approveCliTool = async (input: {
 
 /**
  * The cards of an MCP server's questions on `thread`'s live turn (SPI-1079): the MCP host makes each card, this raises it
- * as the relay's tool cards are raised, and hands back the owner's answer. No live turn: cancelled, nothing shown.
+ * as the relay's tool cards are raised, and hands back the owner's answer. No live turn: cancelled, nothing shown. A
+ * parked turn (SPI-1389) is a cancel for `PARKED_REASON`.
  */
-export const cliQuestionAsker = (thread: string, waitMs: number = ownerAnswerMsNow()): McpAsker => {
-  // One wait for the asker's life (SPI-1316): the calling process's spawn-time wait, which the MCP host's and the
-  // Settings server's card timers take too.
+export const cliQuestionAsker = (thread: string): McpAsker => {
   return {
-    waitMs,
     ask: async (card) => {
       const asker = askers.get(thread);
       if (asker === undefined) return { decision: "cancel", reason: `no live turn to ask on (thread ${thread})` };
@@ -128,11 +150,16 @@ export const cliQuestionAsker = (thread: string, waitMs: number = ownerAnswerMsN
             options: card.options ?? [],
             requestKind: "mcp-elicitation",
             ...(card.kind === "form" && card.questions !== undefined ? { questions: card.questions } : {}),
+            park:
+              card.server === SETTINGS_SERVER && card.changeId !== undefined
+                ? { kind: "change", server: card.server, changeId: card.changeId }
+                : { kind: "question", server: card.server },
           },
-          AbortSignal.any([AbortSignal.timeout(waitMs), withdrawn.signal]),
+          withdrawn.signal,
         );
-        if (answer.reason === "withdrawn")
-          return { decision: "cancel", reason: withdrawn.signal.aborted ? "withdrawn" : "no answer in time" };
+        // The held call is answered with the parked text, whatever the server makes of the cancel (`relay.ts`).
+        if (answer.parked !== undefined) return { decision: "cancel", reason: PARKED_REASON, parked: answer.parked };
+        if (answer.reason === "withdrawn") return { decision: "cancel", reason: "withdrawn" };
         // No decision from t3 means no owner answered (no live turn, the session ended): a cancel, never a decline.
         const decision = answer.decision ?? (answer.approved ? "accept" : "cancel");
         return {

@@ -117,7 +117,24 @@ export interface ProcessCommandInput {
   readonly links?: ReadonlyArray<ProcessLink>;
   /** Session retention (review F2): files under `dir` (in the synced harness directory) untouched for `days` are removed. */
   readonly prune?: ReadonlyArray<{ readonly dir: string; readonly days: number }>;
+  /**
+   * SPI-1389: the CLI sessions parked cards wait on, kept from session pruning: their files under each of `dirs` whose
+   * name holds one of `sessions` are touched before the prune runs, and before the CLI's own cleanup (Claude Code's
+   * `cleanupPeriodDays`) can see them.
+   */
+  readonly keep?: { readonly dirs: ReadonlyArray<string>; readonly sessions: ReadonlyArray<string> };
 }
+
+/**
+ * A session id a keep may name in a `find -path` pattern: no shell, glob or path character, at least one letter or digit
+ * (never `.` or `..`), and at least `KEEPABLE_SESSION_LENGTH` characters, so that `*id*` names that session's files and
+ * not most others (a session id is a UUID or a timestamped one, far longer).
+ */
+export const KEEPABLE_SESSION_LENGTH = 8;
+const KEEPABLE_SESSION = new RegExp(`^(?=.*[A-Za-z0-9])[A-Za-z0-9._-]{${KEEPABLE_SESSION_LENGTH},}$`);
+
+/** Whether a keep may name `session` (`KEEPABLE_SESSION`): one it may not is left out of the touch. */
+export const isKeepableSession = (session: string): boolean => KEEPABLE_SESSION.test(session);
 
 /** Where a profile may write: the process's own home, or the synced harness directory (session directories only). */
 const writable = (marker: string, path: string): boolean =>
@@ -189,6 +206,21 @@ const linkLines = (home: string, link: ProcessLink): ReadonlyArray<string> => {
   ];
 };
 
+/**
+ * The touches that keep parked sessions' files from the prune and the CLI's own cleanup (SPI-1389): every file whose path
+ * holds a parked session's id, its own file or one inside a directory named for it (Claude Code keeps a session's
+ * subagents and tool results there).
+ */
+const keepLines = (keep: ProcessCommandInput["keep"]): ReadonlyArray<string> => {
+  const sessions = (keep?.sessions ?? []).filter(isKeepableSession);
+  if (keep === undefined || sessions.length === 0) return [];
+  const names = sessions.map((session) => `-path ${quote(`*${session}*`)}`).join(" -o ");
+  return keep.dirs.map(
+    (dir) =>
+      `[ -d ${quote(dir)} ] && /usr/bin/find ${quote(dir)} -type f \\( ${names} \\) -exec /usr/bin/touch {} + 2>/dev/null`,
+  );
+};
+
 /** The wrapper `bash -c` runs; it ends by becoming the CLI. */
 export const processCommand = (input: ProcessCommandInput): string => {
   if (!isProcessMarker(input.marker)) throw new Error(`t3flare: bad process marker ${input.marker}`);
@@ -198,6 +230,7 @@ export const processCommand = (input: ProcessCommandInput): string => {
     ...(input.files ?? []),
     ...(input.links ?? []),
     ...(input.prune ?? []).map((entry) => ({ path: `${entry.dir}/x` })),
+    ...(input.keep?.dirs ?? []).map((dir) => ({ path: `${dir}/x` })),
   ]) {
     if (!writable(input.marker, file.path)) throw new Error(`t3flare: a process may not write ${file.path}`);
   }
@@ -233,6 +266,7 @@ export const processCommand = (input: ProcessCommandInput): string => {
     }),
     ...(input.links ?? []).flatMap((link) => linkLines(home, link)),
     ...(input.check === undefined ? [] : checkLines(input.check)),
+    ...keepLines(input.keep),
     ...(input.prune ?? []).map(
       (entry) =>
         `[ -d ${quote(entry.dir)} ] && /usr/bin/find ${quote(entry.dir)} -type f -mtime +${Math.max(1, Math.floor(entry.days))} -delete 2>/dev/null`,

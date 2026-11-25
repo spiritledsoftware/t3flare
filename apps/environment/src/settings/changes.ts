@@ -10,7 +10,8 @@
 // least, the hourly caps' window. No alarm is added (ADR-0003: one alarm).
 import type { SqlStorage } from "@cloudflare/workers-types/index.ts";
 import {
-  DEFAULT_OWNER_ANSWER_MS,
+  CARD_WAIT_MS,
+  deadlineMs,
   DEFAULT_SETTINGS_SERVER_LIMITS,
   type SettingsServerLimits,
   withoutQuery,
@@ -23,8 +24,6 @@ import type { ChangeEntity, ChangeView, PageReason } from "./types.ts";
 
 export const CHANGES_TABLE = "t3flare_settings_changes";
 
-/** What a strike run's window has over its expiries' spacing: room for each next ask after an expiry. */
-const STRIKE_RUN_SLACK_MS = 5 * 60_000;
 /**
  * The least a closed row is kept: the hourly caps' window (`APPLIED_WINDOW_MS`, `OPENED_WINDOW_MS`), whatever the
  * strike and repeat limits are, so a lock of 0 still counts the last hour's changes.
@@ -32,35 +31,26 @@ const STRIKE_RUN_SLACK_MS = 5 * 60_000;
 const KEPT_FLOOR_MS = 60 * 60_000;
 
 /**
- * How far apart a run of strikes may fall (SPI-1316), for the longest Answer wait `answerMs` among the run's changes:
- * the strike window, or more when the wait is long. One Open change per thread means its unanswered strikes come at
- * least a wait apart, so a run of expiries spans `strikes - 1` waits; a fixed window would never see one past a
- * 30-minute wait. With the window off (0, SPI-1386), that spacing alone.
+ * How far apart a run of strikes may fall: the Strike window, or the off deadline (a week, `OFF_DEADLINE_MS`) when it is
+ * off (0). SPI-1389: an asked change waits until it is answered, so no Answer wait stretches the window any more.
  */
-export const strikeWindowMs = (
-  answerMs: number,
-  limits: SettingsServerLimits = DEFAULT_SETTINGS_SERVER_LIMITS,
-): number => Math.max(limits.strikeWindowMinutes * 60_000, (limits.strikes - 1) * answerMs + STRIKE_RUN_SLACK_MS);
+export const strikeWindowMs = (limits: SettingsServerLimits = DEFAULT_SETTINGS_SERVER_LIMITS): number =>
+  deadlineMs(limits.strikeWindowMinutes, 60_000);
 
 /**
- * How long a closed row is kept: the longest a check looks back (SPI-1322 review), for the longest Answer wait
- * `answerMs` a run may have. A run of strikes and the lock after it (plan D16), the declined repeat, and the hourly caps'
- * hour, whichever is longest: the hour at the defaults (SPI-1386: every limit off), the lock's run only while its
- * strikes and length are both set. A limit lowered prunes sooner, and what was pruned is not recovered when it is
- * raised again.
+ * How long a closed row is kept: the longest a check looks back (SPI-1322 review). A run of strikes and the lock after
+ * it (plan D16), the declined repeat, and the hourly caps' hour, whichever is longest: the hour at the defaults (SPI-1386:
+ * every limit off), the lock's run only while its strikes and length are both set. A limit lowered prunes sooner, and
+ * what was pruned is not recovered when it is raised again.
  */
-export const closedKeptMs = (answerMs: number, limits: SettingsServerLimits = DEFAULT_SETTINGS_SERVER_LIMITS): number =>
+export const closedKeptMs = (limits: SettingsServerLimits = DEFAULT_SETTINGS_SERVER_LIMITS): number =>
   Math.max(
     KEPT_FLOOR_MS,
     limits.strikes === 0 || limits.strikeLockMinutes === 0
       ? 0
-      : strikeWindowMs(answerMs, limits) + limits.strikeLockMinutes * 60_000,
+      : strikeWindowMs(limits) + limits.strikeLockMinutes * 60_000,
     limits.declinedRepeatMinutes * 60_000,
   );
-
-/** The wait a change took when it opened (SPI-1316): its own deadline less its start; none for a free change. */
-export const waitOf = (record: Pick<ChangeRecord, "createdAt" | "expiresAt">): number =>
-  (record.expiresAt ?? record.createdAt) - record.createdAt;
 
 /** A duration as the texts name it: "10 minutes", "an hour", "2 hours". */
 export const durationText = (ms: number): string => {
@@ -69,7 +59,7 @@ export const durationText = (ms: number): string => {
   return minutes === 1 ? "a minute" : `${minutes} minutes`;
 };
 
-/** An apply that never closed (the Environment reset while it ran) is closed as failed this long after its expiry. */
+/** An apply that never closed (the Environment reset while it ran) is closed as failed this long after it started. */
 export const APPLYING_GRACE_MS = 5 * 60_000;
 
 /** Fixed: the hour `appliedPerHour` names (applied changes of any tier, per caller, plan D16). */
@@ -149,6 +139,11 @@ export interface ChangeRecord {
   readonly createdAt: number;
   /** When an open change expires; a free row's is its creation. */
   readonly expiresAt?: number;
+  /**
+   * When an answer started applying it (SPI-1389): an apply the Environment's reset cut off is closed `APPLYING_GRACE_MS`
+   * after, not after its expiry, which is a week out. Absent (a row from before): its expiry.
+   */
+  readonly applyingAt?: number;
   readonly state: ChangeState;
   /** `cut`: a `native` stream the client ended unanswered withdrew it (plan D12). */
   readonly closed?: {
@@ -195,14 +190,14 @@ export interface SettingsChanges {
   noteRead(key: string, kind: "read" | "network", at: number): void;
   /** Reads by `key` since `since`: every read for `read`, those that reach the network for `network`. */
   readsSince(key: string, kind: "read" | "network", since: number): number;
-  /** The Answer wait now (SPI-1316), in ms. */
-  answerMs(): number;
+  /**
+   * How long an asked change waits for its answer, in ms: until it is answered (SPI-1389), so the off deadline,
+   * `CARD_WAIT_MS`, which its page token and its row need.
+   */
+  cardWaitMs(): number;
   /** The Settings server's limits now (SPI-1322), as stored. */
   limits(): SettingsServerLimits;
-  /**
-   * How long a closed row is kept (SPI-1316): `closedKeptMs` of the limits now and the longest wait a run may have, the
-   * wait now or the longest any kept change took (a CLI agent's change takes the wait its process was spawned with).
-   */
+  /** How long a closed row is kept: `closedKeptMs` of the limits now. */
   keptMs(): number;
 }
 
@@ -316,18 +311,29 @@ export const closedLine = (record: ChangeRecord): Record<string, unknown> => ({
   ...(record.closed?.cut === true ? { cut: true } : {}),
 });
 
-/**
- * The table over `sql`. `log` gets the line of each change the table itself closes (an expiry, or an apply the
- * Environment's restart cut off), since no answerer is there to write it. `answerMs` is the Answer wait now (SPI-1316),
- * and `limits` the Settings server's limits now (SPI-1322), both of which a closed row's keeping covers (`keptMs`).
- */
+/** How the changes table runs: its clock, its log, how long an asked change waits, and the Settings server's limits. */
+export interface SettingsChangesOptions {
+  readonly now?: () => number;
+  /**
+   * Gets the line of each change the table itself closes (an expiry, or an apply the Environment's restart cut off),
+   * since no answerer is there to write it.
+   */
+  readonly log?: (event: Record<string, unknown>) => void;
+  /** How long an asked change waits for its answer (SPI-1389). Default: `CARD_WAIT_MS`; a test's is shorter. */
+  readonly cardWaitMs?: () => number;
+  /** The Settings server's limits now (SPI-1322), which a closed row's keeping covers (`keptMs`). Default: the defaults. */
+  readonly limits?: () => SettingsServerLimits;
+}
+
+/** The table over `sql`. */
 export const settingsChanges = (
   sql: Pick<SqlStorage, "exec">,
-  now: () => number = Date.now,
-  log?: (event: Record<string, unknown>) => void,
-  answerMs: () => number = () => DEFAULT_OWNER_ANSWER_MS,
-  limits: () => SettingsServerLimits = () => DEFAULT_SETTINGS_SERVER_LIMITS,
+  options: SettingsChangesOptions = {},
 ): SettingsChanges => {
+  const now = options.now ?? Date.now;
+  const log = options.log;
+  const cardWaitMs = options.cardWaitMs ?? (() => CARD_WAIT_MS);
+  const limits = options.limits ?? (() => DEFAULT_SETTINGS_SERVER_LIMITS);
   let ready = false;
   const write = (whole: ChangeRecord) => {
     // The callers refuse such a change before it opens or applies; this keeps the table from holding one it cannot close.
@@ -360,16 +366,8 @@ export const settingsChanges = (
   const validSql = `json_valid(record)`;
   const askedSql = `${validSql} AND json_extract(record, '$.tier') = 'asked'`;
   const deadlineSql = `COALESCE(json_extract(record, '$.expiresAt'), created_at)`;
-  /** The longest wait a kept change took, or the wait now, whichever is longer (SPI-1316). */
-  const longestWait = (): number => {
-    const row = sql
-      .exec<{ longest: number | null }>(
-        `SELECT MAX(json_extract(record, '$.expiresAt') - created_at) AS longest FROM ${CHANGES_TABLE} WHERE ${validSql}`,
-      )
-      .toArray()[0];
-    return Math.max(answerMs(), Number(row?.longest ?? 0));
-  };
-  const keptMs = (): number => closedKeptMs(longestWait(), limits());
+  const applyingSql = `COALESCE(json_extract(record, '$.applyingAt'), json_extract(record, '$.expiresAt'), created_at)`;
+  const keptMs = (): number => closedKeptMs(limits());
   /** Creates the table once, closes what has expired, and prunes what closed over `keptMs` ago. */
   const prepare = () => {
     if (!ready) {
@@ -388,7 +386,7 @@ export const settingsChanges = (
     // Only the rows due to close are read whole: an open one past its expiry, an applying one past its grace too.
     for (const record of rows(
       // The state first, so SQLite parses only the open rows' records, never every closed one's.
-      `state IN ('open', 'applying') AND ${validSql} AND ((state = 'open' AND ${deadlineSql} <= ?) OR (state = 'applying' AND ${deadlineSql} + ? <= ?))`,
+      `state IN ('open', 'applying') AND ${validSql} AND ((state = 'open' AND ${deadlineSql} <= ?) OR (state = 'applying' AND ${applyingSql} + ? <= ?))`,
       at,
       APPLYING_GRACE_MS,
       at,
@@ -397,7 +395,7 @@ export const settingsChanges = (
       const closed: ChangeRecord | undefined =
         record.state === "open" && expiresAt <= at
           ? { ...record, state: "expired", closed: { at: expiresAt } }
-          : record.state === "applying" && expiresAt + APPLYING_GRACE_MS <= at
+          : record.state === "applying" && (record.applyingAt ?? expiresAt) + APPLYING_GRACE_MS <= at
             ? {
                 ...record,
                 state: "failed",
@@ -470,7 +468,7 @@ export const settingsChanges = (
       prepare();
       sql.exec(`INSERT INTO ${READS_TABLE} (caller_key, kind, at) VALUES (?, ?, ?)`, key, kind, at);
     },
-    answerMs,
+    cardWaitMs,
     limits,
     keptMs: () => {
       prepare();

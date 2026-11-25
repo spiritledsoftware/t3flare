@@ -1,7 +1,7 @@
 // @effect-diagnostics globalTimers:off
 // SPI-1079: an MCP server's questions as t3 cards. The pure plans (`mcp/elicitation.ts`: card kinds, answers back, the
 // rules), the MCP host's live questions and Executor-style pauses over a fake engine, and the Environment's fence on `t3_pending_request`.
-import { applyMcpChange, EMPTY_HARNESS } from "@t3flare/harness-registry";
+import { applyMcpChange, CARD_WAIT_MS, EMPTY_HARNESS } from "@t3flare/harness-registry";
 import type { McpAsker, McpQuestionAnswer, McpQuestionCard } from "@t3flare/session-protocol";
 import { describe, expect, it } from "vitest";
 
@@ -15,7 +15,13 @@ import {
   type QuestionContext,
 } from "../src/mcp/elicitation.ts";
 import { McpHost, type McpEngineBinding } from "../src/mcp/host.ts";
-import { OWNER_ONLY_REFUSAL, refuseOwnerOnly } from "../src/mcp/ownerOnly.ts";
+import {
+  OWNER_ONLY_REFUSAL,
+  PARKED_OWNER_ONLY_REFUSAL,
+  QUEUED_ANSWER_REFUSAL,
+  refuseOwnerOnly,
+  TASK_ANSWER_REFUSAL,
+} from "../src/mcp/ownerOnly.ts";
 
 const context: QuestionContext = {
   server: "fixture",
@@ -344,7 +350,7 @@ describe("McpHost questions", () => {
     expect(JSON.parse((answer as { text: string }).text)).toEqual({ kind: "answered", result: { action: "cancel" } });
   });
 
-  it("a question waits the Answer wait from the host's dep, read at the call, and closes unanswered after it (SPI-1316)", async () => {
+  it("a question waits the host's card wait, read at the call, and closes unanswered after it (a test's short wait)", async () => {
     let waitMs = 30;
     const confirm = async (_request: unknown, hooks: any) =>
       text(
@@ -383,21 +389,11 @@ describe("McpHost questions", () => {
     expect(requests[1].ctx).toMatchObject({ answers: { inputWaitMs: 60 * 60_000 } });
   });
 
-  it("an asker that names its own wait (a CLI process's spawn-time one) wins over the dep (SPI-1316)", async () => {
-    const { host, requests } = await hostOver(
-      [tool("fixture_echo", {}, true)],
-      async () => text("ok"),
-      () => 60 * 60_000,
-    );
+  it("a question waits until it is answered by default: the engine's input bound is the off deadline (SPI-1389)", async () => {
+    const { host, requests } = await hostOver([tool("fixture_echo", {}, true)], async () => text("ok"));
     const owner = askerAnswering(() => ({ decision: "cancel" }));
-    await host.call({
-      server: "fixture",
-      tool: "fixture_echo",
-      args: {},
-      judged: "read",
-      asker: { ...owner.asker, waitMs: 120_000 },
-    });
-    expect(requests[0].ctx).toMatchObject({ answers: { inputWaitMs: 120_000 } });
+    await host.call({ server: "fixture", tool: "fixture_echo", args: {}, judged: "read", asker: owner.asker });
+    expect(requests[0].ctx).toMatchObject({ answers: { inputWaitMs: CARD_WAIT_MS } });
   });
 
   it("without an asker nothing is declared", async () => {
@@ -541,5 +537,48 @@ describe("refuseOwnerOnly", () => {
       `[${call({ action: "respond", requestId: "t3flare-elicit-3" }, 1)},${call({ action: "list" }, 2)}]`,
     );
     expect(JSON.parse(batch!).map((answer: { id: number }) => answer.id)).toEqual([1, 2]);
+  });
+
+  it("refuses t3_queue edit, cancel and promote on the Owner's queued answer to a parked question, and task_cancel of its task (SPI-1389)", () => {
+    const queue = (args: Record<string, unknown>) =>
+      JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "t3_queue", arguments: args } });
+    // The queued runs t3 holds: the Owner's answer to a parked question, and an ordinary message.
+    const lookups = {
+      queuedMessageOf: (runId: string) =>
+        ({ "run-answer": "async-answer:runtime-request:codex:t3flare-park:1", "run-plain": "message-7" })[runId],
+    };
+    for (const action of ["edit", "cancel", "promote_to_steer"])
+      expect(
+        JSON.parse(refuseOwnerOnly(queue({ action, queuedRunId: "run-answer", text: "Allow" }), lookups)!),
+      ).toMatchObject({ result: { content: [{ text: QUEUED_ANSWER_REFUSAL }], isError: true } });
+    // Stopping the delegated task whose thread holds the answer would drop it too.
+    const cancelTask = (taskId: string) =>
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "task_cancel", arguments: { taskId } },
+      });
+    const tasks = { taskHoldsParkAnswer: (taskId: string) => taskId === "task-holding" };
+    expect(JSON.parse(refuseOwnerOnly(cancelTask("task-holding"), tasks)!)).toMatchObject({
+      result: { content: [{ text: TASK_ANSWER_REFUSAL }], isError: true },
+    });
+    expect(refuseOwnerOnly(cancelTask("task-other"), tasks)).toBeUndefined();
+    expect(refuseOwnerOnly(queue({ action: "edit", queuedRunId: "run-plain", text: "x" }), lookups)).toBeUndefined();
+    expect(refuseOwnerOnly(queue({ action: "list" }), lookups)).toBeUndefined();
+    expect(refuseOwnerOnly(queue({ action: "read", queuedRunId: "run-answer" }), lookups)).toBeUndefined();
+    // Without a way to read t3's queue, nothing is refused on it.
+    expect(refuseOwnerOnly(queue({ action: "edit", queuedRunId: "run-answer", text: "x" }))).toBeUndefined();
+  });
+
+  it("refuses read and respond on a parked card's question (SPI-1389), with its own refusal", () => {
+    for (const action of ["respond", "read"])
+      expect(
+        JSON.parse(
+          refuseOwnerOnly(
+            call({ action, requestId: "runtime-request:codex:t3flare-park:1", answers: { decision: "Allow" } }),
+          )!,
+        ),
+      ).toMatchObject({ result: { content: [{ text: PARKED_OWNER_ONLY_REFUSAL }], isError: true } });
   });
 });

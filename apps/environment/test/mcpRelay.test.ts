@@ -2,12 +2,22 @@
 // judged by the calling thread's own mode, linked threads included; and t3's own entry as stock t3 hands it (SPI-1039).
 // Owner, 2026-11-12, back to stock: no per-call linked rule, no strictest-mode rule, no taint rule, no t3 relay.
 import { cliToolTimeoutSec, type McpRelayInput } from "@t3flare/harness-registry";
+import { PARKED_REASON } from "@t3flare/session-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { McpView } from "../src/mcp/host.ts";
 import { relayMessage, type RelayDeps } from "../src/mcp/relay.ts";
 import { codexRelayOverrides, profileLaunch } from "../src/agents/cliProfiles.ts";
 import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
+import { argsHashOf } from "../src/mcp/canonical.ts";
+import { parkedCards } from "../src/provider/cli/parked.ts";
+import { nodeSqlStorage, nodeTransaction } from "./nodeSqlStorage.ts";
+
+/** A parked-card store over a fresh in-memory SQLite, its transactions real. */
+const nodeParkedCards = () => {
+  const sql = nodeSqlStorage();
+  return parkedCards(sql, nodeTransaction(sql));
+};
 
 const tool = (
   upstream: string,
@@ -40,14 +50,15 @@ const VIEW: McpView = {
 
 interface Harness {
   readonly deps: RelayDeps;
-  readonly asks: Array<{ thread: string; title: string }>;
+  readonly asks: Array<{ thread: string; title: string; tool?: string; argsHash?: string }>;
   readonly calls: Array<{ tool: string }>;
 }
 
 const harness = (
   options: {
     modes?: Record<string, { runtimeMode?: string; interactionMode?: string }>;
-    answer?: { approved: boolean; forSession?: boolean; reason?: string };
+    answer?: { approved: boolean; forSession?: boolean; reason?: string; parked?: string };
+    allowance?: RelayDeps["allowance"];
   } = {},
 ): Harness => {
   const asks: Harness["asks"] = [];
@@ -68,9 +79,10 @@ const harness = (
           ? undefined
           : { runtimeMode: modes[thread]!.runtimeMode, interactionMode: modes[thread]!.interactionMode },
       ask: async (input) => {
-        asks.push({ thread: input.thread, title: input.title });
+        asks.push({ thread: input.thread, title: input.title, tool: input.call.tool, argsHash: input.call.argsHash });
         return options.answer ?? { approved: true };
       },
+      ...(options.allowance === undefined ? {} : { allowance: options.allowance }),
       accepted: {
         has: (thread, key) => accepted.get(thread)?.has(key) === true,
         add: (thread, key) => void accepted.set(thread, new Set([...(accepted.get(thread) ?? []), key])),
@@ -112,7 +124,7 @@ const resultOf = (answer: Awaited<ReturnType<typeof relayMessage>>) => {
 describe("the relay's MCP server", () => {
   afterEach(() => bindEnvironmentServices(undefined as unknown as EnvironmentServices));
 
-  it("tells a CLI the Settings server's asked changes wait its spawn-time Answer wait (SPI-1316)", async () => {
+  it("tells a CLI the Settings server's asked changes wait for the owner's answer, with no deadline (SPI-1389)", async () => {
     const instructions = async (deps: RelayDeps) => {
       const answer = await relayMessage(
         input({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }, { server: "settings" }),
@@ -120,11 +132,11 @@ describe("the relay's MCP server", () => {
       );
       return (answer as { body: { result: { instructions: string } } }).body.result.instructions;
     };
-    const at30 = await instructions({ ...harness().deps, answerMs: () => 30 * 60_000, openPerThread: () => 1 });
-    expect(at30).toContain("(at most 30 minutes, one at a time per thread)");
-    // Without the dep, the wait now; openPerThread off (the default, SPI-1386) names no count.
-    bindEnvironmentServices({ ownerAnswerMs: () => 60_000 } as unknown as EnvironmentServices);
-    expect(await instructions(harness().deps)).toContain("on a card or its Change page (at most a minute).");
+    const one = await instructions({ ...harness().deps, openPerThread: () => 1 });
+    expect(one).toContain("on a card or its Change page (one at a time per thread).");
+    expect(one).not.toContain("at most");
+    // openPerThread off (the default, SPI-1386) names no count.
+    expect(await instructions(harness().deps)).toContain("on a card or its Change page.");
   });
 
   it("answers initialize with the client's protocol version and only tools", async () => {
@@ -165,7 +177,14 @@ describe("the relay's MCP server", () => {
     const h = harness({ answer: { approved: false, reason: "decline" } });
     const result = resultOf(await relayMessage(input(call("fixture_note")), h.deps));
     expect(result.isError).toBe(true);
-    expect(h.asks).toEqual([{ thread: "thread-1", title: "Allow commissary: fixture_note?" }]);
+    expect(h.asks).toEqual([
+      {
+        thread: "thread-1",
+        title: "Allow commissary: fixture_note?",
+        tool: "commissary/fixture_note",
+        argsHash: await argsHashOf({ text: "hi" }),
+      },
+    ]);
     expect(h.calls).toEqual([]);
   });
 
@@ -206,6 +225,81 @@ describe("the relay's MCP server", () => {
     expect(h.asks.map((ask) => ask.thread)).toEqual(["thread-1", "thread-2"]);
   });
 
+  it("answers a parked card's held call with a complete tool result that says so, and runs nothing (SPI-1389)", async () => {
+    const h = harness({ answer: { approved: false, parked: "Parked: the owner's answer will come as a message." } });
+    const result = resultOf(await relayMessage(input(call("fixture_note")), h.deps));
+    expect(result).toEqual({
+      content: [{ type: "text", text: "Parked: the owner's answer will come as a message." }],
+      isError: false,
+    });
+    expect(h.calls).toEqual([]);
+  });
+
+  it("runs a call its parked card's answer allowed once without a card; another argument hash still asks (SPI-1389)", async () => {
+    const store = nodeParkedCards();
+    const allowed = await argsHashOf({ text: "hi" });
+    store.park({
+      id: "park-1",
+      thread: "thread-1",
+      kind: "tool",
+      call: { tool: "commissary/fixture_note", argsHash: allowed },
+      title: "Allow commissary: fixture_note?",
+      parkedAt: 1,
+    });
+    store.answer("park-1", "accept");
+    const h = harness({
+      answer: { approved: false, reason: "decline" },
+      allowance: (thread, call) => store.take(thread, "tool", call),
+    });
+    const other = { ...call("fixture_note"), params: { name: "fixture_note", arguments: { text: "bye" } } };
+    expect(resultOf(await relayMessage(input(other), h.deps)).isError).toBe(true);
+    expect(h.asks).toHaveLength(1);
+    expect(resultOf(await relayMessage(input(call("fixture_note")), h.deps))).toMatchObject({ isError: false });
+    expect(h.calls).toEqual([{ tool: "fixture_note" }]);
+    expect(h.asks).toHaveLength(1);
+    // Used once: the same call again asks.
+    expect(resultOf(await relayMessage(input(call("fixture_note")), h.deps)).isError).toBe(true);
+    expect(h.asks).toHaveLength(2);
+  });
+
+  it("keeps an allowance's 'for the session' as the card's would", async () => {
+    const h = harness({
+      answer: { approved: false, reason: "decline" },
+      allowance: () => ({ forSession: true }),
+    });
+    await relayMessage(input(call("fixture_note")), h.deps);
+    const again = harness({ answer: { approved: false, reason: "decline" } });
+    const deps = { ...again.deps, accepted: h.deps.accepted };
+    expect(resultOf(await relayMessage(input(call("fixture_note")), deps)).isError).toBe(false);
+    expect(again.asks).toEqual([]);
+  });
+
+  it("answers a call whose MCP server's question parked with the parked text, not the server's answer to the cancel (SPI-1389)", async () => {
+    const parked = "Parked: the owner has not answered within Park after, its 10-minute time limit.";
+    const base = harness({ modes: { "thread-1": { runtimeMode: "full-access", interactionMode: "default" } } });
+    const deps: RelayDeps = {
+      ...base.deps,
+      asker: () => ({
+        ask: async () => ({ decision: "cancel", reason: PARKED_REASON, parked }),
+        withdraw: () => undefined,
+      }),
+      call: async (call) => {
+        const answer = await call.asker!.ask({
+          id: "t3flare-elicit-1",
+          kind: "approval",
+          server: "commissary",
+          title: "Sure?",
+          prompt: "Sure?",
+        });
+        return { kind: "result", isError: true, text: `the user ${answer.decision}led` };
+      },
+    };
+    expect(resultOf(await relayMessage(input(call("fixture_note")), deps))).toEqual({
+      content: [{ type: "text", text: parked }],
+      isError: false,
+    });
+  });
+
   it("refuses a scripts-only or unknown tool", async () => {
     const h = harness({ modes: { "thread-1": { runtimeMode: "full-access" } } });
     expect(resultOf(await relayMessage(input(call("fixture_script")), h.deps)).isError).toBe(true);
@@ -236,7 +330,7 @@ describe("the CLIs' relay entries (H2, M11)", () => {
       },
     );
     if ("refused" in launch) throw new Error(launch.refused);
-    // SPI-1316: a process spawned at a 30-minute Answer wait gets 3,900 s.
+    // SPI-1389: a process spawned at a 30-minute Park after gets 3,900 s.
     expect(launch.argv.join(" ")).toContain("tool_timeout_sec=3900,");
     // SPI-1366: the start wait is the CLI agent's MCP start wait as the spawn read it.
     expect(launch.argv.join(" ")).toContain("startup_timeout_sec=90}");

@@ -135,8 +135,8 @@ const ENVIRONMENT: Readonly<
   containerBudget: { up: [3, 0, "asked"], down: [0, 2, "free"] },
   // SPI-1315: a shorter Turn limit only narrows; a longer one spends model tokens and Container time, so it is asked.
   turnLimitMinutes: { up: [120, 0, "asked"], down: [0, 60, "free"] },
-  // SPI-1316: a shorter Answer wait only narrows; a longer one holds a turn, and its Container, longer, so it is asked.
-  ownerAnswerMinutes: { up: [10, 30, "asked"], down: [10, 5, "free"] },
+  // SPI-1389: a shorter Park after only narrows; a longer one (or off) holds a turn, and its Container, longer, so it is asked.
+  parkAfterMinutes: { up: [10, 0, "asked"], down: [10, 5, "free"] },
   variables: {
     up: [[], [{ name: "A", value: "1", secret: false }], "asked"],
     down: [[{ name: "A", value: "1", secret: false }], [], "asked"],

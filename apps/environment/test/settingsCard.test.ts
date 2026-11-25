@@ -2,8 +2,8 @@
 // `approval` card with no field (its shape and the owner-only refusal are in settingsHostile.test.ts); the prompt's
 // server-written parts and fixed lines; no Approve on a change that needs the page; the page answering first withdraws the card; a Stop
 // withdraws the Open change.
-import { applyChange, CARD_TEXT_MAX, EMPTY_HARNESS } from "@t3flare/harness-registry";
-import { type McpQuestionCard } from "@t3flare/session-protocol";
+import { applyChange, CARD_TEXT_MAX, CARD_WAIT_MS, EMPTY_HARNESS } from "@t3flare/harness-registry";
+import { type McpQuestionCard, PARKED_REASON } from "@t3flare/session-protocol";
 import type { McpCallAnswer } from "../src/mcp/host.ts";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -12,7 +12,7 @@ import { CHANGES_API_PATH, changePagePath } from "../src/harness/paths.ts";
 import { HINT_TRUST_LINE } from "../src/settings/render.ts";
 import { addMcpServer } from "../src/harness/ops.ts";
 import { HOST, PANEL, settingsFixture, type SettingsFixture, structured, textOf, until } from "./settingsFixture.ts";
-import { ownerOutcome } from "../src/settings/server.ts";
+import { answerParkedChange, ownerOutcome } from "../src/settings/server.ts";
 import { settingsInstructions, settingsOwnerInstructions } from "../src/settings/tools.ts";
 import { csrfToken } from "../src/harness/csrf.ts";
 
@@ -239,14 +239,14 @@ describe("the asked change's card", () => {
   });
 });
 
-describe("the asked change's wait is the Answer wait (SPI-1316)", () => {
+describe("the asked change's wait (SPI-1316, SPI-1389)", () => {
   /** The change the call opened, read back from the table (it may have closed). */
   const opened = (run: SettingsFixture) =>
     run.deps.changes.get(run.cards[0]!.prompt.match(/changes\/(chg_[\w-]+)/)![1]!);
 
   it("records expiresAt = createdAt + the wait, and closes unanswered after it, saying how long it waited", async () => {
     // The real path: no cardWaitMs, so the call's timer is the record's own expiresAt - createdAt.
-    fixture = settingsFixture({ answer: open, answerMs: () => 40 });
+    fixture = settingsFixture({ answer: open, changeWaitMs: () => 40 });
     const run = fixture;
     const answer = await run.call(run.durable(), "change_environment", ASKED);
     expect(structured(answer)).toMatchObject({ status: "expired" });
@@ -256,7 +256,10 @@ describe("the asked change's wait is the Answer wait (SPI-1316)", () => {
   });
 
   it("at one minute, an Open change records createdAt + 60,000, and its expired text names a minute", async () => {
-    fixture = settingsFixture({ answer: { decision: "cancel", reason: "no answer in time" }, answerMs: () => 60_000 });
+    fixture = settingsFixture({
+      answer: { decision: "cancel", reason: "no answer in time" },
+      changeWaitMs: () => 60_000,
+    });
     const run = fixture;
     await run.call(run.durable(), "change_environment", ASKED);
     const record = opened(run)!;
@@ -267,21 +270,52 @@ describe("the asked change's wait is the Answer wait (SPI-1316)", () => {
     ).toContain("the owner did not answer within a minute.");
   });
 
-  it("a CLI process's asker names its spawn-time wait, which the change takes over the wait now", async () => {
-    fixture = settingsFixture({ answer: open, answerMs: () => 60 * 60_000, askerWaitMs: 40 });
+  it("waits until it is answered by default: its record takes the off deadline its page token needs (SPI-1389)", async () => {
+    fixture = settingsFixture({ answer: { decision: "cancel", reason: PARKED_REASON } });
     const run = fixture;
-    const answer = await run.call(run.durable(), "change_environment", ASKED);
-    expect(structured(answer)).toMatchObject({ status: "expired" });
+    await run.call(run.durable(), "change_environment", ASKED);
     const record = opened(run)!;
-    expect(record.expiresAt! - record.createdAt).toBe(40);
+    expect(record.expiresAt! - record.createdAt).toBe(CARD_WAIT_MS);
   });
 
-  it("the Settings server's instructions name the wait they are built with", () => {
-    expect(settingsInstructions(30 * 60_000, 1)).toContain("(at most 30 minutes, one at a time per thread)");
+  it("a parked card keeps the Open change open, answers the call that it parked, and its answer applies it (SPI-1389)", async () => {
+    fixture = settingsFixture({ answer: { decision: "cancel", reason: PARKED_REASON } });
+    const run = fixture;
+    const answer = await run.call(run.durable(), "change_environment", ASKED);
+    expect(structured(answer)).toMatchObject({ status: "waiting" });
+    expect(textOf(answer)).toContain("Parked: the owner has not answered yet");
+    expect((answer as { isError?: boolean }).isError).toBe(false);
+    const record = opened(run)!;
+    expect(record.state).toBe("open");
+    // The card names the change it stands for, so a parked card's record keeps it.
+    expect(run.cards[0]!.changeId).toBe(record.id);
+    expect(run.withdrawn).toEqual([]);
+    expect(await answerParkedChange(run.deps, record.id, true)).toMatch(
+      /^Applied: the owner approved it on the card\./,
+    );
+    expect(run.deps.changes.get(record.id)).toMatchObject({ state: "applied" });
+    // Answered already (on the page first, or twice): its outcome, nothing applied again.
+    expect(await answerParkedChange(run.deps, record.id, false)).toMatch(/^Applied/);
+  });
+
+  it("a parked change declined on its question closes declined", async () => {
+    fixture = settingsFixture({ answer: { decision: "cancel", reason: PARKED_REASON } });
+    const run = fixture;
+    await run.call(run.durable(), "change_environment", ASKED);
+    const record = opened(run)!;
+    expect(await answerParkedChange(run.deps, record.id, false)).toContain(
+      "Not changed: the owner declined it on the card.",
+    );
+    expect(run.store.loadEnvironment().revision).toBe(0);
+  });
+
+  it("the Settings server's instructions name no deadline for an asked change (SPI-1389)", () => {
+    expect(settingsInstructions(1)).toContain("on a card or its Change page (one at a time per thread).");
     // Off (0, the default since SPI-1386), no count.
-    expect(settingsInstructions(30 * 60_000)).toContain("on a card or its Change page (at most 30 minutes).");
+    expect(settingsInstructions()).toContain("on a card or its Change page.");
     // SPI-1322: the Settings server's openPerThread.
-    expect(settingsInstructions(30 * 60_000, 3)).toContain("(at most 30 minutes, at most 3 at a time per thread)");
-    expect(settingsOwnerInstructions(60_000)).toContain("on its Change page (at most a minute)");
+    expect(settingsInstructions(3)).toContain("(at most 3 at a time per thread)");
+    expect(settingsOwnerInstructions()).toContain("waits for the owner's answer on its Change page: open the link");
+    for (const text of [settingsInstructions(1), settingsOwnerInstructions()]) expect(text).not.toContain("at most a");
   });
 });

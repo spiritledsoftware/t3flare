@@ -384,6 +384,25 @@ describe("ProcessHost", () => {
     expect(h.host.holdsContainer()).toBe(false);
   });
 
+  it("lets the Container go as soon as a parked turn's process is killed, not after the idle hold (SPI-1389)", async () => {
+    const h = harness();
+    await h.host.start(start("proc-a"));
+    await h.host.start(start("proc-b"));
+    h.host.turn("proc-a", true);
+    // The other process's last turn ended long ago: it holds nothing.
+    h.host.turn("proc-b", true);
+    h.host.turn("proc-b", false);
+    h.advance(CLI_IDLE_HOLD_MS);
+    expect(h.host.holdsContainer()).toBe(true);
+    // The park: the wrapper kills the process mid-turn (its turn's end may never reach the Workspace).
+    await h.host.signal("proc-a");
+    expect(h.killed).toContainEqual(["proc-a"]);
+    expect(h.host.holdsContainer()).toBe(true);
+    h.procs[0]!.exit(143);
+    await tick(20);
+    expect(h.host.holdsContainer()).toBe(false);
+  });
+
   it("gives a process no turn has ended a 30 s startup grace from its start (SPI-1318)", async () => {
     const h = harness();
     await h.host.start(start("proc-a"));

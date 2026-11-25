@@ -415,6 +415,12 @@ export interface ProcessStartInput {
   readonly links?: ReadonlyArray<{ readonly path: string; readonly target: string; readonly merge?: boolean }>;
   /** Session retention: files under `dir` untouched for `days` are removed before the start. */
   readonly prune?: ReadonlyArray<{ readonly dir: string; readonly days: number }>;
+  /**
+   * SPI-1389: the CLI sessions parked cards wait on, kept from session pruning: their files under each of `dirs` whose
+   * name holds one of `sessions` are touched before the prune runs, and before the CLI's own cleanup (Claude Code's
+   * `cleanupPeriodDays`) can see them.
+   */
+  readonly keep?: { readonly dirs: ReadonlyArray<string>; readonly sessions: ReadonlyArray<string> };
   /** t3's thread, for the MCP relay and the logs. */
   readonly thread?: string;
   /**

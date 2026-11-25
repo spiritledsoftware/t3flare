@@ -734,7 +734,7 @@ describe("the Environment section's dotfiles", () => {
     const start = section.indexOf('<h3 id="environment-agents-title">Agents</h3>');
     expect(start).toBeGreaterThan(-1);
     const settings = inputsOf(rowOf(section, "agents"));
-    expect(settings).toEqual(["turnLimitMinutes", "ownerAnswerMinutes"]);
+    expect(settings).toEqual(["turnLimitMinutes", "parkAfterMinutes"]);
     const containers = rowOf(section, "containers");
     for (const key of settings) expect(containers).not.toContain(`data-setting="${key}"`);
     const group = tagsOf(section).find(
@@ -832,20 +832,15 @@ describe("the Environment section's dotfiles", () => {
     });
   });
 
-  it("draws the Answer wait after the Turn limit in the Agents row, default 10, and the Open changes text names it (SPI-1316)", () => {
+  it("draws Park after after the Turn limit in the Agents row, default 10, off allowed; Open changes name no wait (SPI-1389)", () => {
     const section = sectionOf(renderPage(fixturePage()));
     const agents = section.slice(section.indexOf('<h3 id="environment-agents-title">Agents</h3>'));
-    expect(agents).toContain("Answer wait (minutes)");
-    const input = tagsOf(agents).find((tag) => tag.attrs["data-setting"] === "ownerAnswerMinutes");
-    expect(input?.attrs).toMatchObject({ type: "number", min: "1", value: "10" });
-    const empty = (minutes: number) =>
-      renderPage({
-        ...fixturePage(),
-        environment: { ...resolveEnvironment(EMPTY_ENVIRONMENT), ownerAnswerMinutes: minutes },
-        openChanges: [],
-      });
-    expect(empty(10)).toContain("waits here, and on its card, for 10 minutes.");
-    expect(empty(30)).toContain("waits here, and on its card, for 30 minutes.");
+    expect(agents).toContain("Park after (minutes)");
+    expect(agents).not.toContain("Answer wait");
+    const input = tagsOf(agents).find((tag) => tag.attrs["data-setting"] === "parkAfterMinutes");
+    expect(input?.attrs).toMatchObject({ type: "number", min: "0", value: "10" });
+    const empty = renderPage({ ...fixturePage(), environment: resolveEnvironment(EMPTY_ENVIRONMENT), openChanges: [] });
+    expect(empty).toContain("the request waits here and on its card until you answer it, for at most a week.");
   });
 
   it("draws the clone and checkpoint time limits last in the Containers row, which says what they bound (SPI-1324)", () => {

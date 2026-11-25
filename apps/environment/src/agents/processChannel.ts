@@ -13,6 +13,7 @@
 // - The Workspace DO's epoch (its boot counter) is the one its start answered; another in any answer, or the key
 //   unknown, ends the process with 129: the Workspace restarted and its processes went with it.
 // - pids are synthetic and unique per instance (> 1: t3's `signalProcessGroup` refuses `pid <= 1`).
+import type { NativeCallRecorder } from "../provider/cli/nativeCalls.ts";
 import type { EndpointFailureRecord } from "@t3flare/session-protocol";
 import type {
   ProcessAnswer,
@@ -152,8 +153,10 @@ export class ChannelProcess {
   readonly pid: number;
   readonly place: ProcessPlace;
   readonly cli: ProcessCli;
-  /** The Answer wait it was spawned with (`ChannelStart.answerMs`, SPI-1316). */
-  answerMs: number | undefined;
+  /** Park after as it was spawned with, in ms (`ChannelStart.parkAfterMs`, SPI-1389). */
+  parkAfterMs: number | undefined;
+  /** The CLI's own approval requests read off its stdout (SPI-1389), set by the spawner. */
+  nativeCalls: NativeCallRecorder | undefined;
   readonly stdout = new ByteQueue(QUEUE_BYTES, "wait");
   readonly stderr = new ByteQueue(QUEUE_BYTES, "drop-oldest");
   readonly exit: Promise<number>;
@@ -325,6 +328,8 @@ export interface ChannelStart {
   readonly files?: ProcessStartInput["files"];
   readonly links?: ProcessStartInput["links"];
   readonly prune?: ProcessStartInput["prune"];
+  /** SPI-1389: parked sessions kept from pruning (`ProcessStartInput.keep`). */
+  readonly keep?: ProcessStartInput["keep"];
   readonly thread?: string;
   /** The process's tool handle for the MCP relay (ADR-0028). */
   readonly toolHandle?: string;
@@ -333,10 +338,10 @@ export interface ChannelStart {
   /** Made by the caller when it needs the key before the start (the profile's per-process home). */
   readonly key?: string;
   /**
-   * The Answer wait the process is spawned with, in ms (SPI-1316): its MCP tool timeout was made from it, so its relay
-   * cards wait that long for its life. Absent: they wait the wait now.
+   * Park after as the process is spawned with, in ms (SPI-1389; 0, off: never park): its MCP tool timeout was made from
+   * it, so its turns park at it for its life. Absent: Park after now.
    */
-  readonly answerMs?: number;
+  readonly parkAfterMs?: number;
 }
 
 /** Every CLI process of this Environment DO instance: the spawner's state, and its Workspaces' readers. */
@@ -372,11 +377,6 @@ export class ProcessChannel {
     return process === undefined ? undefined : { workspace: process.place.workspace, thread: this.#threads.get(key) };
   }
 
-  /** The Answer wait a live process was spawned with (SPI-1316), by its key; undefined once gone or without one. */
-  answerMsOf(key: string): number | undefined {
-    return this.#byKey.get(key)?.answerMs;
-  }
-
   /** Where `cwd` runs, or undefined (no Workspace: the caller refuses). */
   placeOf(cwd: string): ProcessPlace | undefined {
     return this.#deps.place(cwd);
@@ -391,7 +391,7 @@ export class ProcessChannel {
       );
     const key = input.key ?? this.#deps.newKey();
     const process = new ChannelProcess(this, this.#nextPid++, key, place, input.cli);
-    process.answerMs = input.answerMs;
+    process.parkAfterMs = input.parkAfterMs;
     this.#byKey.set(key, process);
     if (input.thread !== undefined) this.#threads.set(key, input.thread);
     this.#byPid.set(process.pid, process);
@@ -410,6 +410,7 @@ export class ProcessChannel {
         ...(input.files === undefined ? {} : { files: input.files }),
         ...(input.links === undefined ? {} : { links: input.links }),
         ...(input.prune === undefined ? {} : { prune: input.prune }),
+        ...(input.keep === undefined ? {} : { keep: input.keep }),
         ...(input.thread === undefined ? {} : { thread: input.thread }),
         ...(input.toolHandle === undefined ? {} : { toolHandle: input.toolHandle }),
         ...(input.modelRelay === undefined ? {} : { modelRelay: input.modelRelay }),

@@ -16,7 +16,8 @@ import {
   customResources,
   DEFAULT_CHECKPOINT_MINUTES,
   DEFAULT_CLONE_MINUTES,
-  DEFAULT_OWNER_ANSWER_MS,
+  DEFAULT_PARK_AFTER_MS,
+  parkAfterMsOf,
   DOTFILES_SETTING_KEYS,
   EMPTY_ENVIRONMENT,
   ENVIRONMENT_SETTINGS,
@@ -84,7 +85,7 @@ const TUNABLE_DEFAULTS = {
   customMemoryMib: 8192,
   customDiskMb: 16_000,
   turnLimitMinutes: 0,
-  ownerAnswerMinutes: 10,
+  parkAfterMinutes: 10,
   globalMiseInstallMinutes: 10,
   terminalBusyHoldMinutes: 30,
   terminalPromptHoldMinutes: 10,
@@ -518,7 +519,7 @@ describe("the Turn limit (SPI-1315)", () => {
   it("is down-free, in the Agents row (AGENT_SETTING_KEYS), and states its consequence once in Owner words", () => {
     expect(ENVIRONMENT_SETTINGS.turnLimitMinutes).toMatchObject({ tier: "down-free" });
     expect("row" in ENVIRONMENT_SETTINGS.turnLimitMinutes).toBe(false);
-    expect(AGENT_SETTING_KEYS).toEqual(["turnLimitMinutes", "ownerAnswerMinutes"]);
+    expect(AGENT_SETTING_KEYS).toEqual(["turnLimitMinutes", "parkAfterMinutes"]);
     expect(ENVIRONMENT_SETTINGS.turnLimitMinutes.description).toContain(
       "A turn longer than this is ended (a CLI agent's process with it), and the thread shows it failed. Each minute of a turn can spend model tokens and hold a Container.",
     );
@@ -573,41 +574,51 @@ describe("how long history is kept (SPI-1323)", () => {
   });
 });
 
-describe("the Answer wait (SPI-1316)", () => {
+describe("Park after (SPI-1389)", () => {
   const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
 
-  it("is 10 minutes by default, 1 to MAX_TIMED_MINUTES (10,080) whole minutes (ADR-0048 §2)", () => {
-    expect(resolveEnvironment(EMPTY_ENVIRONMENT).ownerAnswerMinutes).toBe(10);
-    expect(DEFAULT_OWNER_ANSWER_MS).toBe(600_000);
-    for (const minutes of [1, 10, 120, MAX_TIMED_MINUTES])
-      expect(set({ ownerAnswerMinutes: minutes })).toMatchObject({ ok: true });
-    for (const minutes of [0, MAX_TIMED_MINUTES + 1, 2.5, "10"])
-      expect(set({ ownerAnswerMinutes: minutes })).toMatchObject({ ok: false });
-    expect(resolveEnvironment({ revision: 1, settings: { ownerAnswerMinutes: 0 } }).ownerAnswerMinutes).toBe(10);
+  it("is 10 minutes by default, off (0: never park) or 1 to MAX_TIMED_MINUTES (10,080) whole minutes", () => {
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT).parkAfterMinutes).toBe(10);
+    expect(DEFAULT_PARK_AFTER_MS).toBe(600_000);
+    expect(parkAfterMsOf({ parkAfterMinutes: 0 })).toBe(0);
+    for (const minutes of [0, 1, 10, 120, MAX_TIMED_MINUTES])
+      expect(set({ parkAfterMinutes: minutes })).toMatchObject({ ok: true });
+    for (const minutes of [-1, MAX_TIMED_MINUTES + 1, 2.5, "10"])
+      expect(set({ parkAfterMinutes: minutes })).toMatchObject({ ok: false });
+    expect(resolveEnvironment({ revision: 1, settings: { parkAfterMinutes: 0 } }).parkAfterMinutes).toBe(0);
   });
 
-  it("is down-free, in the Agents row after the Turn limit, and says what a waiting card keeps", () => {
-    expect(ENVIRONMENT_SETTINGS.ownerAnswerMinutes).toMatchObject({
-      title: "Answer wait (minutes)",
+  it("replaces the Answer wait: a stored ownerAnswerMinutes is dropped on resolve, never refused", () => {
+    expect("ownerAnswerMinutes" in ENVIRONMENT_SETTINGS).toBe(false);
+    const resolved = resolveEnvironment({ revision: 1, settings: { ownerAnswerMinutes: 30 } });
+    expect("ownerAnswerMinutes" in resolved).toBe(false);
+    expect(resolved.parkAfterMinutes).toBe(10);
+  });
+
+  it("is Advanced, down-free, in the Agents row after the Turn limit, and says what parking does and costs", () => {
+    expect(ENVIRONMENT_SETTINGS.parkAfterMinutes).toMatchObject({
+      title: "Park after (minutes)",
       tier: "down-free",
+      disclosure: "advanced",
+      schema: { off: true, default: 10, offLabel: "never" },
     });
-    expect(AGENT_SETTING_KEYS.indexOf("ownerAnswerMinutes")).toBe(AGENT_SETTING_KEYS.indexOf("turnLimitMinutes") + 1);
-    expect(ENVIRONMENT_SETTINGS.ownerAnswerMinutes.description).toContain(
-      "An unanswered card is refused after this long. While it waits, the turn stays open and may hold its Container.",
+    expect(AGENT_SETTING_KEYS.indexOf("parkAfterMinutes")).toBe(AGENT_SETTING_KEYS.indexOf("turnLimitMinutes") + 1);
+    const { description } = ENVIRONMENT_SETTINGS.parkAfterMinutes;
+    expect(description).toContain("How long a CLI agent's card waits on its turn before the turn parks");
+    expect(description).toContain(
+      "Empty or 0 is off: the agent is never parked, and holds its Container until you answer.",
     );
-    expect(ENVIRONMENT_SETTINGS.ownerAnswerMinutes.description).toContain("a card already waiting keeps its deadline");
   });
 
-  it("sets a CLI process's MCP tool timeout: two waits, the MCP call time limit and 30 s (cliToolTimeoutSec)", () => {
-    expect(cliToolTimeoutSec(DEFAULT_OWNER_ANSWER_MS, 270_000)).toBe(1500);
+  it("sets a CLI process's MCP tool timeout: two park waits, the MCP call time limit and 30 s (cliToolTimeoutSec)", () => {
+    expect(cliToolTimeoutSec(DEFAULT_PARK_AFTER_MS, 270_000)).toBe(1500);
     expect(cliToolTimeoutSec(30 * 60_000, 270_000)).toBe(3900);
     expect(cliToolTimeoutSec(60_000, 270_000)).toBe(420);
-    expect(cliToolTimeoutSec(1500, 270_000)).toBe(304);
     // An off call time limit (0, the default, SPI-1386) gives the call the off deadline, a week.
     expect(DEFAULT_MCP_CALL_MS).toBe(0);
-    expect(cliToolTimeoutSec(DEFAULT_OWNER_ANSWER_MS, DEFAULT_MCP_CALL_MS)).toBe(1200 + MAX_TIMED_SECONDS + 30);
-    // A longer call time limit lengthens the CLI's own timeout with it (SPI-1359).
-    expect(cliToolTimeoutSec(DEFAULT_OWNER_ANSWER_MS, 3600_000)).toBe(1200 + 3600 + 30);
+    expect(cliToolTimeoutSec(DEFAULT_PARK_AFTER_MS, DEFAULT_MCP_CALL_MS)).toBe(1200 + MAX_TIMED_SECONDS + 30);
+    // Never parking: a card waits until answered, so the CLI waits the off deadline for it.
+    expect(cliToolTimeoutSec(0, 270_000)).toBe(2 * MAX_TIMED_SECONDS + 270 + 30);
   });
 });
 
