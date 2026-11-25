@@ -20,9 +20,10 @@
 import {
   AGENT_EXITED_TERMINALS_KEPT,
   AGENT_TERMINAL_SPILL_LINES,
-  DEFAULT_TERMINAL_QUIET_MS,
-  defaultSettings,
   STOP_GRACE_SECONDS,
+  TERMINAL_QUIET_MS,
+  TERMINAL_SCROLLED_LINES,
+  TERMINAL_STOP_GRACE_MS,
 } from "@t3flare/harness-registry";
 import type { KillAnswer } from "@t3flare/sandbox-image/kill";
 import { Terminal } from "@xterm/headless/lib-headless/xterm-headless.mjs";
@@ -47,7 +48,7 @@ import { agentTerminalDropped } from "./agentTerminalDropped.ts";
 
 export { agentTerminalDropped } from "./agentTerminalDropped.ts";
 
-/** termctrl's settle poll (`terminal-tools.ts`). The quiet that settles a wait is the request's (`termctrl.quietMs`). */
+/** termctrl's settle poll (`terminal-tools.ts`). The quiet that settles a wait is `TERMINAL_QUIET_MS`. */
 const POLL_MS = 50;
 /**
  * How long a stop waits for the exit frame once its kill saw every process die. Not a setting: the frame only has to
@@ -61,9 +62,9 @@ const EXIT_FRAME_MS = 1_000;
 export const DEFAULT_JOB_TAIL: AgentTail = jobTailOf(DEFAULT_TOOL_OUTPUT_LIMITS);
 /**
  * The scrolled-off lines a view reads from each end when a request names none (one from before SPI-1397): termctrl's
- * default `scrollbackLines`, so no request reads more than a result can show.
+ * `TERMINAL_SCROLLED_LINES`, so no request reads more than a result can show.
  */
-const DEFAULT_SCROLLED_LINES = defaultSettings("termctrl").scrollbackLines as number;
+const DEFAULT_SCROLLED_LINES = TERMINAL_SCROLLED_LINES;
 /** Where a Background job's whole output is kept, in the Container. */
 export const JOB_LOG_DIR = "/tmp/t3flare-jobs";
 
@@ -121,7 +122,19 @@ export interface AgentTerminalsDeps {
   readonly repo: string;
   /** Where each entry's scrollback is kept, and which entries the exited bound forgot (SPI-1397): the DO's SQLite. */
   readonly store: ScrollbackStore<ForgottenExit>;
+  /**
+   * The quiet that settles a wait, and a stop's grace after its close: `TERMINAL_QUIET_MS` and `TERMINAL_STOP_GRACE_MS`,
+   * unless a test names its own.
+   */
+  readonly quietMs?: number;
+  readonly stopGraceMs?: number;
 }
+
+/**
+ * The note on the exit of an entry its stop killed again after the stop grace ran out (SPI-1388): the limit and its
+ * value.
+ */
+export const GRACE_RAN_OUT = `it had not ended ${STOP_GRACE_SECONDS} s after its close, t3flare's fixed stop grace, so its stop killed it again`;
 
 interface Entry {
   readonly id: string;
@@ -404,7 +417,7 @@ export class AgentTerminals {
       }
       case "stop": {
         const entry = this.#entry(request.owner, request.id);
-        return this.#queued(entry, () => this.#stop(entry, request.graceMs ?? STOP_GRACE_SECONDS * 1000, request));
+        return this.#queued(entry, () => this.#stop(entry, this.#deps.stopGraceMs ?? TERMINAL_STOP_GRACE_MS, request));
       }
       case "list":
         return { entries: this.#owned(request.owner).map((entry) => this.#info(entry)) };
@@ -564,7 +577,7 @@ export class AgentTerminals {
     const typedAt = this.#deps.now();
     const sliceEnd = Math.min(request.deadline, this.#deps.now() + request.chunkMs);
     const matches = request.pattern === undefined ? undefined : patternOf(request.pattern);
-    const quietMs = request.quietMs ?? DEFAULT_TERMINAL_QUIET_MS;
+    const quietMs = this.#deps.quietMs ?? TERMINAL_QUIET_MS;
     let reason: AgentSettleReason | undefined;
     for (;;) {
       await entry.writing;
@@ -594,17 +607,19 @@ export class AgentTerminals {
   }
 
   /**
-   * Closes the entry (the host's kill script), and kills it again when it has not exited within `graceMs` (the Owner's
-   * `termctrl.stopGraceSeconds`; with no deadline, a process that ignores the close would keep the stop waiting) or the close's
-   * kill left survivors (SPI-1372). The exit is what happened: the host's exit frame; else the kill's own answer
-   * (`exitWithoutFrame`). Survivors of a running entry are no exit: the stop fails, and the entry stays running; survivors
-   * of an exited one are noted on its exit.
+   * Closes the entry (the host's kill script), and kills it again when it has not exited within `graceMs` (the stop
+   * grace, `TERMINAL_STOP_GRACE_MS`; with no deadline, a process that ignores the close would keep the stop waiting) or
+   * the close's kill left survivors (SPI-1372). The exit is what happened: the host's exit frame; else the kill's own
+   * answer (`exitWithoutFrame`). Survivors of a running entry are no exit: the stop fails, and the entry stays running;
+   * survivors of an exited one are noted on its exit. An entry killed because the grace ran out says so (`GRACE_RAN_OUT`).
    */
   async #stop(entry: Entry, graceMs: number, options: AgentViewOptions): Promise<AgentTerminalAnswers["stop"]> {
     let closed: KillAnswer | undefined;
+    let graceRanOut = false;
     if (entry.exit === null) {
       closed = await this.#deps.host.closeAnswered(entry.marker);
       await this.#exitWithin(entry, graceMs);
+      graceRanOut = entry.exit === null;
     }
     if (entry.exit === null || (closed?.survivors ?? 0) > 0) {
       const answer = await this.#deps.host.kill(entry.marker);
@@ -620,6 +635,10 @@ export class AgentTerminals {
         this.#ended(entry, exitWithoutFrame(answer));
         this.#bound();
       } else if (survivors > 0) entry.exit = { ...entry.exit, note: `its shell ended, but ${survived}` };
+      // The kill ran (a Container that had stopped answers none): the grace that sent it names itself.
+      const exit = entry.exit as AgentExit | null;
+      if (graceRanOut && answer !== undefined && exit !== null)
+        entry.exit = { ...exit, note: exit.note === undefined ? GRACE_RAN_OUT : `${GRACE_RAN_OUT}; ${exit.note}` };
     }
     await entry.writing;
     const view = await this.#view(entry, true, options);

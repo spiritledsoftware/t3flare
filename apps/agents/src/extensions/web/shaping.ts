@@ -4,7 +4,7 @@
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 
-import { DEFAULT_WEB_LIMITS } from "./limits.ts";
+import { SEARCH_CONTEXT_CHARACTERS } from "@t3flare/harness-registry";
 
 /** The first `limit` Unicode code points of `text`. */
 export const truncateCodePoints = (text: string, limit: number): string =>
@@ -210,14 +210,14 @@ const shareSearchBudget = (
 };
 
 /**
- * Cut provider text at `contextMaxCharacters` code points (by default `fallback`, the `searchContextCharacters`
- * setting), then mark the cut. An Exa result list shares that budget so each result keeps its Title and URL; other
+ * Cut provider text at `contextMaxCharacters` code points (by default `fallback`, `SEARCH_CONTEXT_CHARACTERS`), then
+ * mark the cut, naming the limit. An Exa result list shares that budget so each result keeps its Title and URL; other
  * text is cut once.
  */
 export const limitSearchText = (
   providerText: string,
   explicit: number | undefined,
-  fallback: number = DEFAULT_WEB_LIMITS.searchContextCharacters,
+  fallback: number = SEARCH_CONTEXT_CHARACTERS,
 ): string => {
   const limit = explicit ?? fallback;
   const results = splitExaResults(providerText);

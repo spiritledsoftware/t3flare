@@ -25,22 +25,17 @@ export const CONTEXT_NAMESPACE: CodemodeNamespace = {
 export interface ContextOptions {
   /** Turn automatic compaction into a Rollover (the harness setting); off: pi-durable summarizes as before. */
   readonly rolloverOnCompaction: boolean;
-  /** How long a History list line or a search preview is (the `previewCharacters` setting); absent: its default. */
-  readonly previewCharacters?: number;
   /** The Tool output limit, which a History read's page is sized to; absent: its default. */
   readonly output?: ToolOutputLimits;
 }
-
-const previews = (options: ContextOptions) =>
-  options.previewCharacters === undefined ? DEFAULT_PREVIEW_LIMITS : { preview: options.previewCharacters };
 
 /** The `context` extension; `harness` finds the conversation a compaction belongs to. */
 export const contextExtension = (harness: () => Promise<Harness>, options: ContextOptions): Extension =>
   defineExtension({
     name: CONTEXT_EXTENSION,
     tools: [
-      contextNotesTool(previews(options)),
-      contextHistoryTool(previews(options), options.output ?? DEFAULT_TOOL_OUTPUT_LIMITS),
+      contextNotesTool(),
+      contextHistoryTool(DEFAULT_PREVIEW_LIMITS, options.output ?? DEFAULT_TOOL_OUTPUT_LIMITS),
       contextRolloverTool(),
     ],
     hooks: options.rolloverOnCompaction ? [prepareRollover(harness)] : [],

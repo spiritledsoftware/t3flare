@@ -188,12 +188,6 @@ export const SKILLS_WAIT_SECONDS = 5;
 export const STOP_GRACE_SECONDS = 3;
 
 /**
- * The most seconds the Harness's `termctrl.stopGraceSeconds` may be set to: a sanity bound (ADR-0048 §1). The wait is a
- * clock check, no timer, so nothing forces it.
- */
-export const MAX_STOP_GRACE_SECONDS = 600;
-
-/**
  * How long the kill script keeps signalling after its KILL before it gives up: a process KILL cannot end (one in
  * uninterruptible sleep) would otherwise keep it looping. apps/sandbox-image/src/kill.ts names the same second.
  */

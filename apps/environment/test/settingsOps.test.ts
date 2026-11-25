@@ -506,7 +506,7 @@ describe("reads outside the panel", () => {
     ).toBe(200);
     expect((await post(env, "mcp", { op: "server", server: "executor", exposure: "hidden" })).status).toBe(200);
     for (let index = 0; index < 3; index++)
-      changeExtension(env.ops, { extension: "termctrl", settings: { cols: 100 + index } }, viaAgent);
+      changeExtension(env.ops, { extension: "web", settings: { searchResults: 10 + index } }, viaAgent);
     const all = JSON.stringify(readAudit(env.ops, { limit: 50 }));
     expect(all).not.toContain("s3cr3t");
     expect(all).not.toContain("owner-sub");
@@ -519,8 +519,8 @@ describe("reads outside the panel", () => {
     // Paged: 2 at a time, newest first, `before` naming where the next page starts.
     const first = readAudit(env.ops, { limit: 2 });
     expect(first.entries.map((entry) => entry.after)).toMatchObject([
-      { settings: { cols: 102 } },
-      { settings: { cols: 101 } },
+      { settings: { searchResults: 12 } },
+      { settings: { searchResults: 11 } },
     ]);
     const second = readAudit(env.ops, { limit: 2, before: first.before! });
     expect(second.entries.map((entry) => entry.action)).toEqual(["extension.change", "mcp.server"]);

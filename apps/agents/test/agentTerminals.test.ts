@@ -10,13 +10,24 @@ import type { KillAnswer } from "@t3flare/sandbox-image/kill";
 import { terminalCommand } from "@t3flare/sandbox-image/terminal";
 import { describe, expect, it } from "vitest";
 
-import { AGENT_EXITED_TERMINALS_KEPT, AGENT_TERMINAL_SPILL_LINES } from "@t3flare/harness-registry";
+import {
+  AGENT_EXITED_TERMINALS_KEPT,
+  AGENT_TERMINAL_SPILL_LINES,
+  TERMINAL_QUIET_MS,
+  TERMINAL_STOP_GRACE_MS,
+} from "@t3flare/harness-registry";
 import { Terminal } from "@xterm/headless/lib-headless/xterm-headless.mjs";
 
-import { DEFAULT_TERMCTRL_LIMITS, terminalResult } from "../src/extensions/termctrl/tools.ts";
+import { terminalResult } from "../src/extensions/termctrl/tools.ts";
 import type { ScrollbackStore } from "../src/workspace/agentScrollback.ts";
 import { isAgentTerminalDropped } from "../src/workspace/agentTerminalDropped.ts";
-import { AgentTerminals, agentTerminalDropped, type ForgottenExit, piecesOf } from "../src/workspace/agentTerminals.ts";
+import {
+  AgentTerminals,
+  agentTerminalDropped,
+  type ForgottenExit,
+  GRACE_RAN_OUT,
+  piecesOf,
+} from "../src/workspace/agentTerminals.ts";
 import { nodeScrollbackStore } from "./nodeSql.ts";
 
 /** A host whose "programs" answer input as `program` says, pushing frames back as the real host does. */
@@ -28,6 +39,8 @@ const fakeHost = (
     readonly kill?: (key: string, exit: (code: number) => void) => KillAnswer | undefined;
   } = {},
   store: ScrollbackStore<ForgottenExit> = nodeScrollbackStore(),
+  /** The settle's quiet and the stop's grace, for a test that cannot wait the fixed ones. */
+  waits: { readonly quietMs?: number; readonly stopGraceMs?: number } = {},
 ) => {
   const opened: Array<{ key: string; command: string; cwd: string }> = [];
   const closed: Array<string> = [];
@@ -70,6 +83,7 @@ const fakeHost = (
     env: {},
     repo: "/workspace/repo",
     store,
+    ...waits,
   });
   return { terminals, opened, closed, killed, emitTo, exitTo };
 };
@@ -248,42 +262,51 @@ describe("agent terminals", () => {
       if (which(kill.key) === "t4") expect(kill.at - began).toBeLessThan(1_000);
       else expect(kill.at - began).toBeGreaterThanOrEqual(3_000);
     const survived = "1 of its processes survived SIGKILL and still runs in the Workspace's Container";
-    // The shell's own exit, as the host reported it.
-    expect(exitOf(0)).toEqual({ code: 137, signal: null });
+    // The shell's own exit, as the host reported it; the stop grace that ran out names itself (SPI-1388).
+    expect(exitOf(0)).toEqual({ code: 137, signal: null, note: GRACE_RAN_OUT });
     // No exit frame, but the kill saw its processes die: the signal it sent.
-    expect(exitOf(1)).toEqual({ code: null, signal: "SIGKILL" });
+    expect(exitOf(1)).toEqual({ code: null, signal: "SIGKILL", note: GRACE_RAN_OUT });
     // Still running: not reported as killed, and still listed.
     expect(exitOf(2)).toBe(
       `t3: ${survived}. It stays listed as running; stop it again, or it ends when the Container stops.`,
     );
     // The shell exited, before the kill or during it, and a child outlived it: noted on the exit.
     expect(exitOf(3)).toEqual({ code: 130, signal: null, note: `its shell ended, but ${survived}` });
-    expect(exitOf(4)).toEqual({ code: 137, signal: null, note: `its shell ended, but ${survived}` });
+    expect(exitOf(4)).toEqual({ code: 137, signal: null, note: `${GRACE_RAN_OUT}; its shell ended, but ${survived}` });
     // Nothing marked was found: what is known, no signal.
     expect(exitOf(5)).toEqual({
       code: null,
       signal: null,
-      note: "its stop found no marked process left to kill; its exit went unreported",
+      note: `${GRACE_RAN_OUT}; its stop found no marked process left to kill; its exit went unreported`,
     });
     expect(exitOf(6)).toEqual({ code: null, signal: null, note: "the Workspace's Container stopped" });
     const list = await terminals.handle({ op: "list", owner });
     expect(list.ok && list.value.entries.map((entry) => [entry.id, entry.state])).toEqual([["t3", "running"]]);
   });
 
-  // SPI-1364: the stop's grace and the settle's quiet are the Owner's termctrl settings, carried on each request.
-  it("waits the request's grace before killing again, and settles on the request's quiet", async () => {
-    const { terminals, killed } = fakeHost(repl, {
-      close: () => ({ signalled: 1, survivors: 1, signal: "KILL" }),
-      kill: (_key, exit) => {
-        exit(137);
-        return { signalled: 1, survivors: 0, signal: "KILL" };
+  // SPI-1388: the stop's grace and the settle's quiet are fixed (`TERMINAL_STOP_GRACE_MS`, `TERMINAL_QUIET_MS`); this
+  // Workspace takes shorter and longer ones so the test need not wait 3 s.
+  it("waits its grace before killing again, naming it, and settles on its quiet", async () => {
+    expect(TERMINAL_STOP_GRACE_MS).toBe(3_000);
+    expect(TERMINAL_QUIET_MS).toBe(250);
+    const { terminals, killed } = fakeHost(
+      repl,
+      {
+        close: () => ({ signalled: 1, survivors: 1, signal: "KILL" }),
+        kill: (_key, exit) => {
+          exit(137);
+          return { signalled: 1, survivors: 0, signal: "KILL" };
+        },
       },
-    });
+      nodeScrollbackStore(),
+      { stopGraceMs: 200, quietMs: 1_000 },
+    );
     const id = await start(terminals);
     const began = Date.now();
-    await terminals.handle({ op: "stop", owner, id, graceMs: 200 });
+    const stopped = await terminals.handle({ op: "stop", owner, id });
     expect(killed[0]!.at - began).toBeGreaterThanOrEqual(200);
     expect(killed[0]!.at - began).toBeLessThan(2_000);
+    expect(stopped.ok && stopped.value.stopped.exit).toEqual({ code: 137, signal: null, note: GRACE_RAN_OUT });
 
     const other = await start(terminals);
     await settle(terminals, other, { mode: "start" });
@@ -297,7 +320,6 @@ describe("agent terminals", () => {
       deadline: Date.now() + 5_000,
       chunkMs: 5_000,
       view: true,
-      quietMs: 1_000,
     });
     expect(answer.ok && answer.value.reason).toBe("quiet");
     expect(Date.now() - typedAt).toBeGreaterThanOrEqual(1_000);
@@ -481,7 +503,8 @@ describe("an agent Terminal's scrollback in storage, and the Workspace's exited 
   });
 
   it("reads only the lines a result shows, and the result is the same as from every line", async () => {
-    const limits = { ...DEFAULT_TERMCTRL_LIMITS, scrollback: { lines: 10, bytes: 64 * 1024 } };
+    // Ten scrolled-off lines a result: half a Tool output limit of 20 lines (SPI-1388).
+    const limits = { maxBytes: 128 * 1024, maxLines: 20 };
     const steps = [output(0, 2_000), output(2_000, 3), output(2_003, 700)];
     const run = async (scrolledLines: number | undefined) => {
       const { terminals, id, opened } = await filled([steps[0]!]);

@@ -6,9 +6,15 @@
 // original request and the newest turns within a character budget (no token calibration), never splitting a turn.
 import type { EntryRecord } from "@earendil-works/pi-durable";
 
-/** pi-advisor's `maxToolResultChars` default. */
+/**
+ * The most characters of one tool result a Review reads, its head and tail around a marker that names the cut:
+ * pi-advisor's `maxToolResultChars` default. A machinery bound, fixed by ADR-0049 §3 (SPI-1354, SPI-1388).
+ */
 export const TOOL_RESULT_CHARS = 4_000;
-/** The Context Seed's budget in characters (pi-advisor's `auto` seed, at most 50k tokens, at about 3 characters a token). */
+/**
+ * The Context Seed's budget in characters: pi-advisor's automatic seed (`autoSeedCeiling`, at most 50,000 tokens), at
+ * about 3 characters a token. A machinery bound, fixed by ADR-0049 §3 (SPI-1354, SPI-1388); a seed past it says so.
+ */
 export const SEED_CHARACTERS = 150_000;
 
 export type EvidenceBlock =
@@ -47,7 +53,7 @@ export const capText = (text: string, limit = TOOL_RESULT_CHARS): string => {
   if (text.length <= limit) return text;
   const head = Math.ceil(limit / 2);
   const tail = text.length - (limit - head);
-  const capped = `${text.slice(0, head)}\n[… ${tail - head} characters omitted from this tool result; the agent's full result is in its History]\n${text.slice(tail)}`;
+  const capped = `${text.slice(0, head)}\n[… ${tail - head} characters omitted from this tool result, cut at ${limit.toLocaleString("en-US")}; the agent's full result is in its History]\n${text.slice(tail)}`;
   return capped.length >= text.length ? text : capped;
 };
 
@@ -192,6 +198,6 @@ export const selectContextSeed = (
     note:
       omitted === 0
         ? ""
-        : ` To fit its budget, it keeps ${kept.length} of the ${messages.length} observed messages and omits the other ${omitted} (older turns); the agent's History holds them.`,
+        : ` To fit its ${budget.toLocaleString("en-US")}-character budget, it keeps ${kept.length} of the ${messages.length} observed messages and omits the other ${omitted} (older turns); the agent's History holds them.`,
   };
 };

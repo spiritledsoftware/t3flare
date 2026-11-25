@@ -64,8 +64,6 @@ export interface GuardianSettings {
   readonly policy: string;
   /** How long a Guardian Review may run before it fails and blocks the call (the `reviewTimeoutSeconds` setting). */
   readonly reviewTimeoutMs: number;
-  /** How much of each other call in the batch the Review reads beside its path and command (`batchArgumentCharacters`). */
-  readonly batchArgumentCharacters: number;
 }
 
 /** The Guardian's settings from its resolved registry values (`extensionOf(…, "guardian").settings`). */
@@ -76,7 +74,6 @@ export const guardianSettings = (values: Readonly<Record<string, SettingValue>>)
   commands: String(values.commands ?? ""),
   policy: String(values.policy ?? ""),
   reviewTimeoutMs: Number(values.reviewTimeoutSeconds) * 1_000,
-  batchArgumentCharacters: Number(values.batchArgumentCharacters),
 });
 
 export interface GuardianHost {
@@ -201,7 +198,6 @@ const review = async (
     reason,
     parent: where.parent,
     batch: where.batch,
-    batchCharacters: settings.batchArgumentCharacters,
   });
   const blocks = [...evidence, reviewed].map((text) => ({ type: "text" as const, text }));
   const systemPrompt = guardianSystemPrompt(settings.policy, false, [...categories]);

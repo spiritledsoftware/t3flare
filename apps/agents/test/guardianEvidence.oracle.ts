@@ -179,7 +179,7 @@ export const selectEvidenceBefore = async (
   return omitted === 0 && !full
     ? blocks
     : [
-        `[${omitted} evidence entries omitted to fit the evidence budget${full && (olderInPage || cursor !== undefined) ? ", and the older History not read" : ""}; trusted ones kept first, newest first]`,
+        `[${omitted} evidence entries omitted to fit the ${budget.toLocaleString("en-US")}-character evidence budget${full && (olderInPage || cursor !== undefined) ? ", and the older History not read" : ""}; trusted ones kept first, newest first]`,
         ...blocks,
       ];
 };

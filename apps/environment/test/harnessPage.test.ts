@@ -277,7 +277,7 @@ describe("harness page", () => {
       "advisor",
       "skills",
       "prompt-suggestions",
-      // SPI-1321: no longer locked, "Always on" with its settings; permissions stays locked.
+      // SPI-1321: no longer locked, "Always on"; permissions stays locked. SPI-1388: it has no settings left.
       "project-context",
     ]);
     expect(tags.find((tag) => tag.attrs["data-setting"] === "inlineBudget")).toMatchObject({
@@ -288,10 +288,12 @@ describe("harness page", () => {
     expect(tags.filter((tag) => tag.attrs["data-enabled"] !== undefined)).toHaveLength(3);
     expect(html).toContain("locked: the thread&#39;s modes and the link fence depend on it");
     expect(html).not.toContain("a core extension: always on");
-    expect(tags.find((tag) => tag.attrs.id === "project-context-maxFileCharacters")).toMatchObject({
-      attrs: { type: "number", min: "1", max: "1000000", value: "16000" },
-    });
-    expect(tags.find((tag) => tag.attrs.id === "project-context-maxFileCharacters")?.attrs.disabled).toBeUndefined();
+    // SPI-1388: the Harness's fixed values are no inputs: the whole AGENTS.md is shown, and termctrl has no settings.
+    for (const id of ["project-context-maxFileCharacters", "termctrl-cols", "tool-output-outputLines", "files-lsLimit"])
+      expect(
+        tags.find((tag) => tag.attrs.id === id),
+        id,
+      ).toBeUndefined();
   });
 
   it("draws one Exposure select per built-in tool, codemode and tool_search with only direct or hidden, and the three presets", () => {
@@ -312,29 +314,31 @@ describe("harness page", () => {
   });
 
   it("says an extension's settings do nothing while every one of its tools is hidden", () => {
-    const hidden = applyToolsChange(EMPTY_HARNESS, {
-      tools: Object.fromEntries(
-        ["terminal_start", "terminal_send", "terminal_stop", "terminal_list", "terminal_wait"].map((tool) => [
-          tool,
-          "hidden",
-        ]),
-      ),
-    });
-    if (!hidden.ok) throw new Error(hidden.error);
-    const terminals = (resolved: ReturnType<typeof resolveHarness>) => {
+    const hiddenAll = (tools: ReadonlyArray<string>) => {
+      const hidden = applyToolsChange(EMPTY_HARNESS, {
+        tools: Object.fromEntries(tools.map((tool) => [tool, "hidden"])),
+      });
+      if (!hidden.ok) throw new Error(hidden.error);
+      return resolveHarness(hidden.harness);
+    };
+    const rowOf = (id: string, resolved: ReturnType<typeof resolveHarness>) => {
       const tools = section(renderPage(fixturePage({ resolved })), "tools");
       return tools.slice(
-        tools.indexOf('data-extension="termctrl"'),
-        tools.indexOf("</form>", tools.indexOf('data-extension="termctrl"')),
+        tools.indexOf(`data-extension="${id}"`),
+        tools.indexOf("</form>", tools.indexOf(`data-extension="${id}"`)),
       );
     };
-    expect(terminals(resolveHarness(hidden.harness))).toContain(
-      // Its settings are all Advanced (ADR-0049 §6), which follow its tools: the row says where they went.
+    expect(rowOf("web", hiddenAll(["web_fetch", "web_search"]))).toContain(
+      // Its shown setting follows web_search, the rest are Advanced (ADR-0049 §6): the row says where they went.
       "Every tool is hidden, so the extension is off: its Advanced settings show once a tool is offered.",
     );
-    expect(terminals(resolveHarness(EMPTY_HARNESS))).not.toContain("Every tool is hidden");
+    expect(rowOf("web", resolveHarness(EMPTY_HARNESS))).not.toContain("Every tool is hidden");
+    // SPI-1388: the Terminals have no settings left, so there is nothing to say of them.
+    const terminals = ["terminal_start", "terminal_send", "terminal_stop", "terminal_list", "terminal_wait"];
+    expect(rowOf("termctrl", hiddenAll(terminals))).not.toContain("Every tool is hidden");
+    expect(rowOf("termctrl", resolveHarness(EMPTY_HARNESS))).not.toContain("data-setting=");
     // SPI-1397: no count; the exited bound is named with its value.
-    expect(terminals(resolveHarness(EMPTY_HARNESS))).toContain(
+    expect(rowOf("termctrl", resolveHarness(EMPTY_HARNESS))).toContain(
       "Any number run at once; a Workspace keeps its last 128 exited ones readable",
     );
   });
@@ -1381,8 +1385,9 @@ describe("the page's disclosure", () => {
       page.indexOf('data-extension="context"'),
       page.indexOf("</form>", page.indexOf('data-extension="context"')),
     );
+    // SPI-1388: its one setting left is shown, with no Advanced ones.
     expect(context).toContain(
-      '<p class="desc off-note">Every tool is hidden, so the extension is off: these settings do nothing, and its Advanced settings stay hidden, until a tool is offered.</p>',
+      '<p class="desc off-note">Every tool is hidden, so the extension is off: these settings do nothing until a tool is offered.</p>',
     );
     expect(context).toContain('data-setting="rolloverOnCompaction"');
   });

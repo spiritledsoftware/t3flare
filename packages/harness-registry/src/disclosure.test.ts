@@ -219,11 +219,6 @@ describe("disclosureReport", () => {
       shownWhen: "shown while one of web_fetch or web_search is offered",
       where: "offer one of web_fetch or web_search, then Tools › Web tools › Advanced › Search results",
     });
-    // An always-on extension's are shown whenever Advanced is opened.
-    expect(disclosureReport({ extension: "tool-output", key: "outputLines" })).toEqual({
-      disclosure: "advanced",
-      where: "Extensions › Tool output › Advanced › Output lines shown to the model",
-    });
     expect(disclosureReport({ extension: "tool-output", key: "outputKiB" })).toEqual({
       disclosure: "visible",
       where: "Extensions › Tool output › Output shown to the model (KiB)",

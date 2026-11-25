@@ -147,7 +147,7 @@ made settings; ADR-0032's SPI-1368 refinement lists the settings. Two points of 
   sanity bound.
 - **The shared week bounds a clock comparison too.** `mcpLegacyRecheckHours` is compared with the clock at each
   connection, and no timer is set from it, so no JS timer overflow applies; it takes §2's week as a sanity bound, as
-  `termctrl.quietMs` does.
+  `termctrl.quietMs` does. (`termctrl.quietMs` superseded by ADR-0032's SPI-1388 refinement.)
 - **A text setting needs no length of its own.** The text schema's `maxLength` is optional, kept only where a constraint
   sets one. The Guardian's rules and policy and the model settings had 4,000, 8,000 and 300 characters; they are bounded,
   as the SPI-1365 refinement does for the other entities, by the one Durable Object value that stores the Harness

@@ -4,7 +4,7 @@
 // @effect-diagnostics cryptoRandomUUID:off globalDate:off
 import type { Workspace } from "@cloudflare/computer";
 import { err, type ExecutionEnv, type FileInfo, type FileKind, LineScanner, ok } from "@earendil-works/pi-durable/env";
-import { type ContainerAccess, ContainerFiles } from "./container-files.ts";
+import { type ContainerAccess, ContainerFiles, GREP_OUTPUT_BYTES, LISTING_BYTES } from "./container-files.ts";
 import { HARNESS_ROOT, isContainerOnly } from "./container-paths.ts";
 import { HostFailure, posixCode, toWireError } from "./failure.ts";
 import { listFiles } from "./list-files.ts";
@@ -16,6 +16,7 @@ import {
   type HostOperation,
   fromResult,
   type HostOperations,
+  type Listed,
   type ScanTarget,
   toFileError,
   type WireResult,
@@ -93,6 +94,38 @@ const concat = (chunks: readonly Uint8Array[]): Uint8Array => {
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true });
+
+/** An item's bytes in an answer: its JSON, and the comma that follows it. */
+const itemBytes = (item: unknown): number => encoder.encode(JSON.stringify(item)).byteLength + 1;
+
+/**
+ * The most items a Workspace search asks `@cloudflare/computer` for (SPI-1388): as many as the answer's byte bound could
+ * carry at the smallest an item can be, so a call's `limit` (pi's own: no cap) never has the Workspace DO collect more
+ * than its answer could hold. Derived from the bounds; no value of its own.
+ */
+const MOST_ENTRIES = Math.floor(LISTING_BYTES / itemBytes({ name: "", isDirectory: false, isSymbolicLink: false }));
+const MOST_FOUND = Math.floor(LISTING_BYTES / itemBytes({ path: "/", type: "dir" }));
+const MOST_MATCHES = Math.floor(GREP_OUTPUT_BYTES / itemBytes({ path: "/", line: 0, text: "" }));
+
+/**
+ * `items`, its first ones within `bound` bytes of JSON (`LISTING_BYTES` or `GREP_OUTPUT_BYTES`, the bounds the
+ * Container's scripts keep): an answer the Workspace DO can hold and send. A cut answer, or one whose search stopped at
+ * `stoppedAt` items for the bound (`MOST_FOUND`, `MOST_MATCHES`), says so, naming the bound and its value.
+ */
+const withinBytes = <T>(items: readonly T[], bound: number, stoppedAt: number | undefined): Listed<T> => {
+  const named = `the Workspace's fixed ${bound / 1024 / 1024} MiB answer limit`;
+  let bytes = 2;
+
+  for (const [index, item] of items.entries()) {
+    bytes += itemBytes(item);
+
+    if (bytes > bound) return { items: items.slice(0, index), cut: `${items.length - index} more found past ${named}` };
+  }
+
+  return stoppedAt === undefined
+    ? { items }
+    : { items, cut: `the search stopped at ${stoppedAt.toLocaleString("en-US")}, as many as ${named} can carry` };
+};
 
 /** The part of an environment that reads files, which code running next to them (the discovery of skills
  * and Prompt templates) needs. */
@@ -243,12 +276,13 @@ export class WorkspaceEnvHost {
 
           return { handle: opened.value.handle, info };
         });
+      // The Container's scripts bound their own output (`LISTING_BYTES`, `GREP_OUTPUT_BYTES`).
       case "readdir":
-        return attempt(path, () => container.readdir(...request.args));
+        return attempt(path, async () => ({ items: await container.readdir(...request.args) }));
       case "find":
-        return attempt(path, () => container.find(...request.args));
+        return attempt(path, async () => ({ items: await container.find(...request.args) }));
       case "grep":
-        return attempt(path, () => container.grep(...request.args));
+        return attempt(path, async () => ({ items: await container.grep(...request.args) }));
       default:
         return {
           ok: false,
@@ -262,16 +296,16 @@ export class WorkspaceEnvHost {
   }
 
   /** The Workspace's entries of directory `path`, then the Container-only ones the running Container has there. */
-  async #withContainerEntries(container: ContainerFiles, path: string): Promise<WireResult<readonly DirectoryEntry[]>> {
+  async #withContainerEntries(container: ContainerFiles, path: string): Promise<WireResult<Listed<DirectoryEntry>>> {
     const own = await this.#operations.readdir(path);
 
     if (!own.ok) return own;
 
-    const names = new Set(own.value.map((entry) => entry.name));
+    const names = new Set(own.value.items.map((entry) => entry.name));
 
     const extra = (await container.containerOnlyEntries(path)).filter((entry) => !names.has(entry.name));
 
-    return { ok: true, value: [...own.value, ...extra] };
+    return { ok: true, value: { ...own.value, items: [...own.value.items, ...extra] } };
   }
 
   /**
@@ -502,45 +536,64 @@ export class WorkspaceEnvHost {
       listFiles: (path, options) => attempt(path, () => listFiles(fs, path, options)),
       // Answered in `handle`, which knows the Container's patterns.
       containerOnly: (paths) => this.#classify(paths),
+      // Each answer within the byte bound the Container's scripts keep (`LISTING_BYTES`, `GREP_OUTPUT_BYTES`), which also
+      // bounds what `@cloudflare/computer` collects: a search asks for no more items than the bound could carry.
       readdir: (path) =>
-        attempt(path, async () =>
-          (await fs.readdir(path)).map((entry) => ({
-            name: entry.name,
-            isDirectory: entry.isDirectory,
-            isSymbolicLink: entry.isSymbolicLink,
-          })),
-        ),
+        attempt(path, async () => {
+          const entries = await fs.readdir(path, { limit: MOST_ENTRIES });
+
+          return withinBytes(
+            entries.map((entry) => ({
+              name: entry.name,
+              isDirectory: entry.isDirectory,
+              isSymbolicLink: entry.isSymbolicLink,
+            })),
+            LISTING_BYTES,
+            entries.length >= MOST_ENTRIES ? MOST_ENTRIES : undefined,
+          );
+        }),
       find: (directory, pattern, options) =>
-        attempt(directory, async () =>
-          (
-            await fs.find(directory, pattern, {
-              limit: options.limit,
-              exclude: [...options.exclude],
-            })
-          ).map((entry) => ({ path: entry.path, type: entry.type })),
-        ),
+        attempt(directory, async () => {
+          const limit = Math.min(options.limit, MOST_FOUND);
+
+          const found = await fs.find(directory, pattern, { limit, exclude: [...options.exclude] });
+
+          return withinBytes(
+            found.map((entry) => ({ path: entry.path, type: entry.type })),
+            LISTING_BYTES,
+            limit < options.limit && found.length >= limit ? limit : undefined,
+          );
+        }),
       grep: (pattern, path, options) =>
         attempt(path, async () => {
+          const limit = Math.min(options.limit, MOST_MATCHES);
+
           const search: NonNullable<Parameters<Workspace["fs"]["grep"]>[2]> = {
             ignoreCase: options.ignoreCase,
             regex: options.regex,
             context: options.context,
-            limit: options.limit,
+            limit,
             exclude: [...options.exclude],
           };
 
           if (options.include !== undefined) search.include = options.include;
 
-          return (await fs.grep(pattern, path, search)).map((match) => ({
-            path: match.path,
-            line: match.line,
-            text: match.text,
-            context: match.context?.map((line) => ({
-              line: line.line,
-              text: line.text,
-              isMatch: line.isMatch,
+          const matches = await fs.grep(pattern, path, search);
+
+          return withinBytes(
+            matches.map((match) => ({
+              path: match.path,
+              line: match.line,
+              text: match.text,
+              context: match.context?.map((line) => ({
+                line: line.line,
+                text: line.text,
+                isMatch: line.isMatch,
+              })),
             })),
-          }));
+            GREP_OUTPUT_BYTES,
+            limit < options.limit && matches.length >= limit ? limit : undefined,
+          );
         }),
     };
   }

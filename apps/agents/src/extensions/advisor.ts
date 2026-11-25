@@ -40,7 +40,15 @@ import {
   type HookApi,
   type JsonObject,
 } from "@earendil-works/pi-durable";
-import { type SettingValue, timeLimitHit } from "@t3flare/harness-registry";
+import {
+  ADVISOR_CATCH_UP_BACKLOG,
+  ADVISOR_CATCH_UP_WAIT_SECONDS,
+  ADVISOR_CONCERN_COOLDOWN_TURNS,
+  ADVISOR_MAX_FINDINGS,
+  ADVISOR_MAX_NITS,
+  type SettingValue,
+  timeLimitHit,
+} from "@t3flare/harness-registry";
 import { isRetiredSlug, parseEndpointSlug } from "@t3flare/models/endpoints";
 
 import { conversationIdOf, entryIdOf } from "../durableIds.ts";
@@ -52,7 +60,11 @@ export const ADVICE_ENTRY = "t3flare.advice";
 /** A Review's record (what it was given, what it reported, what was kept): data only. */
 export const REVIEW_ENTRY = "t3flare.advisor-review";
 
-/** Advisor Session size past which a Review starts a new one from a seed (about pi-advisor's 100k-token `auto`). */
+/**
+ * Advisor Session size, in characters, past which a Review starts a new one from a seed: pi-advisor's automatic
+ * `maxSessionTokens` ceiling of 100,000 tokens (`autoSessionCeiling`), at about 3 characters a token. A machinery bound,
+ * fixed by ADR-0049 §3 (SPI-1354, SPI-1388); a Review that starts a new Advisor Session for it logs the limit.
+ */
 const SESSION_CHARACTERS = 300_000;
 const ALLOWED_TOOLS = ["read", "grep", "find", "ls"];
 /** The tools of an Advisor Session's extensions; never the Advisor's own, so it cannot observe itself. */
@@ -106,19 +118,25 @@ export interface AdvisorSettings {
   readonly correctiveTurns: number;
   /** How long a Review may run; the final drain waits as long for each Review. */
   readonly reviewTimeoutMs: number;
-  /** The most findings a Review delivers (and the Advisor is asked for). */
-  readonly maxFindings: number;
-  /** The most Nits delivered per request. */
-  readonly maxNits: number;
   /** The Advisor Session's tool rounds per Review. */
   readonly maxToolRounds: number;
-  /** Turns after a Concern before another steers the running agent. */
+  // The Advisor's internals (SPI-1388): fixed (`advisorSettings` fills them from the registry's constants), held here so
+  // a test can run the observer at other values.
+  /** The most findings a Review delivers (and the Advisor is asked for): `ADVISOR_MAX_FINDINGS`. */
+  readonly maxFindings: number;
+  /** The most Nits delivered per request: `ADVISOR_MAX_NITS`. */
+  readonly maxNits: number;
+  /** Turns after a Concern before another steers the running agent: `ADVISOR_CONCERN_COOLDOWN_TURNS`. */
   readonly concernCooldownTurns: number;
-  /** The Review Backlog at which the agent waits for the Review under way… */
+  /** The Review Backlog at which the agent waits for the Review under way (`ADVISOR_CATCH_UP_BACKLOG`)… */
   readonly catchUpBacklog: number;
-  /** …for at most this long (0: never). */
+  /** …for at most this long (0: never): `ADVISOR_CATCH_UP_WAIT_SECONDS`. */
   readonly catchUpWaitMs: number;
 }
+
+/** A fixed Advisor limit, hit, in the log (SPI-1388, ADR-0049 §4): its name, its value and what it did. */
+const limitHitLog = (limit: string, value: number, did: string): void =>
+  console.log(JSON.stringify({ t3flare: "advisor-limit", limit, value, did }));
 
 /** The Advisor's settings from its resolved registry values (`extensionOf(…, "advisor").settings`). */
 export const advisorSettings = (values: Readonly<Record<string, SettingValue>>): AdvisorSettings => {
@@ -129,12 +147,12 @@ export const advisorSettings = (values: Readonly<Record<string, SettingValue>>):
     thinkingLevel: String(values.thinkingLevel) as AdvisorSettings["thinkingLevel"],
     correctiveTurns: Number(values.correctiveTurns),
     reviewTimeoutMs: Number(values.reviewTimeoutSeconds) * 1_000,
-    maxFindings: Number(values.maxFindings),
-    maxNits: Number(values.maxNits),
     maxToolRounds: Number(values.maxToolRounds),
-    concernCooldownTurns: Number(values.concernCooldownTurns),
-    catchUpBacklog: Number(values.catchUpBacklog),
-    catchUpWaitMs: Number(values.catchUpWaitSeconds) * 1_000,
+    maxFindings: ADVISOR_MAX_FINDINGS,
+    maxNits: ADVISOR_MAX_NITS,
+    concernCooldownTurns: ADVISOR_CONCERN_COOLDOWN_TURNS,
+    catchUpBacklog: ADVISOR_CATCH_UP_BACKLOG,
+    catchUpWaitMs: ADVISOR_CATCH_UP_WAIT_SECONDS * 1_000,
   };
 };
 
@@ -289,8 +307,20 @@ export class AdvisorObserver {
     if (this.#due && this.#running === undefined) this.#start("running", api.conversationId, BACKGROUND_CONTEXT);
     // Catch-up: the agent waits (at most `catchUpWaitMs`) for a Review under way while the backlog is at the threshold.
     const { catchUpBacklog, catchUpWaitMs } = this.#settings;
-    if (this.#running !== undefined && catchUpWaitMs > 0 && this.#backlog >= catchUpBacklog)
-      await this.#within(this.#running, catchUpWaitMs);
+    if (this.#running !== undefined && catchUpWaitMs > 0 && this.#backlog >= catchUpBacklog) {
+      const running = this.#running;
+      let done = false;
+      await this.#within(
+        running.then(() => void (done = true)),
+        catchUpWaitMs,
+      );
+      if (!done)
+        limitHitLog(
+          "ADVISOR_CATCH_UP_WAIT_SECONDS",
+          catchUpWaitMs / 1000,
+          "the agent went on with the Review unfinished",
+        );
+    }
   }
 
   /**
@@ -383,6 +413,8 @@ export class AdvisorObserver {
       const conversation = await harness.conversation(conversationIdOf(stored.conversation), context);
       if (conversation !== undefined) return { conversation, stored, fresh: false };
     }
+    if (stored !== undefined && stored.key === key && stored.characters >= SESSION_CHARACTERS)
+      limitHitLog("SESSION_CHARACTERS", SESSION_CHARACTERS, "started a new Advisor Session from a seed");
     const conversation = await harness.createConversation(
       {
         ownership: { kind: "ownerless" },
@@ -480,10 +512,16 @@ export class AdvisorObserver {
     if (reported === undefined) throw new Error("the Advisor's answer held no JSON report");
     const known = new Set(refs);
     // The cap keeps the most severe: sorted (stably, so reported order breaks ties) before it is applied.
-    const findings = reported
+    const valid = reported
       .flatMap((raw) => validFinding(raw, known) ?? [])
-      .sort((a, b) => RANK[b.severity] - RANK[a.severity])
-      .slice(0, maxFindings);
+      .sort((a, b) => RANK[b.severity] - RANK[a.severity]);
+    const findings = valid.slice(0, maxFindings);
+    if (valid.length > findings.length)
+      limitHitLog(
+        "ADVISOR_MAX_FINDINGS",
+        maxFindings,
+        `dropped ${valid.length - findings.length} less severe findings`,
+      );
     const summary = { mode, fresh, messages: seed.messages.length, reported: reported.length, kept: findings.length };
     console.log(JSON.stringify({ t3flare: "advisor-review", ...summary }));
     // pi-advisor's status entry: data only, so neither the agent nor t3 shows it; the Session's History keeps it.
@@ -517,10 +555,14 @@ export class AdvisorObserver {
       const key = normalized(finding.message);
       if ((stored?.delivered[key] ?? 0) >= RANK[finding.severity]) continue;
       if (finding.severity === "concern" && coolingDown && mode === "running") {
+        limitHitLog("ADVISOR_CONCERN_COOLDOWN_TURNS", concernCooldownTurns, "held a Concern back for the next Review");
         this.#deferred.push(finding);
         continue;
       }
-      if (finding.severity === "nit" && this.#nits >= maxNits) continue;
+      if (finding.severity === "nit" && this.#nits >= maxNits) {
+        limitHitLog("ADVISOR_MAX_NITS", maxNits, "dropped a Nit for the rest of the request");
+        continue;
+      }
       if (finding.severity === "nit") this.#nits++;
       if (finding.severity === "concern") this.#lastConcern = this.#completed;
       if (stored !== undefined)

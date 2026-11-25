@@ -99,6 +99,12 @@ export type DirectoryEntry = {
 /** An entry a glob found, at its absolute path. */
 export type FoundEntry = { readonly path: string; readonly type: "file" | "dir" };
 
+/**
+ * A listing's or search's answer (SPI-1388): what it holds and, when a byte bound stopped it short, `cut`, the note
+ * that names the bound and its value, which the tool shows the model.
+ */
+export type Listed<T> = { readonly items: readonly T[]; readonly cut?: string };
+
 /** A line of a match's context. */
 export type GrepLine = { readonly line: number; readonly text: string; readonly isMatch: boolean };
 
@@ -153,15 +159,11 @@ export type HostOperations = {
   /** For each path, whether it is a Container-only path for the Container's current launch (`container-paths.ts`). */
   readonly containerOnly: (paths: readonly string[]) => Promise<WireResult<readonly boolean[]>>;
   /** The entries of directory `path`, for `ls`. */
-  readonly readdir: (path: string) => Promise<WireResult<readonly DirectoryEntry[]>>;
+  readonly readdir: (path: string) => Promise<WireResult<Listed<DirectoryEntry>>>;
   /** The entries below `directory` whose path relative to it matches the glob `pattern`, for `find`. */
-  readonly find: (
-    directory: string,
-    pattern: string,
-    options: FindOptions,
-  ) => Promise<WireResult<readonly FoundEntry[]>>;
+  readonly find: (directory: string, pattern: string, options: FindOptions) => Promise<WireResult<Listed<FoundEntry>>>;
   /** The lines below `path` (or of the file itself) that match `pattern`, for `grep`. */
-  readonly grep: (pattern: string, path: string, options: GrepOptions) => Promise<WireResult<readonly GrepMatch[]>>;
+  readonly grep: (pattern: string, path: string, options: GrepOptions) => Promise<WireResult<Listed<GrepMatch>>>;
 };
 
 export type HostOperation = keyof HostOperations;

@@ -20,7 +20,12 @@ import {
 } from "@t3flare/models/endpoints";
 import { int, obj, opt, str } from "@earendil-works/pi-schema";
 
-import { FETCH_CONVERT_MAX_KIB } from "@t3flare/harness-registry";
+import {
+  FETCH_MAX_KIB,
+  SEARCH_CONTEXT_CHARACTERS,
+  SEARCH_SUMMARY_TOKENS,
+  SEARCH_TIMEOUT_SECONDS,
+} from "@t3flare/harness-registry";
 import { jsonTextBytes, jsonTextPrefix } from "@t3flare/session-protocol";
 
 import { DEFAULT_TOOL_OUTPUT_LIMITS, outputSize, type ToolOutputLimits } from "../toolOutput.ts";
@@ -30,13 +35,16 @@ import { detailsRoomBytes, fitOutput, STRUCTURED_MAX_BYTES } from "./output.ts";
 import { limitSearchText, providerTextSanitizer, type Sanitize } from "./shaping.ts";
 
 /**
- * The most of the search model's answer read, whatever the settings. A named constraint: a Worker isolate's 128 MB,
- * which also holds the Session; the answer is decoded and parsed whole. It takes web_fetch's conversion bound
- * (`FETCH_CONVERT_MAX_KIB`). Measured in workerd (apps/agents/test/webFetchMemory.workerd.test.ts), an answer of 5 MiB
+ * The most of the search model's answer read, a fixed bound. A named constraint: a Worker isolate's 128 MB,
+ * which also holds the Session; the answer is decoded and parsed whole. It takes web_fetch's body bound
+ * (`FETCH_MAX_KIB`). Measured in workerd (apps/agents/test/webFetchMemory.workerd.test.ts), an answer of 5 MiB
  * (2,476 results with two-byte titles) needs 2 MB more heap than an empty run, plus about 10 MB of body buffers outside
  * it. Every answer is read up to it; one past it is refused.
  */
-export const ANSWER_MAX_BYTES = FETCH_CONVERT_MAX_KIB * 1024;
+export const ANSWER_MAX_BYTES = FETCH_MAX_KIB * 1024;
+
+/** The note after a summary the search model stopped at `SEARCH_SUMMARY_TOKENS`, which names the limit. */
+export const SUMMARY_CUT_NOTE = `[The search model's summary stopped at web_search's fixed ${SEARCH_SUMMARY_TOKENS.toLocaleString("en-US")}-token summary limit.]`;
 
 /**
  * The most JSON bytes the two stored copies of a search's result list take together, before the query's, for a model
@@ -170,6 +178,8 @@ export const readAnswer = (
   readonly failure?: string;
   readonly usage?: Json;
 } => {
+  // The search model ran out of `max_tokens` (`SEARCH_SUMMARY_TOKENS`): its summary is cut, which the summary says.
+  const cut = record(body).stop_reason === "max_tokens";
   const answer = record(body);
   const blocks = Array.isArray(answer.content) ? answer.content.map(record) : [];
   const byUrl = new Map<string, { title?: string; url: string; published?: string; snippets: Array<string> }>();
@@ -214,7 +224,7 @@ export const readAnswer = (
   const usage = record(answer.usage);
   return {
     results,
-    summary: summary.join("").trim(),
+    summary: cut ? `${summary.join("").trim()}\n${SUMMARY_CUT_NOTE}`.trim() : summary.join("").trim(),
     ...(failure === undefined || results.length > 0 ? {} : { failure }),
     ...(Object.keys(usage).length === 0 ? {} : { usage }),
   };
@@ -260,14 +270,11 @@ const usageOf = (usage: Json | undefined) => {
 export const webSearchTool = (
   transport: WebTransport,
   search: SearchEndpoint,
-  limits: Pick<
-    WebLimits,
-    "searchResults" | "searchesPerCall" | "searchSummaryTokens" | "searchTimeoutSeconds" | "searchContextCharacters"
-  > = DEFAULT_WEB_LIMITS,
+  limits: WebLimits = DEFAULT_WEB_LIMITS,
   output: ToolOutputLimits = DEFAULT_TOOL_OUTPUT_LIMITS,
 ): ToolRegistration => {
   const system = systemPrompt(limits.searchesPerCall);
-  const characters = limits.searchContextCharacters;
+  const characters = SEARCH_CONTEXT_CHARACTERS;
   return defineTool({
     name: "web_search",
     description: description(characters, output),
@@ -292,44 +299,56 @@ export const webSearchTool = (
       const sanitize = providerTextSanitizer([target.apiKey]);
       let read: ReturnType<typeof readAnswer>;
       try {
-        read = await withDeadline(limits.searchTimeoutSeconds, context.abortSignal, async (signal) => {
-          const response = await transport(
-            {
-              url: `${target.baseUrl.replace(/\/+$/, "")}/v1/messages`,
-              method: "POST",
-              headers: {
-                ...target.headers,
-                "content-type": "application/json",
-                "x-api-key": target.apiKey,
-                "anthropic-version": "2023-06-01",
+        read = await withDeadline(
+          SEARCH_TIMEOUT_SECONDS,
+          context.abortSignal,
+          async (signal) => {
+            const response = await transport(
+              {
+                url: `${target.baseUrl.replace(/\/+$/, "")}/v1/messages`,
+                method: "POST",
+                headers: {
+                  ...target.headers,
+                  "content-type": "application/json",
+                  "x-api-key": target.apiKey,
+                  "anthropic-version": "2023-06-01",
+                },
+                body: JSON.stringify({
+                  model: target.modelId,
+                  max_tokens: SEARCH_SUMMARY_TOKENS,
+                  system,
+                  messages: [{ role: "user", content: args.query }],
+                  tools: [{ type: "web_search_20250305", name: "web_search", max_uses: limits.searchesPerCall }],
+                }),
               },
-              body: JSON.stringify({
-                model: target.modelId,
-                max_tokens: limits.searchSummaryTokens,
-                system,
-                messages: [{ role: "user", content: args.query }],
-                tools: [{ type: "web_search_20250305", name: "web_search", max_uses: limits.searchesPerCall }],
-              }),
-            },
-            signal,
-          );
-          const body = new TextDecoder().decode(await readBoundedBody(response, ANSWER_MAX_BYTES, signal));
-          let parsed: unknown;
-          try {
-            parsed = JSON.parse(body);
-          } catch {
-            throw new WebToolError(
-              response.ok ? "the Model endpoint returned an unrecognized response" : statusCause(response.status),
+              signal,
             );
-          }
-          if (!response.ok) {
-            const message = text(record(record(parsed).error).message);
-            throw new WebToolError(
-              `${statusCause(response.status)}${message === undefined ? "" : `: ${sanitize(message)}`}`,
+            const body = new TextDecoder().decode(
+              await readBoundedBody(
+                response,
+                ANSWER_MAX_BYTES,
+                signal,
+                (size) => `web_search's fixed ${size} answer limit`,
+              ),
             );
-          }
-          return readAnswer(parsed, sanitize);
-        });
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(body);
+            } catch {
+              throw new WebToolError(
+                response.ok ? "the Model endpoint returned an unrecognized response" : statusCause(response.status),
+              );
+            }
+            if (!response.ok) {
+              const message = text(record(record(parsed).error).message);
+              throw new WebToolError(
+                `${statusCause(response.status)}${message === undefined ? "" : `: ${sanitize(message)}`}`,
+              );
+            }
+            return readAnswer(parsed, sanitize);
+          },
+          ", web_search's fixed time limit",
+        );
       } catch (error) {
         throw new Error(
           `Unable to search the web for ${args.query}: ${error instanceof WebToolError ? error.message : "network error"}`,

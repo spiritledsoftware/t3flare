@@ -19,7 +19,7 @@ import {
   type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { int, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
-import { defaultSettings } from "@t3flare/harness-registry";
+import { CONTEXT_PREVIEW_CHARACTERS } from "@t3flare/harness-registry";
 
 import { DEFAULT_TOOL_OUTPUT_LIMITS, type ToolOutputLimits } from "../toolOutput.ts";
 import {
@@ -389,8 +389,8 @@ const NAME = str({ minLength: 1, pattern: NOTE_NAME.source });
 const REF = str();
 const QUERY = str({ minLength: 1 });
 
-/** The `context` extension's `previewCharacters` setting's default, for a tool built without settings (a test). */
-export const DEFAULT_PREVIEW_LIMITS: PreviewLimits = { preview: Number(defaultSettings("context").previewCharacters) };
+/** A preview line's length: `CONTEXT_PREVIEW_CHARACTERS` (SPI-1388); a test may build the tools with its own. */
+export const DEFAULT_PREVIEW_LIMITS: PreviewLimits = { preview: CONTEXT_PREVIEW_CHARACTERS };
 
 export const contextNotesTool = (limits: PreviewLimits = DEFAULT_PREVIEW_LIMITS): ToolRegistration =>
   defineTool({

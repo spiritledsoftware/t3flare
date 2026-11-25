@@ -20,7 +20,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { obj, str } from "@earendil-works/pi-schema";
 import { EMPTY_HARNESS, extensionOf, resolveHarness } from "@t3flare/harness-registry";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   ADVICE_ENTRY,
@@ -238,6 +238,8 @@ describe("the Advisor", () => {
   });
 
   it("delivers at most maxFindings per Review, and its prompts ask for at most that many (SPI-1320)", async () => {
+    expect(SETTINGS.maxFindings).toBe(4);
+    const logged = vi.spyOn(console, "log");
     expect(advisorPrompt(1)).toContain("at most 1 findings");
     const { entries, advisorPrompts } = await run(
       { ...SETTINGS, reviewEvery: "request", maxFindings: 1 },
@@ -255,6 +257,16 @@ describe("the Advisor", () => {
     );
     expect(advisorPrompts[0]).toContain("up to 1 distinct findings");
     expect(severities(entries)).toEqual(["concern"]);
+    // The cap names itself in the log (SPI-1388).
+    expect(logged.mock.calls.map((call) => String(call[0]))).toContain(
+      JSON.stringify({
+        t3flare: "advisor-limit",
+        limit: "ADVISOR_MAX_FINDINGS",
+        value: 1,
+        did: "dropped 1 less severe findings",
+      }),
+    );
+    logged.mockRestore();
   });
 
   it("keeps the most severe findings under the cap: a Blocker reported after a Nit (SPI-1320)", async () => {
@@ -303,21 +315,33 @@ describe("the Advisor", () => {
     expect(severities(none.entries)).toEqual(["concern"]);
   });
 
-  it("delivers no Nits with maxNits 0 (SPI-1320)", async () => {
+  it("delivers no Nits with maxNits 0, and names the cap (SPI-1320, SPI-1388)", async () => {
+    expect(SETTINGS.maxNits).toBe(3);
+    const logged = vi.spyOn(console, "log");
     const { entries } = await run(
       { ...SETTINGS, reviewEvery: "request", maxNits: 0 },
       [bash("ls", "c1"), fauxAssistantMessage("Listed.")],
       [report([{ severity: "nit", message: "The answer could say more.", evidence: { quote: "Listed." } }])],
     );
     expect(severities(entries)).toEqual([]);
+    expect(logged.mock.calls.map((call) => String(call[0]))).toContain(
+      JSON.stringify({
+        t3flare: "advisor-limit",
+        limit: "ADVISOR_MAX_NITS",
+        value: 0,
+        did: "dropped a Nit for the rest of the request",
+      }),
+    );
+    logged.mockRestore();
   });
 
   it.each([
     [3, ["concern"]],
     [0, ["concern", "concern"]],
   ] as const)(
-    "with concernCooldownTurns %i delivers %j while the agent runs (SPI-1320)",
+    "with concernCooldownTurns %i delivers %j while the agent runs, and names a held Concern (SPI-1320, SPI-1388)",
     async (cooldown, expected) => {
+      const logged = vi.spyOn(console, "log");
       const first = latch();
       const second = latch();
       const { entries } = await run(
@@ -345,6 +369,14 @@ describe("the Advisor", () => {
         ],
       );
       expect(severities(entries)).toEqual(expected);
+      const held = JSON.stringify({
+        t3flare: "advisor-limit",
+        limit: "ADVISOR_CONCERN_COOLDOWN_TURNS",
+        value: cooldown,
+        did: "held a Concern back for the next Review",
+      });
+      expect(logged.mock.calls.map((call) => String(call[0])).includes(held)).toBe(cooldown > 0);
+      logged.mockRestore();
     },
   );
 

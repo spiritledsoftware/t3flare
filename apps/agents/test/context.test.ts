@@ -22,6 +22,7 @@ import { ContextDoc, contextExtension, MAX_TOTAL_NOTE_CHARACTERS } from "../src/
 import { readCharacters } from "../src/extensions/context/history.ts";
 import { DEFAULT_TOOL_OUTPUT_LIMITS } from "../src/extensions/toolOutput.ts";
 import { noteIndex } from "../src/extensions/context/notes.ts";
+import { CONTEXT_PREVIEW_CHARACTERS } from "@t3flare/harness-registry";
 import { conversationIdOf } from "../src/durableIds.ts";
 import { CONTINUE_PROMPT, emergencyText, PREPARE_PROMPT, prepareRollover } from "../src/extensions/context/rollover.ts";
 import { context } from "./harness.fixture.ts";
@@ -169,24 +170,22 @@ describe("context_history pages", () => {
     expect(page.next_offset).toBe(readCharacters(output.maxBytes));
   });
 
-  it("cuts list previews and search previews to the previewCharacters setting (SPI-1362)", async () => {
-    const { results } = await open(
-      [
-        calls([
-          "context_notes",
-          { action: "write", name: "long", content: `${"a".repeat(200)}NEEDLE${"b".repeat(200)}` },
-        ]),
-        calls(["context_history", { action: "list" }]),
-        calls(["context_notes", { action: "search", query: "NEEDLE" }]),
-        fauxAssistantMessage("done"),
-      ],
-      { previewCharacters: 30 },
-    );
+  it("cuts list previews and search previews at CONTEXT_PREVIEW_CHARACTERS, one line (SPI-1362, SPI-1388)", async () => {
+    const { results } = await open([
+      calls([
+        "context_notes",
+        { action: "write", name: "long", content: `${"a".repeat(200)}NEEDLE${"b".repeat(200)}` },
+      ]),
+      calls(["context_history", { action: "list" }]),
+      calls(["context_notes", { action: "search", query: "NEEDLE" }]),
+      fauxAssistantMessage("done"),
+    ]);
+    expect(CONTEXT_PREVIEW_CHARACTERS).toBe(120);
     const previews = (json(results[1]).items as Array<{ preview: string }>).map((item) => item.preview);
-    expect(previews.every((preview) => preview.length <= 30)).toBe(true);
+    expect(previews.every((preview) => preview.length <= 120)).toBe(true);
     // A sixth before the match, half after it.
     expect((json(results[2]).matches as Array<{ preview: string }>)[0]!.preview).toBe(
-      `${"a".repeat(5)}NEEDLE${"b".repeat(9)}`,
+      `${"a".repeat(20)}NEEDLE${"b".repeat(54)}`,
     );
   });
 });

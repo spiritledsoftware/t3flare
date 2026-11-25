@@ -1,44 +1,22 @@
 // The web tools' limits (SPI-1321): the `web` extension's settings in the harness registry, read at each turn's
 // install. The defaults are the registry's, so a tool built without settings (a test) behaves as an untouched harness.
+// Its fixed values (the fetch's time and size limits, its redirects and title, the search's summary, time and result
+// text) are the registry's constants (SPI-1388), and each names itself where it is hit.
 import { defaultSettings, type SettingValue } from "@t3flare/harness-registry";
 
 export const WEB_EXTENSION = "web";
 
 export interface WebLimits {
-  /** A `web_fetch` call's time limit when it names none. */
-  readonly fetchTimeoutSeconds: number;
-  /** The longest `timeout` a `web_fetch` call may name (the default is always allowed, even above it). */
-  readonly fetchMaxTimeoutSeconds: number;
-  /** The largest response body `web_fetch` reads. */
-  readonly fetchMaxKiB: number;
-  /** The most redirects one `web_fetch` call follows. */
-  readonly fetchRedirects: number;
-  /** The most characters of a fetched page's heading t3's item shows as its title. */
-  readonly fetchTitleCharacters: number;
   /** `web_search`'s results when a call names no `numResults`. */
   readonly searchResults: number;
   /** The server tool's `max_uses`: searches the search model may run for one call. */
   readonly searchesPerCall: number;
-  /** The search request's `max_tokens`. */
-  readonly searchSummaryTokens: number;
-  /** A `web_search` call's time limit, reading the answer included. */
-  readonly searchTimeoutSeconds: number;
-  /** The characters of result text a `web_search` call that names no `contextMaxCharacters` shares across results. */
-  readonly searchContextCharacters: number;
 }
 
 /** The `web` extension's resolved settings as limits. */
 export const webLimits = (values: Readonly<Record<string, SettingValue>>): WebLimits => ({
-  fetchTimeoutSeconds: Number(values.fetchTimeoutSeconds),
-  fetchMaxTimeoutSeconds: Number(values.fetchMaxTimeoutSeconds),
-  fetchMaxKiB: Number(values.fetchMaxKiB),
-  fetchRedirects: Number(values.fetchRedirects),
-  fetchTitleCharacters: Number(values.fetchTitleCharacters),
   searchResults: Number(values.searchResults),
   searchesPerCall: Number(values.searchesPerCall),
-  searchSummaryTokens: Number(values.searchSummaryTokens),
-  searchTimeoutSeconds: Number(values.searchTimeoutSeconds),
-  searchContextCharacters: Number(values.searchContextCharacters),
 });
 
 export const DEFAULT_WEB_LIMITS: WebLimits = webLimits(defaultSettings(WEB_EXTENSION));

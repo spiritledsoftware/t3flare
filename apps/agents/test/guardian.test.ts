@@ -26,7 +26,12 @@ import {
 import { obj, str } from "@earendil-works/pi-schema";
 import { describe, expect, it } from "vitest";
 
-import { EMPTY_HARNESS, extensionOf, resolveHarness } from "@t3flare/harness-registry";
+import {
+  EMPTY_HARNESS,
+  extensionOf,
+  GUARDIAN_BATCH_ARGUMENT_CHARACTERS,
+  resolveHarness,
+} from "@t3flare/harness-registry";
 
 import {
   GUARDIAN_ENTRY,
@@ -436,7 +441,9 @@ describe("the Guardian's evidence (SPI-1362)", () => {
     const untrusted = blocks.filter((block) => block.startsWith("Evidence (UNTRUSTED"));
     expect(untrusted.length).toBeGreaterThan(0);
     expect(untrusted.reduce((sum, block) => sum + block.length, 0)).toBeLessThan(15_000);
-    expect(blocks[0]).toMatch(/^\[\d+ evidence entries omitted to fit the evidence budget; trusted ones kept first/);
+    expect(blocks[0]).toMatch(
+      /^\[\d+ evidence entries omitted to fit the [\d,]+-character evidence budget; trusted ones kept first/,
+    );
   });
 
   it("bounds trusted evidence by the budget too, newest first, and stops reading once it is full", async () => {
@@ -764,8 +771,8 @@ describe("the Guardian's evidence (SPI-1362)", () => {
     });
   });
 
-  it("cuts the other calls of a batch to the batchArgumentCharacters setting", async () => {
-    expect(SETTINGS.batchArgumentCharacters).toBe(2_000);
+  it("cuts the other calls of a batch at GUARDIAN_BATCH_ARGUMENT_CHARACTERS, naming the cut (SPI-1388)", async () => {
+    expect(GUARDIAN_BATCH_ARGUMENT_CHARACTERS).toBe(2_000);
     const rendered = await renderReviewedCall({
       toolName: "bash",
       input: { command: "ls" },
@@ -775,6 +782,6 @@ describe("the Guardian's evidence (SPI-1362)", () => {
     });
     expect(rendered).toContain('"write" with arguments {"path":"/a"} in full');
     expect(rendered).not.toContain("z".repeat(51));
-    expect(rendered).toContain("characters omitted]");
+    expect(rendered).toMatch(/\[… \d+ characters omitted: each other call's arguments are cut at 50 characters\]/);
   });
 });

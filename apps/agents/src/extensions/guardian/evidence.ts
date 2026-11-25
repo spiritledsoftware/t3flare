@@ -9,11 +9,15 @@
 // (no token calibration here). There are no Skills, delegations or User Overrides to carry.
 import type { Context as ChordContext } from "@earendil-works/chord";
 import type { ConversationId, Cursor, EntryId, EntryRecord, HookApi } from "@earendil-works/pi-durable";
-import { defaultSettings, GUARDIAN_EVIDENCE_CHARACTERS } from "@t3flare/harness-registry";
+import { GUARDIAN_BATCH_ARGUMENT_CHARACTERS, GUARDIAN_EVIDENCE_CHARACTERS } from "@t3flare/harness-registry";
 
 import { ADVISOR_CONTINUATION } from "../advisor.ts";
 
-/** Characters of untrusted evidence a review carries at most (about pi-guardian's 32,000-token ceiling). */
+/**
+ * Characters of evidence a review carries at most: `GUARDIAN_EVIDENCE_CHARACTERS` (96,000), about pi-guardian's
+ * 32,000-token ceiling at three characters a token. A machinery bound, fixed by ADR-0049 §3 (SPI-1354, SPI-1388); a
+ * review past it says how many entries it left out and names the budget.
+ */
 export const EVIDENCE_CHARACTERS = GUARDIAN_EVIDENCE_CHARACTERS;
 /** History read back for evidence, newest first, a page at a time. */
 const PAGE = 200;
@@ -25,6 +29,10 @@ interface EvidenceEntry {
 }
 
 const omissionMarker = (omitted: number) => `[… ${omitted} characters omitted]`;
+
+/** The cut of another batch call's arguments, naming the fixed limit it was cut at (SPI-1388). */
+const batchOmission = (omitted: number, limit: number) =>
+  `[… ${omitted} characters omitted: each other call's arguments are cut at ${limit.toLocaleString("en-US")} characters]`;
 
 type ModelMessage = { readonly role?: string; readonly content?: unknown };
 
@@ -251,7 +259,7 @@ class Selection {
     if (this.#omitted === 0 && this.stop === undefined) return blocks;
     const unread = this.stop !== undefined && (await older());
     return [
-      `[${this.#omitted} evidence entries omitted to fit the evidence budget${unread ? ", and the older History not read" : ""}; trusted ones kept first, newest first]`,
+      `[${this.#omitted} evidence entries omitted to fit the ${this.#options.budget.toLocaleString("en-US")}-character evidence budget${unread ? ", and the older History not read" : ""}; trusted ones kept first, newest first]`,
       ...blocks,
     ];
   }
@@ -535,9 +543,6 @@ const sha256 = async (text: string): Promise<string> => {
 
 export const argumentsHash = (input: unknown): Promise<string> => sha256(JSON.stringify(input));
 
-/** The `batchArgumentCharacters` setting's default, for a call rendered without settings (a test). */
-const DEFAULT_BATCH_CHARACTERS = Number(defaultSettings("guardian").batchArgumentCharacters);
-
 const batchCallLine = (call: { readonly name: string; readonly arguments: unknown }, limit: number): string => {
   const name = JSON.stringify(call.name);
   const json = JSON.stringify(call.arguments);
@@ -550,7 +555,7 @@ const batchCallLine = (call: { readonly name: string; readonly arguments: unknow
   const rest = JSON.stringify(
     Object.fromEntries(Object.entries(fields).filter(([key]) => key !== "path" && key !== "command")),
   );
-  const shown = rest.length > limit ? `${rest.slice(0, limit)}${omissionMarker(rest.length - limit)}` : rest;
+  const shown = rest.length > limit ? `${rest.slice(0, limit)}${batchOmission(rest.length - limit, limit)}` : rest;
   return Object.keys(pinned).length > 0
     ? `${name} with arguments ${JSON.stringify(pinned)} in full, and other arguments ${shown}`
     : `${name} with arguments ${shown}`;
@@ -563,7 +568,7 @@ export interface ReviewedCall {
   readonly reason?: string | undefined;
   readonly parent?: { readonly toolName: string; readonly input: unknown } | undefined;
   readonly batch?: ReadonlyArray<{ readonly name: string; readonly arguments: unknown }>;
-  /** Characters of each other batch call's arguments shown beside its path and command (`batchArgumentCharacters`). */
+  /** Characters of each other batch call's arguments shown beside its path and command; absent, the fixed one. */
   readonly batchCharacters?: number;
 }
 
@@ -592,7 +597,7 @@ export const renderReviewedCall = async (call: ReviewedCall): Promise<string> =>
         : "Other calls in the same tool batch (each reviewed on its own; they bear on this call only where they change what it does, and Pi may run them before or alongside this call):",
     );
     for (const other of call.batch)
-      lines.push(`- ${batchCallLine(other, call.batchCharacters ?? DEFAULT_BATCH_CHARACTERS)}`);
+      lines.push(`- ${batchCallLine(other, call.batchCharacters ?? GUARDIAN_BATCH_ARGUMENT_CHARACTERS)}`);
   }
   return lines.join("\n");
 };

@@ -1,16 +1,15 @@
-// SPI-1321: `web_fetch` and `web_search` at their memory bounds in workerd, where a Worker isolate holds 128 MB: the
-// largest body `fetchMaxKiB` may allow (`FETCH_MAX_KIB`, returned unconverted), the largest it converts
-// (`FETCH_CONVERT_MAX_KIB`), and the largest search answer read (`ANSWER_MAX_BYTES`), each of two-byte text, the
-// costlier kind (a JS string of it takes 2 bytes a character).
+// SPI-1321, SPI-1388: `web_fetch` and `web_search` at their memory bounds in workerd, where a Worker isolate holds 128 MB:
+// the largest body web_fetch reads, every one of which it converts (`FETCH_MAX_KIB`), and the largest search answer
+// read (`ANSWER_MAX_BYTES`), each of two-byte text, the costlier kind (a JS string of it takes 2 bytes a character).
 //
-// workerd reports no heap figures, so this is also the measurement behind those two maximums: run it alone with
-// `MINIFLARE_WORKERD_V8_FLAGS=--max-old-space-size=<MB>` and find the smallest heap that passes, against the same run of
-// an empty test (the measured figures are in `FETCH_MAX_KIB`'s comment).
+// workerd reports no heap figures, so this is also the measurement behind `FETCH_MAX_KIB` and `ANSWER_MAX_BYTES`: run it
+// alone with `MINIFLARE_WORKERD_V8_FLAGS=--max-old-space-size=<MB>` and find the smallest heap that passes, against the
+// same run of an empty test (the measured figures are in their comments).
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { FETCH_CONVERT_MAX_KIB, FETCH_MAX_KIB } from "@t3flare/harness-registry";
+import { FETCH_MAX_KIB } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
-import { UNCONVERTED_NOTE, webFetchTool } from "../src/extensions/web/fetch.ts";
+import { webFetchTool } from "../src/extensions/web/fetch.ts";
 import { DEFAULT_WEB_LIMITS } from "../src/extensions/web/limits.ts";
 import { ANSWER_MAX_BYTES, webSearchTool } from "../src/extensions/web/search.ts";
 import type { WebTransport } from "../src/extensions/web/net.ts";
@@ -62,7 +61,7 @@ const pageOf = (bytes: number): WebTransport => {
 };
 
 const fetchPage = async (bytes: number) => {
-  const tool = webFetchTool(pageOf(bytes), { ...DEFAULT_WEB_LIMITS, fetchMaxKiB: FETCH_MAX_KIB });
+  const tool = webFetchTool(pageOf(bytes));
   // SAFETY: web_fetch reads only its arguments and the context's abort signal, never `api`.
   const result = await tool.execute({ url: "https://example.com/" } as never, {} as never, BACKGROUND_CONTEXT);
   return (result.structuredOutput as { content: string }).content;
@@ -114,23 +113,15 @@ const answerOf = (bytes: number): WebTransport => {
 };
 
 describe("web_fetch's memory bounds (SPI-1321)", () => {
-  it("returns a body of FETCH_MAX_KIB unconverted", async () => {
-    expect(await fetchPage(FETCH_MAX_KIB * 1024)).toMatch(new RegExp(`^${RegExp.escape(UNCONVERTED_NOTE)}\\n<div`));
-  });
-
-  it("converts a body of FETCH_CONVERT_MAX_KIB", async () => {
-    expect(await fetchPage(FETCH_CONVERT_MAX_KIB * 1024)).toMatch(/^## Section 0 — é ✓/);
+  it("converts a body of FETCH_MAX_KIB", async () => {
+    expect(await fetchPage(FETCH_MAX_KIB * 1024)).toMatch(/^## Section 0 — é ✓/);
   });
 
   it("reads a search answer of ANSWER_MAX_BYTES", async () => {
     const endpoint = {
       resolve: async () => ({ baseUrl: "https://llm.example", headers: {}, apiKey: "k", slug: "e/m", modelId: "m" }),
     };
-    const tool = webSearchTool(answerOf(ANSWER_MAX_BYTES), endpoint, {
-      ...DEFAULT_WEB_LIMITS,
-      searchesPerCall: 50,
-      searchSummaryTokens: 64_000,
-    });
+    const tool = webSearchTool(answerOf(ANSWER_MAX_BYTES), endpoint, { ...DEFAULT_WEB_LIMITS, searchesPerCall: 50 });
     // SAFETY: web_search reads only its arguments and the context's abort signal, never `api`.
     const result = await tool.execute({ query: "q" } as never, {} as never, BACKGROUND_CONTEXT);
     expect((result.structuredOutput as { results: Array<unknown> }).results).toHaveLength(8);

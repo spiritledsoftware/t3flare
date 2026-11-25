@@ -6,7 +6,11 @@
 // hash to its Session, which runs this (`apps/agents` `SessionDO`); a CLI agent's process start and each of its turns
 // run it on the Environment's side (`apps/environment` `provider/cli/environmentSkillsTake.ts`).
 
-/** How long a turn's start waits for its Workspace to take a new set: a take of 8 MiB took 0.6 s, the Container's copy up to 5 s more. */
+/**
+ * How long a turn's start waits for its Workspace to take a new set: a take of 8 MiB took 0.6 s, the Container's copy up
+ * to 5 s more. A constant, not a setting (ADR-0049 §3, SPI-1354): it bounds t3flare's own machinery, and a take that
+ * runs out logs this limit and its value; the agent runs with the set its Workspace holds.
+ */
 export const SKILLS_TAKE_MS = 10_000;
 
 /** What a Workspace's take answers (`WorkspaceDO.takeEnvironmentSkills`), as far as a Session reads it. */
@@ -37,7 +41,9 @@ export const takeSkillsForTurn = async (
       }),
     ]);
     if (answer === "timeout")
-      console.warn(JSON.stringify({ t3flare: "skills-take-timeout", hash: hash.slice(0, 12), waitMs }));
+      console.warn(
+        JSON.stringify({ t3flare: "skills-take-timeout", hash: hash.slice(0, 12), limit: "SKILLS_TAKE_MS", waitMs }),
+      );
     else if (answer.error !== undefined)
       console.warn(JSON.stringify({ t3flare: "skills-take-refused", hash: hash.slice(0, 12), error: answer.error }));
     else if (answer.taken)

@@ -13,7 +13,7 @@ import {
   TOOL_LIVE_OUTPUT_BYTES,
   TOOL_OUTPUT_BYTES,
 } from "@t3flare/session-protocol";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   DEFAULT_SUGGESTION_LIMITS,
@@ -154,20 +154,35 @@ describe("prompt suggestions", () => {
     expect(await suggestPrompt(models(reply("never asked")), model, "", "fixed")).toBe("");
   });
 
-  it("reads the last excerptCharacters of each and waits timeoutMs, the settings' (SPI-1362)", async () => {
+  it("reads the last excerptCharacters of each and waits timeoutMs, fixed, naming the limit when it runs out (SPI-1362, SPI-1388)", async () => {
     expect(DEFAULT_SUGGESTION_LIMITS).toEqual({ excerptCharacters: 4_000, timeoutMs: 20_000 });
     const limits = { excerptCharacters: 100, timeoutMs: 20 };
+    const cutLog = vi.spyOn(console, "log");
     const text = askedText(suggestionContext(`${"u".repeat(500)}USER`, `${"a".repeat(500)}ANSWER`, limits));
     expect(text).toContain(`…${"u".repeat(96)}USER\n`);
     expect(text).not.toContain("u".repeat(97));
     expect(text).toContain(`…${"a".repeat(94)}ANSWER\n`);
+    expect(cutLog.mock.calls.map((call) => String(call[0]))).toContain(
+      JSON.stringify({
+        t3flare: "prompt-suggestion-limit",
+        limit: "SUGGESTION_EXCERPT_CHARACTERS",
+        characters: 100,
+        dropped: 404,
+      }),
+    );
+    cutLog.mockRestore();
     const hung = {
       completeSimple: (_model: unknown, _context: unknown, options: { signal: AbortSignal }) =>
         new Promise<AssistantMessage>((_, reject) =>
           options.signal.addEventListener("abort", () => reject(options.signal.reason)),
         ),
     };
+    const logged = vi.spyOn(console, "log");
     expect(await suggestPrompt(hung as never, model, "fix it", "fixed", limits)).toBe("");
+    expect(logged.mock.calls.map((call) => String(call[0]))).toContain(
+      JSON.stringify({ t3flare: "prompt-suggestion-limit", limit: "SUGGESTION_TIMEOUT_SECONDS", ms: 20 }),
+    );
+    logged.mockRestore();
   });
 });
 
