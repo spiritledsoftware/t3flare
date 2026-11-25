@@ -97,7 +97,11 @@ which names only the repos that are already Projects (none before the first), so
 A fifth list, `REPOSITORY_LOOKUP_GITHUB_PERMISSIONS` (`metadata: read`), is minted for the one repo a lookup names, in
 its owner's installation, whatever Workspaces exist, and pinned to that lookup's requests through t3's
 `PinnedGitHubCredential` (a Layer over t3's `SourceControlRepositoryService`, `apps/environment/src/t3/repositoryLookup.ts`).
-Used for those requests and dropped, as the skill fetch's is. The Environment token keeps its scope for t3's PR
-features, and the Container token its one repo. A lookup the App cannot mint for says why: the App is not installed on
+The Environment DO keeps it in its minters (`GitHubTokens`) until it expires, as it does every token it mints, and
+hands it to the next lookup of the same repo while it has at least 15 minutes left; it never reaches a Container, a
+Session or a log. Each lookup first forgets a remembered failure to mint for its repo, so an Owner who installs the App
+or adds the repo and retries is answered by GitHub at once; a token GitHub refuses (the App reinstalled) is dropped from
+the minters and the lookup runs as t3's own. The Environment token keeps its scope for t3's PR features, and the
+Container token its one repo. A lookup the App cannot mint for says why: the App is not installed on
 the owner, or the repo is not among the installation's selected repositories (GitHub answers the same for a repo that
 does not exist, so the two are named together).

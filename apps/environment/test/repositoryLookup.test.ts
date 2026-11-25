@@ -38,7 +38,8 @@ const repo = (owner: string, name: string) => ({
 
 /**
  * A fake GitHub: `repos/<owner>/<name>` answers for a private repo in `privateRepos` only with a token minted for it
- * (`token:<owner>/<name>`), as an installation token restricted to its repositories would; else 404.
+ * (`token:<owner>/<name>`), as an installation token restricted to its repositories would; a revoked token (`stale:…`)
+ * gets 401; else 404.
  */
 const fakeGitHub = (privateRepos: ReadonlyArray<string>, seen: Array<string>) =>
   HttpClient.make((request) =>
@@ -51,9 +52,11 @@ const fakeGitHub = (privateRepos: ReadonlyArray<string>, seen: Array<string>) =>
       const ok = match !== null && privateRepos.includes(full) && auth === `Bearer token:${full}`;
       return HttpClientResponse.fromWeb(
         request,
-        ok
-          ? Response.json(repo(...(full.split("/") as [string, string])))
-          : Response.json({ message: "Not Found" }, { status: 404 }),
+        auth.startsWith("Bearer stale:")
+          ? Response.json({ message: "Bad credentials" }, { status: 401 })
+          : ok
+            ? Response.json(repo(...(full.split("/") as [string, string])))
+            : Response.json({ message: "Not Found" }, { status: 404 }),
       );
     }),
   );
@@ -118,31 +121,48 @@ const stockService = (privateRepos: ReadonlyArray<string>, seen: Array<string>) 
   });
 
 /** A minter that mints `token:<owner>/<name>` for one repo, or fails with `refuse`'s error; it records each request. */
+/** What the fake minter was asked: each mint, each failure forgotten, each token GitHub refused. */
+interface MinterLog {
+  readonly requests: Array<MintRequest>;
+  readonly forgotten: Array<MintRequest>;
+  readonly invalidated: Array<string>;
+}
+
+const newLog = (): MinterLog => ({ requests: [], forgotten: [], invalidated: [] });
+
+/**
+ * A minter that mints `token:<owner>/<name>` for one repo, or fails with `refuse`'s error. With `stale`, it hands out a
+ * revoked `stale:` token until told GitHub refused it, as `GitHubTokens` re-serves one after the App is reinstalled.
+ */
 const minter = (
-  requests: Array<MintRequest>,
-  refuse?: () => Error,
-  live: ReadonlyArray<string> = [],
+  log: MinterLog,
+  options: { readonly refuse?: () => Error; readonly live?: ReadonlyArray<string>; readonly stale?: boolean },
 ): LookupMinter => ({
   mint: async (request) => {
-    requests.push(request);
-    if (refuse !== undefined) throw refuse();
-    return { token: `token:${request.owner}/${request.repositories.join(",")}`, expiresAt: Date.now() + 3_600_000 };
+    log.requests.push(request);
+    if (options.refuse !== undefined) throw options.refuse();
+    const repo = `${request.owner}/${request.repositories.join(",")}`;
+    const stale = options.stale === true && !log.invalidated.includes(`stale:${repo}`);
+    return { token: `${stale ? "stale" : "token"}:${repo}`, expiresAt: Date.now() + 3_600_000 };
   },
-  live: () => live,
+  forget: (request) => void log.forgotten.push(request),
+  invalidate: (token) => void log.invalidated.push(token),
+  live: () => options.live ?? [],
 });
 
 const service = (options: {
   readonly privateRepos?: ReadonlyArray<string>;
-  readonly requests?: Array<MintRequest>;
+  readonly log?: MinterLog;
   readonly refuse?: () => Error;
   readonly live?: ReadonlyArray<string>;
+  readonly stale?: boolean;
   readonly seen?: Array<string>;
-}) =>
-  stockService(options.privateRepos ?? [], options.seen ?? []).pipe(
-    Effect.map((stock) =>
-      withRepositoryLookupTokens(stock, () => minter(options.requests ?? [], options.refuse, options.live)),
-    ),
+}) => {
+  const log = options.log ?? newLog();
+  return stockService(options.privateRepos ?? [], options.seen ?? []).pipe(
+    Effect.map((stock) => withRepositoryLookupTokens(stock, () => minter(log, options))),
   );
+};
 
 const lookup = (svc: SourceControlRepositoryService.SourceControlRepositoryService["Service"], repository: string) =>
   svc.lookupRepository({ provider: github, repository });
@@ -158,12 +178,11 @@ describe("t3's lookup of a GitHub repository (SPI-1398)", () => {
   });
 
   it("with no GitHub Workspace, finds a private repo the App is installed on, with a token minted for that repo alone", async () => {
-    const requests: Array<MintRequest> = [];
+    const log = newLog();
+    const requests = log.requests;
     const seen: Array<string> = [];
     const info = await Effect.runPromise(
-      service({ privateRepos: ["acme/notes"], requests, seen }).pipe(
-        Effect.flatMap((svc) => lookup(svc, "acme/notes")),
-      ),
+      service({ privateRepos: ["acme/notes"], log, seen }).pipe(Effect.flatMap((svc) => lookup(svc, "acme/notes"))),
     );
     expect(info).toEqual({
       provider: github,
@@ -179,9 +198,10 @@ describe("t3's lookup of a GitHub repository (SPI-1398)", () => {
 
   it("finds a private repo of an owner whose other repos are Workspaces, minting for the repo looked up", async () => {
     // The Environment's own `gh auth token` would name `acme/web` only; the lookup's token names the repo it reads.
-    const requests: Array<MintRequest> = [];
+    const log = newLog();
+    const requests = log.requests;
     const info = await Effect.runPromise(
-      service({ privateRepos: ["acme/web", "acme/notes"], requests }).pipe(
+      service({ privateRepos: ["acme/web", "acme/notes"], log }).pipe(
         Effect.flatMap((svc) => lookup(svc, "https://github.com/Acme/notes.git")),
       ),
     );
@@ -190,9 +210,10 @@ describe("t3's lookup of a GitHub repository (SPI-1398)", () => {
   });
 
   it("finds it through prepareClone too, as adding a Project by owner/name does", async () => {
-    const requests: Array<MintRequest> = [];
+    const log = newLog();
+    const requests = log.requests;
     const prepared = await Effect.runPromise(
-      service({ privateRepos: ["acme/notes"], requests }).pipe(
+      service({ privateRepos: ["acme/notes"], log }).pipe(
         Effect.flatMap((svc) =>
           svc.prepareClone({
             provider: github,
@@ -250,13 +271,57 @@ describe("t3's lookup of a GitHub repository (SPI-1398)", () => {
     expect(error.detail).toContain("acme/notes");
     expect(error.detail).not.toContain("ghs_secret");
     expect(error.detail).not.toContain("ghs_other");
-    expect(error.detail).toContain("https://***@github.com");
+    expect(error.detail).toContain("https://github.com/acme/notes.git");
+  });
+
+  it("takes out userinfo holding an @ and a URL's query, as t3 does", async () => {
+    const error = await failureOf(
+      service({
+        refuse: () =>
+          new Error(
+            "refused https://u:p@ss@github.com/acme/notes.git and https://github.com/acme/notes?token=ghs_q&x=1",
+          ),
+      }).pipe(Effect.flatMap((svc) => lookup(svc, "acme/notes"))),
+    );
+    expect(error.detail).not.toContain("ss@");
+    expect(error.detail).not.toContain("p@");
+    expect(error.detail).not.toContain("ghs_q");
+    expect(error.detail).toContain("refused https://github.com/acme/notes.git and https://github.com/acme/notes");
+  });
+
+  it("asks GitHub again at each lookup, never telling a remembered failure", async () => {
+    // GitHubApp keeps a failed mint for a wait (GITHUB_RETRY_SECONDS); the Owner who installs the App and retries at once
+    // must not meet it, so each lookup forgets it first.
+    const log = newLog();
+    await failureOf(
+      service({ log, refuse: () => new GitHubNotInstalled("acme") }).pipe(
+        Effect.flatMap((svc) => lookup(svc, "acme/notes")),
+      ),
+    );
+    expect(log.forgotten).toEqual(log.requests);
+    expect(log.forgotten).toHaveLength(1);
+  });
+
+  it("after GitHub refuses a re-served token, runs t3's own lookup, says why, and mints afresh next time", async () => {
+    const log = newLog();
+    const seen: Array<string> = [];
+    const svc = await Effect.runPromise(service({ privateRepos: ["acme/notes"], log, stale: true, seen }));
+    const error = await failureOf(lookup(svc, "acme/notes"));
+    expect(error.detail).toBe(
+      "GitHub refused the GitHub App's token for acme/notes; t3flare mints another at the next lookup.",
+    );
+    expect(log.invalidated).toEqual(["stale:acme/notes"]);
+    // The pinned try, then t3's own unpinned one, which asks `gh auth token` (none here) and so sends nothing.
+    expect(seen).toEqual(["GET /repos/acme/notes Bearer stale:acme/notes"]);
+    const info = await Effect.runPromise(lookup(svc, "acme/notes"));
+    expect(info.nameWithOwner).toBe("acme/notes");
   });
 
   it("mints nothing for a bare name, another host, or another provider", async () => {
-    const requests: Array<MintRequest> = [];
+    const log = newLog();
+    const requests = log.requests;
     await Effect.runPromise(
-      service({ requests }).pipe(
+      service({ log }).pipe(
         Effect.flatMap((svc) =>
           Effect.all(
             [

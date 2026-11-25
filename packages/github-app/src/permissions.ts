@@ -56,8 +56,8 @@ export const ENVIRONMENT_GITHUB_PERMISSIONS = {
 
 /**
  * The Environment DO's token for t3's lookup of a repository a Project is added from (SPI-1398): that one repo's
- * metadata, for its clone URLs, and nothing else. Minted per lookup, used for its requests and dropped; never a
- * Container's or a Session's.
+ * metadata, for its clone URLs, and nothing else. Kept by the Environment DO's minters until it expires and reused for
+ * the same repo's next lookup; never a Container's or a Session's.
  */
 export const REPOSITORY_LOOKUP_GITHUB_PERMISSIONS = {
   metadata: "read",

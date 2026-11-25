@@ -242,6 +242,24 @@
       "literal": "detail: error.detail,",
       "ourFile": "apps/environment/src/t3/repositoryLookup.ts",
       "entry": "U109"
+    },
+    {
+      "file": "apps/server/src/sourceControl/SourceControlRepositoryService.ts",
+      "literal": "const URL_WITH_USERINFO = /\\b([a-z][a-z0-9+.-]*:\\/\\/)[^\\s/?#]+@/gi;",
+      "ourFile": "apps/environment/src/t3/repositoryLookup.ts",
+      "entry": "U109"
+    },
+    {
+      "file": "apps/server/src/sourceControl/SourceControlRepositoryService.ts",
+      "literal": "const URL_QUERY = /\\b([a-z][a-z0-9+.-]*:\\/\\/[^\\s?]*)\\?[^\\s]*/gi;",
+      "ourFile": "apps/environment/src/t3/repositoryLookup.ts",
+      "entry": "U109"
+    },
+    {
+      "file": "packages/source-control-github/src/server/GitHubRequestPolicy.ts",
+      "literal": "return yield* new GitHubApiAuthenticationError(context);",
+      "ourFile": "apps/environment/src/t3/repositoryLookup.ts",
+      "entry": "U109"
     }
   ],
   "files": {

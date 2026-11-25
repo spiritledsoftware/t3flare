@@ -1948,18 +1948,22 @@ Moved from U58 when its Commissary readers went (SPI-1176).
   export. It leans on `lookupRepository` running the provider's `getRepositoryCloneUrls` in the caller's fiber (so the
   reference reaches its REST read), and on `mapRepositoryError` answering `"The source control operation could not be
   completed."` for a provider failure without a `userFacingDetail`: that sentence is replaced by why no token could be
-  minted, else by the GitHub provider's own `detail` (`providerError`'s `detail: error.detail,`), with URL credentials
-  and live tokens taken out.
+  minted, else by the GitHub provider's own `detail` (`providerError`'s `detail: error.detail,`), with URL credentials,
+  URL queries and live tokens taken out (a copy of t3's unexported `redactUrlCredentials`). A pinned call t3 fails with
+  `GitHubApiAuthenticationError`, or a `GitHubApiResponseError` of status 403, is taken as a revoked token: it is
+  invalidated and the lookup runs again unpinned.
 - **Breaks when**: t3 renames or stops honouring `PinnedGitHubCredential`, moves the lookup off the caller's fiber (a
   batched resolver, a daemon), rewords the generic sentence, gives GitHub failures a `userFacingDetail` of its own (then
-  ours is not needed), or changes `SourceControlRepositoryService`'s shape.
+  ours is not needed), renames its two credential-refusal errors, changes `redactUrlCredentials`, or changes
+  `SourceControlRepositoryService`'s shape.
 - **Detection**: typecheck pins the service's shape, the reference's type and the parser's signature.
   `apps/environment/test/repositoryLookup.test.ts`, in `pnpm run check`, runs t3's own repository service and GitHub
   provider over a fake GitHub that answers a private repo only to a token minted for it, with `gh auth token` answering
   as the router does with no Workspace; it also asserts stock t3 alone says the generic sentence. The upstream
   fingerprint ([T2](#gaps-in-detection)) holds a bump for review with "review
   `apps/environment/src/t3/repositoryLookup.ts` (U109)" when the pin's read, the generic sentence, the lookup's
-  `getRepositoryCloneUrls` call or the provider's `detail: error.detail,` no longer appear.
+  `getRepositoryCloneUrls` call, the provider's `detail: error.detail,`, `redactUrlCredentials`' userinfo and query
+  patterns, or the 401's `GitHubApiAuthenticationError` no longer appear.
 - **Blast radius**: adding a Project by `owner/name` fails again until the first GitHub Workspace exists, and for any
   private repo that is not one yet; or its failures read as the generic sentence. Cloning by URL is untouched.
 - **Fix**: pin the token wherever t3 now picks a lookup's credential; match the new sentence.
