@@ -85,3 +85,9 @@ Shadows 4 (unchanged), Patches 9.
 Shadows 4 (unchanged), Patches 10.
 
 - Patch `0010-git-output-cap-reaches-the-router.patch`: one entry in the env `executeRaw` in `GitVcsDriverCore.ts` spawns git with, `T3FLARE_GIT_MAX_OUTPUT_BYTES`, the call's `maxOutputBytes`, so the process router can ask the Workspace for the head of git's output just past t3's cap rather than take computer's silent 64 KiB tail; see U108 in `docs/upstream-fragility.md`. A Layer cannot reach it: the spawner (ours) sees only the command, its args, cwd and env, and the cap is a local of `executeRaw`; a Layer over `GitVcsDriver` would see only outside callers' `execute`, while t3's own reads go through `executeGit` to the inner `execute` closure, before any service boundary. A Shadow would copy the 6,600-line file.
+
+## Counts after the secret files fix
+
+Shadows 4 (unchanged), Patches 11.
+
+- Patch `0011-secret-files-go-where-the-thread-runs.patch`: an optional `placeThreadFile` on t3's `ServerSecretStore`, which `SecretRequests`'s `saveToFile` and `savePasted` call in place of their write to `<directory>/files`; our store, which has no directory, writes the file in the thread's Workspace; see U111 in `docs/upstream-fragility.md`. A Layer cannot reach it: `SecretRequests` is built inside t3's private runtime graph (`orchestration-v2/runtimeLayer.ts`), and the store's hook is the one seam t3flare provides; t3's file system cannot be it, since it does not know the thread. A Shadow would copy the 400-line module.

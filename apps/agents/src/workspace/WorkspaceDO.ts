@@ -187,6 +187,7 @@ import { ContainerGate } from "./containerGate.ts";
 import { endTerminalsPastHolds, type AppliedHolds } from "./terminalHolds.ts";
 import { TerminalHost } from "./terminalHost.ts";
 import { TerminalSync } from "./terminalSync.ts";
+import { placeSecretFile, type SecretFileAnswer } from "./secretFiles.ts";
 import {
   carryInScript,
   carryOutScript,
@@ -1650,6 +1651,44 @@ export class WorkspaceDO extends ContainerHost {
     await this.#ready();
     await this.#workspace.fs.mkdir(path.slice(0, path.lastIndexOf("/")) || "/", { recursive: true });
     await this.#workspace.fs.writeFile(path, text);
+  }
+
+  /** Patch 0011: t3's secret file `name`, where the Container's commands read it (`secretFiles.ts`). */
+  async placeSecretFile(input: { readonly name: string; readonly text?: string }): Promise<SecretFileAnswer> {
+    this.#alive();
+    await this.#ready();
+    const fs = this.#workspace.fs;
+    return placeSecretFile(
+      {
+        now: () => Date.now(),
+        list: async (dir) => {
+          const entries = await fs.readdir(dir).catch(() => []);
+          return Promise.all(
+            entries.map(async (entry) => ({
+              name: entry.name,
+              mtimeMs: (await fs.stat(`${dir}/${entry.name}`)).mtime,
+            })),
+          );
+        },
+        exists: (path) =>
+          fs.stat(path).then(
+            () => true,
+            () => false,
+          ),
+        write: async (path, text) => {
+          const dir = path.slice(0, path.lastIndexOf("/"));
+          await fs.mkdir(dir, { recursive: true });
+          await fs.chmod(dir, 0o700);
+          await fs.writeFile(path, text);
+          await fs.chmod(path, 0o600);
+        },
+        remove: (path) => fs.rm(path, { force: true }),
+        push: async () => {
+          if (this.containerRunning()) await this.#syncEntries("push");
+        },
+      },
+      input,
+    );
   }
 
   // -------------------------------------------------------------------------------------------------------------------

@@ -162,6 +162,10 @@ describe("Claude Code's profile", () => {
     ]) {
       expect(env[name], name).toBe("");
     }
+    // Pinned to the image's own CA store, not empty: the agent's commands inherit them, and an empty one is a file
+    // OpenSSL and rustls fail to load (mise could not install a tool).
+    expect(env.SSL_CERT_FILE).toBe("/etc/ssl/certs/ca-certificates.crt");
+    expect(env.SSL_CERT_DIR).toBe("/etc/ssl/certs");
     for (const name of [
       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
       "DISABLE_TELEMETRY",
