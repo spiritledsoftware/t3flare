@@ -31,7 +31,8 @@ const childEnv = (): NodeJS.ProcessEnv =>
     Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_") || KEPT_GIT_VARIABLES.test(key)),
   );
 
-const git = (args: ReadonlyArray<string>) => {
+/** git with the caller's repository-naming GIT_* variables dropped (childEnv); adrMergeDriver.ts uses it too. */
+export const git = (args: ReadonlyArray<string>) => {
   // submodule.recurse is off for every command here: with the pointer broken, a recursing command fails on it.
   const result = spawnSync("git", ["-c", "submodule.recurse=false", ...args], { encoding: "utf8", env: childEnv() });
   return { ok: result.status === 0, out: (result.stdout ?? "").trim(), err: (result.stderr ?? "").trim() };
@@ -212,33 +213,4 @@ const repair = ({ layout, pin }: { layout: Layout; pin: string }): WorktreeSetup
 export const worktreeSetup = (root: string): WorktreeSetupResult => {
   const inspection = inspectCheckout(root);
   return inspection.kind === "broken" ? repair(inspection) : inspection;
-};
-
-/**
- * The ADR merge driver (SPI-1401) that `.gitattributes` names for `docs/adr/*.md`. git runs a merge driver through the
- * shell from the worktree's top level, so the relative path is that worktree's own script, and every worktree shares
- * the one config. A checkout without the script (an older commit) gets git's own text merge, as with no driver.
- */
-export const ADR_MERGE_DRIVER = {
-  name: "ADR append: concurrent appends to an ADR join, ours then theirs (scripts/adr-merge.ts)",
-  driver:
-    "if [ -f scripts/adr-merge.ts ]; then node scripts/adr-merge.ts %O %A %B %L %P %S %X %Y; else git merge-file --marker-size=%L -L %X -L %S -L %Y %A %O %B; fi",
-} as const;
-
-export type MergeDriverResult =
-  | { readonly kind: "unchanged" }
-  | { readonly kind: "configured"; readonly message: string }
-  | { readonly kind: "failed"; readonly message: string };
-
-/** Sets `merge.adr-append.*` in the repository config of the checkout at `root`. Already set: writes nothing. */
-export const configureAdrMergeDriver = (root: string): MergeDriverResult => {
-  const wanted = Object.entries(ADR_MERGE_DRIVER).filter(
-    ([key, value]) => git(["-C", root, "config", "--local", "--get", `merge.adr-append.${key}`]).out !== value,
-  );
-  if (wanted.length === 0) return { kind: "unchanged" };
-  for (const [key, value] of wanted) {
-    const set = git(["-C", root, "config", "--local", `merge.adr-append.${key}`, value]);
-    if (!set.ok) return { kind: "failed", message: `could not configure the ADR merge driver: ${set.err}` };
-  }
-  return { kind: "configured", message: "configured the ADR merge driver (merge.adr-append) for docs/adr/*.md" };
 };

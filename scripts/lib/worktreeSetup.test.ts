@@ -7,7 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
 
-import { ADR_MERGE_DRIVER, configureAdrMergeDriver, gitfileTarget, worktreeSetup } from "./worktreeSetup.ts";
+import { gitfileTarget, worktreeSetup } from "./worktreeSetup.ts";
 
 // The scratch repositories see none of the machine's git config or hooks, nor a GIT_DIR or GIT_INDEX_FILE this test
 // was started under; identity comes from the environment.
@@ -241,30 +241,5 @@ await describe("worktreeSetup", async () => {
     assert.deepEqual(fs.readFileSync(index), before);
     assert.equal(git(worktree, "status", "--porcelain"), "");
     assert.equal(git(path.join(worktree, "t3code"), "rev-parse", "HEAD"), fixture.second);
-  });
-});
-
-await describe("configureAdrMergeDriver", async () => {
-  await it("sets the adr-append merge driver once, for every worktree, and a second run changes nothing", () => {
-    const fixture = superproject();
-    const config = path.join(fixture.main, ".git", "config");
-    assert.equal(configureAdrMergeDriver(fixture.main).kind, "configured");
-    assert.equal(git(fixture.main, "config", "--get", "merge.adr-append.name"), ADR_MERGE_DRIVER.name);
-    assert.equal(git(fixture.main, "config", "--get", "merge.adr-append.driver"), ADR_MERGE_DRIVER.driver);
-
-    const worktree = path.join(fixture.dir, "configured");
-    git(fixture.main, "-c", "submodule.recurse=false", "worktree", "add", "--quiet", "-b", "configured", worktree);
-    assert.equal(git(worktree, "config", "--get", "merge.adr-append.driver"), ADR_MERGE_DRIVER.driver);
-    const before = fs.readFileSync(config, "utf8");
-    assert.deepEqual(configureAdrMergeDriver(worktree), { kind: "unchanged" });
-    assert.deepEqual(configureAdrMergeDriver(fixture.main), { kind: "unchanged" });
-    assert.equal(fs.readFileSync(config, "utf8"), before);
-  });
-
-  await it("rewrites a driver that differs from this checkout's", () => {
-    const fixture = superproject();
-    git(fixture.main, "config", "merge.adr-append.driver", "true");
-    assert.equal(configureAdrMergeDriver(fixture.main).kind, "configured");
-    assert.equal(git(fixture.main, "config", "--get", "merge.adr-append.driver"), ADR_MERGE_DRIVER.driver);
   });
 });

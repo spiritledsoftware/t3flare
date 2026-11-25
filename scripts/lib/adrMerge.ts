@@ -1,8 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off
 // The ADR merge (SPI-1401). ADRs are append-only: a change to a decision is a `## Refinement (SPI-<n>, <date>)` section
-// appended at the end. Two branches that each append one conflict at the ADR's tail with an empty base, and a rebase
+// appended at the end. Two branches that each append one conflict at the ADR's end with an empty base, and a rebase
 // stops on it. This joins such appends, ours then theirs (during a rebase ours is the upstream, which landed first, so
-// the result is in landing order), and leaves every other conflict as git's own.
+// the result is in landing order), and leaves every other conflict as git's own (ADR-0030's SPI-1401 refinement).
 //
 // Plain Node, no dependencies: git runs it as a merge driver (scripts/adr-merge.ts) in checkouts with nothing installed.
 import { spawnSync } from "node:child_process";
@@ -28,6 +28,7 @@ export type AdrMergeResult =
 
 /** git's default conflict marker length. */
 const DEFAULT_MARKER_SIZE = 7;
+/** The characters git's conflict markers are made of: ours, base, separator, theirs. */
 const MARKER_CHARS = ["<", "|", "=", ">"] as const;
 /** A line git could read as a conflict marker: seven or more of one marker character, then a space or the line's end. */
 const MARKER_LINE = /^(<{7,}|\|{7,}|={7,}|>{7,})( |$)/;
@@ -57,10 +58,7 @@ const mergeFile = (ours: string, base: string, theirs: string, args: ReadonlyArr
     const result = spawnSync(
       "git",
       ["-c", "merge.conflictStyle=merge", "merge-file", "-p", ...args, files.ours, files.base, files.theirs],
-      {
-        encoding: "utf8",
-        maxBuffer: 1 << 30,
-      },
+      { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 },
     );
     // merge-file exits with the number of conflicts, negative (above 127 here) on an error.
     if (result.status === null || result.status > 127)
@@ -72,33 +70,38 @@ const mergeFile = (ours: string, base: string, theirs: string, args: ReadonlyArr
 };
 
 /**
- * Joins every conflict hunk of a diff3 merge whose base is empty: ours, a blank line unless one side already brings
- * one, then theirs. Undefined when any hunk has a base, a real edit on both sides. The markers are `markerSize` long,
- * longer than any marker-like run in the inputs, so every marker line is git's.
+ * Joins the one conflict hunk of a diff3 merge when it is two appends at the file's end: its base is empty, nothing
+ * but blank lines follows it, and its sides share no non-blank line (a shared line means one side already has the
+ * other's text, as a stacked branch after a squash-merge has, and a join would write it twice). The join is ours, a
+ * blank line unless one side already brings one, then theirs. Undefined for anything else, which stays a conflict. The
+ * markers are `markerSize` long, longer than any marker-like run in the inputs, so every marker line is git's.
  */
 export const joinAppends = (diff3: string, markerSize: number): string | undefined => {
   const marker = (char: string) => (line: string) =>
     line.startsWith(char.repeat(markerSize)) && (line.length === markerSize || line[markerSize] === " ");
-  const [isOurs, isBase, isSeparator, isTheirs] = MARKER_CHARS.map(marker) as [
-    (line: string) => boolean,
-    (line: string) => boolean,
-    (line: string) => boolean,
-    (line: string) => boolean,
-  ];
+  const isOurs = marker("<");
+  const isBase = marker("|");
+  const isSeparator = marker("=");
+  const isTheirs = marker(">");
   const out: Array<string> = [];
   let hunk: { ours: Array<string>; base: Array<string>; theirs: Array<string> } | undefined;
   let side: "ours" | "base" | "theirs" = "ours";
+  let joined = false;
   for (const line of diff3.split("\n")) {
     if (hunk === undefined) {
+      // After the join, only the file's trailing blank lines may follow: a second hunk or more text is a middle edit.
+      if (joined && line !== "") return undefined;
       if (isOurs(line)) [hunk, side] = [{ ours: [], base: [], theirs: [] }, "ours"];
       else out.push(line);
     } else if (side === "ours" && isBase(line)) side = "base";
     else if (side === "base" && isSeparator(line)) side = "theirs";
     else if (side === "theirs" && isTheirs(line)) {
       if (hunk.base.length > 0) return undefined;
+      const oursLines = new Set(hunk.ours.filter((text) => text.trim() !== ""));
+      if (hunk.theirs.some((text) => oursLines.has(text))) return undefined;
       const blank = hunk.ours.at(-1) === "" || hunk.theirs[0] === "" || hunk.ours.length === 0;
       out.push(...hunk.ours, ...(blank ? [] : [""]), ...hunk.theirs);
-      hunk = undefined;
+      [hunk, joined] = [undefined, true];
     } else hunk[side].push(line);
   }
   // An unclosed hunk is output this does not understand: leave it to git.
@@ -106,8 +109,8 @@ export const joinAppends = (diff3: string, markerSize: number): string | undefin
 };
 
 /**
- * Merges the three texts of an ADR. Clean as git merges it, or with only empty-base hunks (concurrent appends): merged,
- * with no marker line the inputs did not have. Anything else: git's own conflict output, in `conflictStyle` with
+ * Merges the three texts of an ADR. Clean as git merges it: git's merge. Two different appends at its end (see
+ * joinAppends): joined, with no marker line the inputs did not have. Anything else: git's own conflict output, in `conflictStyle` with
  * `labels` and `markerSize`.
  */
 export const adrMerge = (
@@ -133,7 +136,9 @@ export const adrMerge = (
   // Markers longer than any marker-like line in the inputs, so an ADR that quotes one is never misread.
   const parseSize = Math.max(DEFAULT_MARKER_SIZE, longestMarkerRun([ours, base, theirs]) + 1);
   const diff3 = mergeFile(ours, base, theirs, ["--diff3", `--marker-size=${parseSize}`, ...labelArgs]);
-  const joined = diff3.conflicts === 0 ? diff3.output : joinAppends(diff3.output, parseSize);
+  if (diff3.conflicts === 0) return { kind: "merged", merged: diff3.output };
+  // An empty base is two files added at one path (add/add), not appends to one ADR.
+  const joined = base === "" ? undefined : joinAppends(diff3.output, parseSize);
   if (joined === undefined) return asGit();
 
   // Belt and braces: a merge never writes a marker line neither side had.

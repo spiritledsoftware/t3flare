@@ -10,7 +10,7 @@ import * as path from "node:path";
 import { after, describe, it } from "node:test";
 
 import { adrMerge, type AdrMergeResult } from "./adrMerge.ts";
-import { configureAdrMergeDriver } from "./worktreeSetup.ts";
+import { configureAdrMergeDriver } from "./adrMergeDriver.ts";
 
 // The scratch repositories see none of the machine's git config or hooks, nor a GIT_DIR or GIT_INDEX_FILE this test
 // was started under; identity comes from the environment.
@@ -68,8 +68,12 @@ void describe("adrMerge", () => {
   });
 
   void it("never writes a marker line on a merge, even when both appends quote marker-like lines", () => {
-    const quoted = (n: number) =>
-      refinement(n, ["```", "<<<<<<< HEAD", "|||||||", "=======", ">>>>>>> theirs", "```"].join("\n"));
+    // Each side quotes its own marker-like lines: a line both appends share stops the join (see below).
+    const quoted = (n: number) => {
+      const run = (char: string) => char.repeat(6 + n);
+      const fence = n === 1 ? "```" : "~~~";
+      return refinement(n, [fence, `${run("<")} HEAD`, run("|"), run("="), `${run(">")} theirs`, fence].join("\n"));
+    };
     const text = merged(adrMerge(ADR + quoted(1), ADR, ADR + quoted(2)));
     assert.equal(text, ADR + quoted(1) + quoted(2));
     const lines = (s: string) => s.split("\n").filter((line) => MARKER_LINE.test(line));
@@ -92,6 +96,27 @@ void describe("adrMerge", () => {
       text,
       /^<{9} ours\nIt matters a lot\.\n\|{9} base\nIt matters\.\n={9}\nIt barely matters\.\n>{9} theirs$/m,
     );
+  });
+
+  void it("conflicts on a stacked branch after a squash-merge: its append is the one main already has, revised", () => {
+    const reviewed = refinement(1, "Refinement 1 changes the decision, as reviewed.");
+    const text = conflict(adrMerge(ADR + reviewed, ADR, ADR + refinement(1)));
+    assert.match(text, /^<<<<<<< ours$/m);
+  });
+
+  void it("conflicts when theirs already holds ours' append and adds another", () => {
+    conflict(adrMerge(ADR + refinement(1), ADR, ADR + refinement(1) + refinement(2)));
+    conflict(adrMerge(ADR + refinement(1) + refinement(2), ADR, ADR + refinement(1)));
+  });
+
+  void it("conflicts on two different files added at one path (add/add): an empty base is no ADR", () => {
+    conflict(adrMerge(`# One\n\nFirst.\n`, "", `# Two\n\nSecond.\n`));
+  });
+
+  void it("conflicts on two insertions at one place in the middle: only the file's end joins", () => {
+    const list = `${ADR}\n- a\n- b\n\nThe end.\n`;
+    const text = conflict(adrMerge(list.replace("- b\n", "- b\n- c\n"), list, list.replace("- b\n", "- b\n- d\n")));
+    assert.match(text, /^<<<<<<< ours\n- c\n=======\n- d\n>>>>>>> theirs$/m);
   });
 
   void it("conflicts when an empty-base join comes with a real edit elsewhere", () => {

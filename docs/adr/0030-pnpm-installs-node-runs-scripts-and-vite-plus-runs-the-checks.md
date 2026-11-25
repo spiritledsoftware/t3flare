@@ -97,7 +97,8 @@ beside Vitest for the packages.
 A git worktree prepared from T3's checkout cache can get a `t3code/.git` written relative to another checkout's module
 dir, which resolves nowhere, and then `git switch`, `git status` and `git add` fail in it. So `pnpm run check` now runs
 `scripts/worktree-setup.ts` first, before the workspace guard, and AGENTS.md names it as the first command in a new git
-worktree. Unlike the guard, which only reads, it writes to the checkout: it gives the checkout its own
+worktree (it also configures the ADR merge driver: see the SPI-1401 refinement). Unlike the guard, which only reads, it
+writes to the checkout: it gives the checkout its own
 `<git-dir>/modules/t3code`, borrowing the main checkout's objects through `objects/info/alternates` (no network), with
 HEAD at the pinned commit and the index reset; the files on disk are left as they are. The module dir is prepared beside
 its place and the dangling pointer replaced only once it holds the pinned commit, so a failed repair leaves the checkout
@@ -164,3 +165,19 @@ apps/environment/scripts/typecheck.ts` works from any directory. One package's t
 @t3flare/<pkg> run typecheck` (and `run lint` for oxlint), from the root, and `vp run typecheck:scripts` for the root
 `scripts/`. They run the Effect diagnostics and the type-aware lint rules (`globalDate`, `unbound-method`) that vitest
 doesn't; a bare `tsc --noEmit` runs neither, and fails on t3code's `schemaClassMissingBrand` suggestions.
+
+## Refinement (SPI-1401, 2026-11-25): setup also configures the ADR merge driver
+
+ADRs are append-only, so concurrent tickets that each append a `## Refinement` to one ADR conflicted at its end on every
+rebase: more than eight times in one run, and once a diff3 `|||||||` line leaked into an ADR. `.gitattributes` now maps
+`docs/adr/*.md` to the `adr-append` merge driver, `scripts/adr-merge.ts` (logic in `scripts/lib/adrMerge.ts`). It joins
+one conflict hunk with an empty base at the file's end, ours then theirs, when its sides share no non-blank line; on a
+rebase ours is the upstream, so that is landing order. Anything else, an edit both sides made, an insertion in the
+middle, one side already holding the other's text, an add/add, is written as git's own conflict in the repository's
+`merge.conflictStyle`, and a merge never writes a marker line the inputs lacked. `scripts/worktree-setup.ts` now has a
+second job after the SPI-1335 repair: it sets `merge.adr-append.name` and `.driver` in the repository config
+(`scripts/lib/adrMergeDriver.ts`), silently when already set, printing one `ADR merge driver:` line when it sets them,
+and exiting 1 when it cannot. The driver runs the worktree's own `scripts/adr-merge.ts` from its top level and falls
+back to `git merge-file` where that file is missing, so a checkout without the config or the script merges as git
+always has. GitHub's mergeability check and squash-merge never run the driver; the landing flow rebases locally first.
+Rejected (the Owner chose the driver): one file per refinement, and `merge=union`, which can duplicate text silently.
