@@ -6,6 +6,7 @@ import {
   containerGitHubPermissions,
   ENVIRONMENT_GITHUB_PERMISSIONS,
   GITHUB_APP_PERMISSIONS,
+  REPOSITORY_LOOKUP_GITHUB_PERMISSIONS,
   SKILL_FETCH_GITHUB_PERMISSIONS,
   UPDATE_DISPATCH_GITHUB_PERMISSIONS,
 } from "./permissions.ts";
@@ -37,8 +38,15 @@ describe("the update dispatch token (ADR-0037)", () => {
       containerGitHubPermissions(true),
       ENVIRONMENT_GITHUB_PERMISSIONS,
       SKILL_FETCH_GITHUB_PERMISSIONS,
+      REPOSITORY_LOOKUP_GITHUB_PERMISSIONS,
     ]) {
       expect((list as Record<string, string>).actions).not.toBe("write");
     }
+  });
+});
+
+describe("the repository lookup token (SPI-1398)", () => {
+  it("reads the repo's metadata, and nothing else", () => {
+    expect(REPOSITORY_LOOKUP_GITHUB_PERMISSIONS).toEqual({ metadata: "read" });
   });
 });

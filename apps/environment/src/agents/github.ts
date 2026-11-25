@@ -89,6 +89,21 @@ export class GitHubTokens {
     return { token, expiresAt };
   }
 
+  /**
+   * Forget the last failure to mint for `request`, so its next `mint` asks GitHub at once rather than telling the failure
+   * again (a wait GitHub named, a rate limit, still holds): for a mint the Owner asks for and retries (a repository
+   * lookup, SPI-1398), never for one t3flare repeats.
+   */
+  forget(request: MintRequest): void {
+    if (!this.configured) return;
+    this.#app(request).app.forget(request.owner.toLowerCase());
+  }
+
+  /** Tell every minter GitHub refused `token` (a 401), so the next `mint` for its request mints another. */
+  invalidate(token: string): void {
+    for (const app of this.#apps.values()) app.invalidate(token);
+  }
+
   /** Every token minted that has not expired, for taking out of output. */
   live(): ReadonlyArray<string> {
     return [...this.#apps.values()].flatMap((app) => app.live());

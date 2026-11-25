@@ -130,7 +130,8 @@ export type GitHubTokens = {
   /**
    * Forget the last failure to mint for `account` and to list the installations, and when they were last listed for it,
    * so the next `token(account)` asks GitHub at once rather than telling it again: after the owner says something
-   * changed (a permission accepted, the App installed).
+   * changed (a permission accepted, the App installed). A failure whose wait GitHub named itself (a rate limit) is kept
+   * until that time.
    */
   readonly forget: (account: string) => void;
 };
@@ -425,8 +426,13 @@ export class GitHubApp implements GitHubTokens {
   }
 
   forget(account: string): void {
-    this.#failed.delete(`token:${account.toLowerCase()}`);
-    this.#failed.delete("installations");
+    for (const key of [`token:${account.toLowerCase()}`, "installations"]) {
+      const failed = this.#failed.get(key);
+      // A time GitHub named holds (SPI-1366): asking sooner meets the limit again, whoever asks.
+      if (failed !== undefined && failed.error instanceof GitHubRefused && failed.error.retryAt !== undefined)
+        if (this.#options.now() < failed.error.retryAt) continue;
+      this.#failed.delete(key);
+    }
     this.#missedAt.delete(account.toLowerCase());
   }
 

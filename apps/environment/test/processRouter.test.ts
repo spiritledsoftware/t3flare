@@ -1,4 +1,4 @@
-// @effect-diagnostics globalTimers:off
+// @effect-diagnostics globalTimers:off globalDate:off
 // The process router's gh answers, as t3's GitHub provider reads them: `gh auth status --json hosts` through the
 // router's spawner, parsed by t3's own `parseGitHubAuth` (its Settings → Source Control discovery). And its refusals,
 // which t3 shows and persists through Patch 0008 (SPI-1182): one line each, live tokens taken out.
@@ -13,7 +13,9 @@ import { resolveEnvironment } from "@t3flare/harness-registry";
 
 import { bindEnvironmentServices, environmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
 import { T3FLARE_FATAL } from "../src/agents/gitRoutes.ts";
-import { spawn } from "../src/agents/processRouter.ts";
+import { spawn, workspaceGitHubToken } from "../src/agents/processRouter.ts";
+import type { MintRequest } from "../src/agents/github.ts";
+import { CONTAINER_GITHUB_PERMISSIONS, ENVIRONMENT_GITHUB_PERMISSIONS } from "@t3flare/github-app/permissions";
 import type { WorkspaceRecord } from "../src/agents/workspaces.ts";
 
 const workspace = (owner: string, name: string): WorkspaceRecord =>
@@ -82,6 +84,49 @@ describe("gh auth status --json hosts", () => {
     const auth = parseGitHubAuth(await runGh(authStatus));
     expect(auth.status).toBe("authenticated");
     expect(auth.account).toEqual(expect.objectContaining({ value: "ian-pascoe" }));
+  });
+});
+
+/** The Environment's services with these Workspaces and a minter that records what it is asked for. */
+const bindMinting = (records: ReadonlyArray<WorkspaceRecord>, requests: Array<MintRequest>) =>
+  bindEnvironmentServices({
+    workspaces: { list: () => records, resolve: (id: string) => records.find((ws) => ws.id === id) },
+    github: () => ({
+      live: () => [],
+      mint: async (request: MintRequest) => {
+        requests.push(request);
+        return { token: `token:${request.owner}/${request.repositories.join(",")}`, expiresAt: Date.now() + 3_600_000 };
+      },
+    }),
+  } as unknown as EnvironmentServices);
+
+// SPI-1398 widened only t3's repository lookups (`t3/repositoryLookup.ts`): the other tokens keep their scope.
+describe("the GitHub tokens' scope", () => {
+  it("`gh auth token` (t3's PR features) still names the Workspaces' repos, with the Environment's permissions", async () => {
+    const requests: Array<MintRequest> = [];
+    bindMinting([workspace("acme", "web"), workspace("acme", "api"), workspace("other", "lib")], requests);
+    const answer = await runGh(["auth", "token", "--hostname", "github.com"]);
+    expect(answer).toEqual({ exitCode: 0, stdout: "token:acme/web,api\n", stderr: "" });
+    expect(requests).toEqual([
+      { owner: "acme", repositories: ["web", "api"], permissions: ENVIRONMENT_GITHUB_PERMISSIONS },
+    ]);
+  });
+
+  it("`gh auth token` still has none before the first GitHub Workspace", async () => {
+    const requests: Array<MintRequest> = [];
+    bindMinting([], requests);
+    const answer = await runGh(["auth", "token", "--hostname", "github.com"]);
+    expect(answer.exitCode).toBe(1);
+    expect(answer.stderr).toContain("no oauth token");
+    expect(requests).toEqual([]);
+  });
+
+  it("a Container's token (agents' git and gh) is still its Workspace's one repo", async () => {
+    const requests: Array<MintRequest> = [];
+    bindMinting([workspace("acme", "web"), workspace("acme", "api")], requests);
+    const minted = await workspaceGitHubToken("web");
+    expect(minted?.repo).toEqual({ owner: "acme", name: "web" });
+    expect(requests).toEqual([{ owner: "acme", repositories: ["web"], permissions: CONTAINER_GITHUB_PERMISSIONS }]);
   });
 });
 

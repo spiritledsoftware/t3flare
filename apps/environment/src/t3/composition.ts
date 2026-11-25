@@ -116,6 +116,7 @@ import * as LimitSources from "../usage/limitSources.ts";
 import { layerAcpRegistry } from "../provider/acpRegistry.ts";
 import * as DurableObjectDatabaseStorage from "./databaseStorage.ts";
 import * as DeletionWake from "./deletionWake.ts";
+import * as RepositoryLookup from "./repositoryLookup.ts";
 import { otlpConfigFromSettings } from "./otlp.ts";
 import * as ProjectFaviconResolver from "t3/src/project/ProjectFaviconResolver.ts";
 import * as T3ProjectFileLoader from "t3/src/project/T3ProjectFileLoader.ts";
@@ -137,7 +138,6 @@ import * as GitWorkflowService from "t3/src/git/GitWorkflowService.ts";
 import * as ReviewService from "t3/src/review/ReviewService.ts";
 import * as SourceControlProviderRegistry from "t3/src/sourceControl/SourceControlProviderRegistry.ts";
 import * as PullRequestReadCache from "t3/src/pullRequest/PullRequestReadCache.ts";
-import * as SourceControlRepositoryService from "t3/src/sourceControl/SourceControlRepositoryService.ts";
 import * as WorktreeSetupTracker from "t3/src/project/WorktreeSetupTracker.ts";
 import * as Observability from "t3/src/observability/Observability.ts";
 import * as ServerEnvironment from "t3/src/environment/ServerEnvironment.ts";
@@ -440,7 +440,8 @@ export const make = (options: CompositionOptions) => {
     Layer.provideMerge(layerVcsDriverRegistry),
     Layer.provideMerge(layerGit),
   );
-  const layerSourceControlRepositoryService = SourceControlRepositoryService.layer.pipe(
+  // t3flare: t3's GitHub lookups run on a GitHub App token minted for the repo they name (SPI-1398, `repositoryLookup.ts`).
+  const layerSourceControlRepositoryService = RepositoryLookup.layer.pipe(
     Layer.provideMerge(GitVcsDriver.layer),
     Layer.provideMerge(layerSourceControlProviderRegistry),
   );

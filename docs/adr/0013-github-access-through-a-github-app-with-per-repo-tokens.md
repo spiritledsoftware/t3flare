@@ -89,3 +89,20 @@ installation, which must include `ian-pascoe/t3flare`. Only a new, fourth list c
 the skill fetch's. The Environment DO mints it for `ian-pascoe/t3flare` alone (the update target, set on prod only),
 per dispatch and per poll of an in-app Update's run, uses it for those requests and drops it, as the skill fetch does.
 It never reaches a Container, a Session or a log.
+
+## Refinement (SPI-1398, 2026-11-25): t3's repository lookups get a token for the repo they name
+
+Adding a Project by `owner/name` failed: t3 looks the repository up with the Environment token from `gh auth token`,
+which names only the repos that are already Projects (none before the first), so the repo being added was never in it.
+A fifth list, `REPOSITORY_LOOKUP_GITHUB_PERMISSIONS` (`metadata: read`), is minted for the one repo a lookup names, in
+its owner's installation, whatever Workspaces exist, and pinned to that lookup's requests through t3's
+`PinnedGitHubCredential` (a Layer over t3's `SourceControlRepositoryService`, `apps/environment/src/t3/repositoryLookup.ts`).
+The Environment DO keeps it in its minters (`GitHubTokens`) until it expires, as it does every token it mints, and
+hands it to the next lookup of the same repo while it has at least 15 minutes left; it never reaches a Container, a
+Session or a log. Each lookup first forgets a remembered failure to mint for its repo, so an Owner who installs the App
+or adds the repo and retries is answered by GitHub at once; a wait GitHub named itself (a rate limit) still holds until
+its time. A token GitHub refuses (the App reinstalled) is dropped from
+the minters and the lookup runs as t3's own. The Environment token keeps its scope for t3's PR features, and the
+Container token its one repo. A lookup the App cannot mint for says why: the App is not installed on
+the owner, or the repo is not among the installation's selected repositories (GitHub answers the same for a repo that
+does not exist, so the two are named together).
