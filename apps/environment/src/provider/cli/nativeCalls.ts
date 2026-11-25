@@ -3,8 +3,9 @@
 // the process's stdout: t3's approval item carries only a title and a prompt, which a model-written reason or a tool's
 // title can stand in for.
 // - ACP (Claude Code, OpenCode): `session/request_permission`'s tool call, by its `toolCallId`: the tool's name (Claude
-//   Code's `_meta.claudeCode.toolName`, else the tool call's title: an MCP tool's kind is only `other`), its kind and its
-//   raw input (a command and its arguments; a file path and the edit's content), merged over the tool call's earlier
+//   Code's `_meta.claudeCode.toolName`, else OpenCode's `name`, else the name an earlier update gave, the title only
+//   last: an MCP tool's kind is only `other`, and OpenCode gives a subagent's untitled tools its own title), its kind and
+//   its raw input (a command and its arguments; a file path and the edit's content), merged over the tool call's earlier
 //   updates, as t3's adapter merges them.
 // - Codex: an `item/…/requestApproval` request's method and every param but those that name the request or change
 //   between its asks (`CODEX_REQUEST_ONLY`: its ids, its timestamps, the decisions offered and the model's reason), with
@@ -57,7 +58,6 @@ const parseLine = (line: string): Message | undefined => {
   }
 };
 
-/** Codex's request params that are the call: the rest name the request (ids, a timestamp) or the model's reason. */
 /**
  * Codex's request params that are not the call: its ids (which the repeat's request has new), the decisions it offers
  * (the client's choice, not the call), and the model's reason. A param named for a time (`…At`, `…AtMs`) goes too. Every
@@ -78,10 +78,15 @@ const codexTimeParam = /At(Ms)?$/;
 export const nativeCallRecorder = (protocol: NativeProtocol): NativeCallRecorder => {
   const calls = bounded<unknown>();
   // ACP: each tool call's name, kind and raw input as its updates gave them. Codex: each file-change item's changes.
-  const tools = bounded<{ readonly name?: unknown; readonly kind?: unknown; readonly rawInput?: unknown }>();
-  /** An ACP tool call's tool name: Claude Code's own, else its title. */
-  const nameOf = (toolCall: Record<string, unknown>): unknown =>
-    (toolCall._meta as { claudeCode?: { toolName?: unknown } } | undefined)?.claudeCode?.toolName ?? toolCall.title;
+  const tools = bounded<{
+    readonly toolName?: unknown;
+    readonly title?: unknown;
+    readonly kind?: unknown;
+    readonly rawInput?: unknown;
+  }>();
+  /** An ACP tool call's own name for its tool: Claude Code's, else OpenCode's `name`; undefined when it gives none. */
+  const toolNameOf = (toolCall: Record<string, unknown>): unknown =>
+    (toolCall._meta as { claudeCode?: { toolName?: unknown } } | undefined)?.claudeCode?.toolName ?? toolCall.name;
   const changes = bounded<unknown>();
   const observeAcp = (message: Message) => {
     const params = message.params ?? {};
@@ -93,7 +98,8 @@ export const nativeCallRecorder = (protocol: NativeProtocol): NativeCallRecorder
       ) {
         const known = tools.get(update.toolCallId) ?? {};
         tools.set(update.toolCallId, {
-          name: nameOf(update) ?? known.name,
+          toolName: toolNameOf(update) ?? known.toolName,
+          title: update.title ?? known.title,
           kind: update.kind ?? known.kind,
           rawInput: update.rawInput ?? known.rawInput,
         });
@@ -106,7 +112,8 @@ export const nativeCallRecorder = (protocol: NativeProtocol): NativeCallRecorder
     const known = tools.get(toolCall.toolCallId) ?? {};
     const rawInput = toolCall.rawInput ?? known.rawInput;
     if (rawInput === undefined || rawInput === null) return;
-    const name = nameOf(toolCall) ?? known.name;
+    // The tool's own name, then the one an update gave; the title only last (it can be another tool's, or a command's).
+    const name = toolNameOf(toolCall) ?? known.toolName ?? toolCall.title ?? known.title;
     // A call that names no tool cannot be told from another tool's with the same input: none is kept.
     if (typeof name !== "string" || name === "") return;
     calls.set(toolCall.toolCallId, { name, kind: toolCall.kind ?? known.kind ?? null, rawInput });

@@ -364,8 +364,11 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     Idle.requestStarted();
     try {
       // SPI-1079: an MCP server's question is the owner's; an agent's `t3_pending_request` on its card never reaches t3.
-      const { refuseOwnerOnly } = await import("./mcp/ownerOnly.ts");
-      const refused = refuseOwnerOnly(input.body, this.#ownerOnlyLookups());
+      const [{ refuseOwnerOnly }, { ownerOnlyLookupsOf }] = await Promise.all([
+        import("./mcp/ownerOnly.ts"),
+        import("./mcp/ownerOnlyLookups.ts"),
+      ]);
+      const refused = refuseOwnerOnly(input.body, ownerOnlyLookupsOf(this.ctx.storage.sql));
       if (refused !== undefined)
         return {
           status: 200,
@@ -937,28 +940,6 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     } finally {
       Idle.requestEnded();
     }
-  }
-
-  /**
-   * What the owner-only guard reads of t3's state (SPI-1389): the message a queued run will send, from t3's projection
-   * of its runs in this object's SQLite. None before t3 made the table, or when it cannot be read.
-   */
-  #ownerOnlyLookups(): { readonly queuedMessageOf: (queuedRunId: string) => string | undefined } {
-    return {
-      queuedMessageOf: (queuedRunId) => {
-        try {
-          const row = this.ctx.storage.sql
-            .exec<{ message: string | null }>(
-              "SELECT json_extract(payload_json, '$.userMessageId') AS message FROM orchestration_v2_projection_runs WHERE run_id = ?",
-              queuedRunId,
-            )
-            .toArray()[0];
-          return row?.message ?? undefined;
-        } catch {
-          return undefined;
-        }
-      },
-    };
   }
 
   /** The CLI relay's "accept for the session" answers, by thread (memory: a restart asks again). */
@@ -1647,8 +1628,11 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       }
       if (url.pathname === "/mcp" && request.method === "POST") {
         // SPI-1079: an MCP server's question is the owner's; an agent's `t3_pending_request` on its card never reaches t3.
-        const { refuseOwnerOnly } = await import("./mcp/ownerOnly.ts");
-        const refused = refuseOwnerOnly(await request.clone().text(), this.#ownerOnlyLookups());
+        const [{ refuseOwnerOnly }, { ownerOnlyLookupsOf }] = await Promise.all([
+          import("./mcp/ownerOnly.ts"),
+          import("./mcp/ownerOnlyLookups.ts"),
+        ]);
+        const refused = refuseOwnerOnly(await request.clone().text(), ownerOnlyLookupsOf(this.ctx.storage.sql));
         if (refused !== undefined)
           return new Response(refused, { status: 200, headers: { "content-type": "application/json" } });
       }

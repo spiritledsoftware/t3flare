@@ -126,10 +126,12 @@ export interface ProcessCommandInput {
 }
 
 /**
- * A session id a keep may name in a `find -path` pattern: no shell, glob or path character, and at least one letter or
- * digit (never `.` or `..`).
+ * A session id a keep may name in a `find -path` pattern: no shell, glob or path character, at least one letter or digit
+ * (never `.` or `..`), and at least `KEEPABLE_SESSION_LENGTH` characters, so that `*id*` names that session's files and
+ * not most others (a session id is a UUID or a timestamped one, far longer).
  */
-const KEEPABLE_SESSION = /^(?=.*[A-Za-z0-9])[A-Za-z0-9._-]+$/;
+const KEEPABLE_SESSION_LENGTH = 8;
+const KEEPABLE_SESSION = new RegExp(`^(?=.*[A-Za-z0-9])[A-Za-z0-9._-]{${KEEPABLE_SESSION_LENGTH},}$`);
 
 /** Where a profile may write: the process's own home, or the synced harness directory (session directories only). */
 const writable = (marker: string, path: string): boolean =>

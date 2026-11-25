@@ -257,10 +257,20 @@ describe("the park (SPI-1389)", () => {
         const call = { tool: "fixture/fixture_note", argsHash: "h1" };
         const id = "runtime-request:claudeAgent:t3flare-park:1";
         store.park({ id, thread: THREAD, kind: "tool", title: "note", call, parkedAt: 1 });
-        // Not answered yet: the message passes as it is, and the card stays parked.
+        // t3's answer cannot be read: the card is asked again as a new parked question, never left stuck, and no
+        // allowance is made from the message's text.
         const unread = yield* f.park.answerText({ messageId: `async-answer:${id}`, text: "Parked\nAllow" }, false);
-        expect(unread).toBe("Parked\nAllow");
-        expect(store.get(id)).toBeDefined();
+        expect(unread).toContain("could not be read, so they are asked again");
+        expect(store.get(id)).toBeUndefined();
+        expect(f.questions()).toHaveLength(1);
+        const again = f.questions()[0]!;
+        expect(store.get(again)).toMatchObject({ kind: "tool", call, title: "note" });
+        expect(store.take(THREAD, "tool", call)).toBeUndefined();
+        // Its answer, recorded, is the Owner's decision as any other.
+        recorded.set(again, { decision: "Decline" });
+        yield* f.park.answerText({ messageId: `async-answer:${again}`, text: "Parked\nAllow" }, false);
+        expect(store.get(again)).toBeUndefined();
+        store.park({ id, thread: THREAD, kind: "tool", title: "note", call, parkedAt: 1 });
         // The Owner declined; an agent edited the queued message to "Allow".
         recorded.set(id, { decision: "Decline" });
         const text = yield* f.park.answerText({ messageId: `async-answer:${id}`, text: "Parked\nAllow" }, false);

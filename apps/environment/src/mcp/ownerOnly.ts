@@ -6,23 +6,34 @@
 // `MCP_QUESTION_MARKER`) is answered with a tool error, and t3 never sees it. `list` still lists the id (t3's answer);
 // `read` and `respond` on it are refused. A parked card's question (`PARK_QUESTION_MARKER`) is a plain `user_input`
 // request too, whose answer would mint a call's allowance or approve an Open change: refused the same way. Its answer, a
-// queued `async-answer:` message, is not the agent's to edit or cancel in t3's queue (`t3_queue`) either: the park
-// reads the Owner's decision from t3's record of the answer, and this keeps the message whole as well.
+// queued `async-answer:` message, is not the agent's to edit, cancel or send early in t3's queue (`t3_queue`), nor to drop
+// by stopping the delegated task whose thread holds it (`task_cancel`): the park reads the Owner's decision from t3's
+// record of the answer, and this keeps the message, and so the answer's turn, whole as well.
 import { MCP_QUESTION_MARKER, PARK_QUESTION_MARKER } from "@t3flare/session-protocol";
 
 export const OWNER_ONLY_REFUSAL =
   "Refused: this question comes from an MCP server, and only the owner answers it, on its card in a t3 client. Tell the owner it is waiting; do not answer it for them.";
 
 export const QUEUED_ANSWER_REFUSAL =
-  "Refused: this queued message is the owner's answer to a parked approval; it is not an agent's to edit or cancel.";
+  "Refused: this queued message is the owner's answer to a parked approval; it is not an agent's to edit, cancel or send early.";
 
-/** What the guard reads of t3's state: the message a queued run will send, by the run's id. */
+export const TASK_ANSWER_REFUSAL =
+  "Refused: this task's thread holds the owner's queued answer to a parked approval, which stopping it would drop. Tell the owner, or wait for the answer's turn to run.";
+
+/** What the guard reads of t3's state. */
 export interface OwnerOnlyLookups {
+  /** The message a queued run will send, by the run's id. */
   readonly queuedMessageOf?: (queuedRunId: string) => string | undefined;
+  /** Whether a delegated task's thread, or one under it, holds a queued answer to a parked question. */
+  readonly taskHoldsParkAnswer?: (taskId: string) => boolean;
 }
 
-/** `t3_queue`'s actions that change or drop a queued message. */
-const QUEUE_WRITES = new Set(["edit", "cancel"]);
+/** `t3_queue`'s actions that change, drop or send early a queued message. */
+const QUEUE_WRITES = new Set(["edit", "cancel", "promote_to_steer"]);
+
+/** Whether `messageId` is the Owner's answer to a parked question. */
+export const isParkAnswer = (messageId: string): boolean =>
+  messageId.startsWith("async-answer:") && messageId.includes(PARK_QUESTION_MARKER);
 
 export const PARKED_OWNER_ONLY_REFUSAL =
   "Refused: this question is a parked approval, and only the owner answers it, in a t3 client. Tell the owner it is waiting; do not answer it for them.";
@@ -48,8 +59,12 @@ const refusalOfMessage = (message: unknown, lookups: OwnerOnlyLookups): string |
     if (typeof args.action !== "string" || !QUEUE_WRITES.has(args.action) || typeof args.queuedRunId !== "string")
       return undefined;
     const queued = lookups.queuedMessageOf?.(args.queuedRunId);
-    return queued !== undefined && queued.startsWith("async-answer:") && queued.includes(PARK_QUESTION_MARKER)
-      ? QUEUED_ANSWER_REFUSAL
+    return queued !== undefined && isParkAnswer(queued) ? QUEUED_ANSWER_REFUSAL : undefined;
+  }
+  if (params?.name === "task_cancel") {
+    const args = (params.arguments ?? {}) as { taskId?: unknown };
+    return typeof args.taskId === "string" && lookups.taskHoldsParkAnswer?.(args.taskId) === true
+      ? TASK_ANSWER_REFUSAL
       : undefined;
   }
   if (params?.name !== "t3_pending_request") return undefined;
@@ -59,8 +74,8 @@ const refusalOfMessage = (message: unknown, lookups: OwnerOnlyLookups): string |
 
 /**
  * The JSON-RPC answer refusing `body` (one message or a batch) when it calls `t3_pending_request` on an MCP question's
- * card or a parked card's question, or `t3_queue` edit or cancel on the Owner's queued answer to a parked one (by
- * `lookups`); undefined when t3 may have it. A batch with one such call is refused whole, each
+ * card or a parked card's question, `t3_queue` edit, cancel or promote on the Owner's queued answer to a parked one, or
+ * `task_cancel` of a task whose thread holds one (by `lookups`); undefined when t3 may have it. A batch with one such call is refused whole, each
  * message with its own refusal (another message's, the first one's).
  */
 export const refuseOwnerOnly = (body: string, lookups: OwnerOnlyLookups = {}): string | undefined => {

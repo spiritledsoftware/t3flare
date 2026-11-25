@@ -409,6 +409,36 @@ export const parker = (deps: ParkerDeps) => {
     deps.kill();
   });
 
+  /**
+   * Raises a parked card's question again on the live turn, as a new parked card, and drops the old one: false when no
+   * turn is live or the new record cannot be kept (the old card stays then).
+   */
+  const askAgain = Effect.fn("Park.askAgain")(function* (card: ParkedCard) {
+    const turn = deps.live();
+    if (turn === undefined) return false;
+    const text = `${card.title}\n\nYour earlier answer to this parked card could not be read: answer it again.`;
+    const questions =
+      card.kind === "question"
+        ? [
+            {
+              id: "answer",
+              header: "Parked",
+              question: text,
+              options: [],
+              allowCustomAnswer: true,
+              required: true,
+            } as unknown as OrchestrationV2UserInputQuestion,
+          ]
+        : [decisionQuestion(text, card.kind === "change" ? CHANGE_OPTIONS : PARK_OPTIONS)];
+    const asked = yield* commit(turn, [
+      { card: { ...card, id: newParkId(deps.driver) }, title: card.title, questions, settle: Effect.void },
+    ]);
+    if (!asked) return false;
+    // A record that cannot be dropped stays: its question was answered, and nothing answers it again.
+    yield* Effect.try({ try: () => deps.parked()?.discard(card.id), catch: () => "undropped" }).pipe(Effect.ignore);
+    return true;
+  });
+
   /** A card or request raised while the park ends the turn: parked as the others were. */
   const parkLate = Effect.fn("Park.parkLate")(function* (
     planned: (turn: LiveTurn, cause: ParkCause) => Effect.Effect<Planned>,
@@ -505,8 +535,13 @@ export const parker = (deps: ParkerDeps) => {
       if (store === undefined || card === undefined) return message.text;
       const answers = deps.recordedAnswerOf(id);
       if (answers === undefined) {
-        workersLog("warn", { t3flare: "cli-park-answer-unread", providerSessionId: deps.providerSessionId });
-        return message.text;
+        // t3 resolved the question (its answer message is here) but its answer cannot be read: the card is asked again,
+        // never left parked against a question no one can answer twice.
+        const asked = yield* askAgain(card);
+        workersLog("warn", { t3flare: "cli-park-answer-unread", providerSessionId: deps.providerSessionId, asked });
+        return asked
+          ? `The owner's answer to what parked your turn (${card.title}) could not be read, so they are asked again. Do not repeat it until their answer comes.`
+          : message.text;
       }
       const reply = replyOf(answers);
       const decision: ParkedDecision = card.kind === "question" ? "decline" : parkedDecisionOf(card.kind, reply);

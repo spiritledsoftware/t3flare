@@ -160,14 +160,19 @@ When a card has waited Park after (`parkAfterMinutes`, ADR-0032's SPI-1389 refin
 Stock t3 sends a non-blocking question's answer as the message `async-answer:<request id>`, which starts a new turn (or
 is steered into a running one); t3 needs no Patch. The wrapper recognises the parked id and reads the Owner's decision
 from t3's own record of the answer (its projection of the request, written with the message in one transaction), never
-from the message's text: a message t3 queues behind a busy turn can be edited before it runs. An agent's `t3_queue` edit
-or cancel of such a queued answer is refused besides (`mcp/ownerOnly.ts`, by the queued run's message). The wrapper
-turns the answer into what the agent should repeat, and records a one-time allowance:
+from the message's text: a message t3 queues behind a busy turn can be edited before it runs. An agent's `t3_queue` edit,
+cancel or promote of such a queued answer, and its `task_cancel` of a delegated task whose threads hold one, are refused
+besides (`mcp/ownerOnly.ts`, by t3's runs and subagents projections), so the answer's turn always runs. When t3 holds
+no answer that can be read for a resolved park question, its card is asked again as a new park question, never left
+parked against a question no one can answer twice. The wrapper turns the answer into what the agent should repeat, and
+records a one-time allowance:
 
 - a relay call with the same tool and arguments' hash runs once without a card;
 - a CLI request whose whole call matches runs once: the call is read off the process's stdout by the native id t3
   gives the request (`provider/cli/nativeCalls.ts`): ACP's tool call (the tool's name, from Claude Code's
-  `_meta.claudeCode.toolName` or the title, since an MCP tool's kind is only `other`; its kind; and its raw input: a
+  `_meta.claudeCode.toolName`, else OpenCode's `name`, else the name an earlier update gave, the title only last, since
+  an MCP tool's kind is only `other` and OpenCode gives a subagent's untitled tools its title; its kind; and its raw
+  input: a
   command, or a file path and the edit's content), or Codex's request (every param but its ids, times, the decisions it
   offers and the model's reason, with a file change's edits). Never by t3's title or the model's reason, which another
   call can share. A request whose call was not read keeps no allowance, and its repeat asks again.
@@ -178,7 +183,8 @@ turns the answer into what the agent should repeat, and records a one-time allow
 
 A parked card's CLI session is kept from session pruning while it waits: each pi or Claude Code spawn touches the files
 of the parked sessions (`ParkedCards.nativeSessions`: every file whose path carries a session's id, in a directory
-named for it too) before pi's prune
+named for it too; an id shorter than 8 characters, or `.` or `..`, is not kept, since `*id*` would name most files)
+before pi's prune
 (`piSessionRetentionDays`) and Claude Code's own cleanup (`cleanupPeriodDays`) run, so the answer turn resumes the
 conversation it parked.
 

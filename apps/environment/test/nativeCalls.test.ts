@@ -122,10 +122,41 @@ describe("a CLI's own approval request's whole call (SPI-1389)", () => {
     expect(recorder.callOf("tc-read")).toMatchObject({ name: "mcp__t3__t3_project_read", kind: "other" });
     expect(await callHash(recorder, "tc-delete")).not.toBe(await callHash(recorder, "tc-read"));
     expect(await callHash(recorder, "tc-read-again")).toBe(await callHash(recorder, "tc-read"));
-    // OpenCode names the tool only in the title: another title is another call.
-    recorder.observe(permission(4, "tc-oc-1", "t3_project_read", { projectId: "p-1" }));
-    recorder.observe(permission(5, "tc-oc-2", "t3_project_delete", { projectId: "p-1" }));
+    // OpenCode names the tool in `name`, and gives a subagent's untitled tools (an MCP tool, a task) the subagent's title:
+    // two MCP tools under one title, with the same input, are two calls.
+    const openCode = (id: number, toolCallId: string, name: string) =>
+      line({
+        id,
+        method: "session/request_permission",
+        params: {
+          sessionId: "s",
+          toolCall: { toolCallId, name, title: "Explore the repo", kind: "other", rawInput: { projectId: "p-1" } },
+          options: [],
+        },
+      });
+    recorder.observe(openCode(4, "tc-oc-1", "t3_project_read"));
+    recorder.observe(openCode(5, "tc-oc-2", "t3_project_delete"));
+    recorder.observe(openCode(6, "tc-oc-3", "t3_project_read"));
+    expect(recorder.callOf("tc-oc-1")).toMatchObject({ name: "t3_project_read" });
     expect(await callHash(recorder, "tc-oc-2")).not.toBe(await callHash(recorder, "tc-oc-1"));
+    expect(await callHash(recorder, "tc-oc-3")).toBe(await callHash(recorder, "tc-oc-1"));
+    // The name an earlier update gave stands when the request gives none, over the request's title.
+    recorder.observe(
+      line({
+        method: "session/update",
+        params: {
+          sessionId: "s",
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "tc-oc-4",
+            name: "t3_project_delete",
+            title: "Explore the repo",
+          },
+        },
+      }),
+    );
+    recorder.observe(permission(7, "tc-oc-4", "Explore the repo", { projectId: "p-1" }));
+    expect(recorder.callOf("tc-oc-4")).toMatchObject({ name: "t3_project_delete" });
     // A call that names no tool at all keeps no call.
     recorder.observe(permission(6, "tc-nameless", "", { projectId: "p-1" }));
     expect(recorder.callOf("tc-nameless")).toBeUndefined();

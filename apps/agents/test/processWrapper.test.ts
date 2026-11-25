@@ -56,7 +56,10 @@ echo "exit=$?"`;
         "-c",
         'echo "left=$(ls /workspace/.t3flare/pi/sessions | tr "\\n" ,) inside=$(ls /workspace/.t3flare/pi/sessions/parked-1 | tr "\\n" ,)"',
       ],
-      keep: { dirs: ["/workspace/.t3flare/pi/sessions"], sessions: ["parked-1", "x*' ; rm -rf / ; '", ".", ".."] },
+      keep: {
+        dirs: ["/workspace/.t3flare/pi/sessions"],
+        sessions: ["parked-1", "x*' ; rm -rf / ; '", ".", "..", "a1"],
+      },
       prune: [{ dir: "/workspace/.t3flare/pi/sessions", days: 60 }],
     });
     const script = `set -u
@@ -81,6 +84,8 @@ echo "exit=$?"`;
     expect(launcher).not.toContain("rm -rf / ;");
     expect(launcher).not.toContain("'*.*'");
     expect(launcher).not.toContain("'*..*'");
+    // A short id would name most files: one under 8 characters is not kept.
+    expect(launcher).not.toContain("'*a1*'");
   }, 180_000);
 
   it("runs no program from PATH while the model handle is in its environment, and setsid keeps its name (SPI-1209)", () => {

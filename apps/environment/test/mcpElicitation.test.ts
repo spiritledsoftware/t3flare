@@ -20,6 +20,7 @@ import {
   PARKED_OWNER_ONLY_REFUSAL,
   QUEUED_ANSWER_REFUSAL,
   refuseOwnerOnly,
+  TASK_ANSWER_REFUSAL,
 } from "../src/mcp/ownerOnly.ts";
 
 const context: QuestionContext = {
@@ -538,7 +539,7 @@ describe("refuseOwnerOnly", () => {
     expect(JSON.parse(batch!).map((answer: { id: number }) => answer.id)).toEqual([1, 2]);
   });
 
-  it("refuses t3_queue edit and cancel on the Owner's queued answer to a parked question, and nothing else (SPI-1389)", () => {
+  it("refuses t3_queue edit, cancel and promote on the Owner's queued answer to a parked question, and task_cancel of its task (SPI-1389)", () => {
     const queue = (args: Record<string, unknown>) =>
       JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "t3_queue", arguments: args } });
     // The queued runs t3 holds: the Owner's answer to a parked question, and an ordinary message.
@@ -546,10 +547,23 @@ describe("refuseOwnerOnly", () => {
       queuedMessageOf: (runId: string) =>
         ({ "run-answer": "async-answer:runtime-request:codex:t3flare-park:1", "run-plain": "message-7" })[runId],
     };
-    for (const action of ["edit", "cancel"])
+    for (const action of ["edit", "cancel", "promote_to_steer"])
       expect(
         JSON.parse(refuseOwnerOnly(queue({ action, queuedRunId: "run-answer", text: "Allow" }), lookups)!),
       ).toMatchObject({ result: { content: [{ text: QUEUED_ANSWER_REFUSAL }], isError: true } });
+    // Stopping the delegated task whose thread holds the answer would drop it too.
+    const cancelTask = (taskId: string) =>
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "task_cancel", arguments: { taskId } },
+      });
+    const tasks = { taskHoldsParkAnswer: (taskId: string) => taskId === "task-holding" };
+    expect(JSON.parse(refuseOwnerOnly(cancelTask("task-holding"), tasks)!)).toMatchObject({
+      result: { content: [{ text: TASK_ANSWER_REFUSAL }], isError: true },
+    });
+    expect(refuseOwnerOnly(cancelTask("task-other"), tasks)).toBeUndefined();
     expect(refuseOwnerOnly(queue({ action: "edit", queuedRunId: "run-plain", text: "x" }), lookups)).toBeUndefined();
     expect(refuseOwnerOnly(queue({ action: "list" }), lookups)).toBeUndefined();
     expect(refuseOwnerOnly(queue({ action: "read", queuedRunId: "run-answer" }), lookups)).toBeUndefined();
