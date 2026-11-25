@@ -120,7 +120,15 @@ export interface Inventory {
   readonly error?: string;
   /** The definitions as the server gave them, by upstream name (what a call sends back as `tool`). */
   readonly definitions: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
-  /** The tools refused, by name; a cut list ends with an entry whose `more` counts the rest (`fitRefused`). */
+  /**
+   * What the server says of its tools (its `instructions`, scrubbed of credentials by the engine), passed on to the
+   * agent (SPI-1374). Absent when it gave none, or when they did not fit the inventory's bytes (`INSTRUCTIONS_REFUSED`).
+   */
+  readonly instructions?: string;
+  /**
+   * The tools refused, by name, after an `INSTRUCTIONS_REFUSED` entry when the instructions were dropped; a cut list ends
+   * with an entry whose `more` counts the rest (`fitRefused`).
+   */
   readonly refused: ReadonlyArray<RefusedTool>;
 }
 
@@ -134,6 +142,8 @@ export interface McpView {
     readonly listedAt: number | null;
     readonly exposure: Exposure;
     readonly tools: ReadonlyArray<InventoryTool>;
+    /** The server's own instructions (SPI-1374): the relay's `initialize` and the pi Session's guidance pass them on. */
+    readonly instructions?: string;
   }>;
 }
 
@@ -216,14 +226,23 @@ export interface McpHostDeps {
   }) => Promise<McpCallAnswer>;
 }
 
-/** A tool the inventory refused, or (`more`) the closing entry of a cut list, counting the tools past it. */
+/** The refused entry that stands for a server's instructions dropped from its inventory (SPI-1374). */
+export const INSTRUCTIONS_REFUSED = "(instructions)";
+
+/** Why a tool, or a server's instructions, is refused: past the bytes one server's inventory holds, named with its value. */
+const PAST_SCHEMA_BYTES = `past the ${(MAX_SCHEMA_BYTES / 1024 / 1024).toFixed(1)} MiB of tool definitions and instructions one server's inventory holds`;
+
+/**
+ * A tool the inventory refused, the server's instructions dropped (`tool` is `INSTRUCTIONS_REFUSED`), or (`more`) the
+ * closing entry of a cut list, counting the tools past it.
+ */
 export interface RefusedTool {
   readonly tool: string;
   readonly reason: string;
   readonly more?: number;
 }
 
-/** How many tools `refused` names, the ones past a cut included. */
+/** How many entries `refused` stands for: the tools, the ones past a cut included, and any dropped instructions. */
 export const refusedCount = (refused: ReadonlyArray<RefusedTool>): number =>
   refused.reduce((count, entry) => count + (entry.more ?? 1), 0);
 
@@ -393,14 +412,20 @@ export class McpHost {
       tool: problem.tool,
       reason: problem.problem,
     }));
+    // The server's instructions share its tools' bytes (SPI-1374), reserved first: past them, they are dropped.
     let bytes = 0;
+    let instructions = result.instructions;
+    if (instructions !== undefined) {
+      const size = storedBytes(instructions);
+      if (size > MAX_SCHEMA_BYTES) {
+        refused.unshift({ tool: INSTRUCTIONS_REFUSED, reason: `the server's instructions, ${PAST_SCHEMA_BYTES}` });
+        instructions = undefined;
+      } else bytes = size;
+    }
     for (const tool of result.tools) {
       const size = storedBytes(tool);
       if (bytes + size > MAX_SCHEMA_BYTES) {
-        refused.push({
-          tool: tool.name,
-          reason: `past the ${(MAX_SCHEMA_BYTES / 1024 / 1024).toFixed(1)} MiB of tool definitions one server's inventory holds`,
-        });
+        refused.push({ tool: tool.name, reason: PAST_SCHEMA_BYTES });
         continue;
       }
       bytes += size;
@@ -411,6 +436,7 @@ export class McpHost {
       listedAt: this.#now(),
       status: "ok" as const,
       definitions,
+      ...(instructions === undefined ? {} : { instructions }),
     };
     const next: Inventory = { ...rest, refused: fitRefused(rest, refused) };
     // Forgotten meanwhile (removed, or added again): the old server's tools are not kept under the new one's name.
@@ -483,6 +509,7 @@ export class McpHost {
         state: inventory.status === "ok" ? "available" : inventory.listedAt > 0 ? "stale" : "unavailable",
         listedAt: inventory.listedAt > 0 ? inventory.listedAt : null,
         exposure: server.exposure,
+        ...(inventory.instructions === undefined ? {} : { instructions: inventory.instructions }),
         // SPI-1079: a pausing server's `resume` is t3flare's to call (with the owner's answer), so no agent is offered it.
         tools: tools.filter(
           (tool) =>
@@ -495,9 +522,11 @@ export class McpHost {
     }
     const version = await definitionHash({
       name: "view",
+      // A server's instructions only where it has them, so a view without any keeps the version it had (SPI-1374).
       inputSchema: servers.map((server) => [
         server.name,
         server.tools.map((tool) => [tool.name, tool.hash, tool.class, tool.exposure]),
+        ...(server.instructions === undefined ? [] : [server.instructions]),
       ]),
     });
     return { version, servers };

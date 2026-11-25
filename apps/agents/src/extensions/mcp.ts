@@ -16,7 +16,7 @@ import {
   type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import type { CodemodeNamespace } from "@earendil-works/pi-durable/codemode";
-import { decideCall, type ToolClass } from "@t3flare/harness-registry/mcp";
+import { decideCall, serverInstructionsBlock, type ToolClass } from "@t3flare/harness-registry/mcp";
 import type { InteractionMode, McpAsker, RuntimeMode } from "@t3flare/session-protocol";
 
 import { cardText } from "./cardText.ts";
@@ -43,6 +43,8 @@ export interface McpView {
       readonly hinted?: ToolClass;
       readonly exposure: string;
     }>;
+    /** The server's own instructions (SPI-1374), given in the guidance for its tools. */
+    readonly instructions?: string;
   }>;
 }
 
@@ -171,7 +173,14 @@ export const mcpExtension = (view: McpView, host: McpHostOfSession): Extension =
                   : "unavailable: never listed"
             }`,
         );
-        return `MCP tool sources. Deferred tools are found with tool_search or, in code mode, searchTools()/describeNamespace(). Read tools run; write tools may ask the owner.\n${lines.join("\n")}`;
+        // Each server's own instructions, marked as its own, as stock MCP clients pass them on (SPI-1374); only where
+        // any of its tools is installed, so a hidden server's text stays out of the prompt.
+        const own = view.servers.flatMap((server) =>
+          server.instructions === undefined || !server.tools.some((tool) => tool.exposure !== "hidden")
+            ? []
+            : [`\n\n${serverInstructionsBlock(server.name, server.instructions)}`],
+        );
+        return `MCP tool sources. Deferred tools are found with tool_search or, in code mode, searchTools()/describeNamespace(). Read tools run; write tools may ask the owner.\n${lines.join("\n")}${own.join("")}`;
       }),
     ],
   });

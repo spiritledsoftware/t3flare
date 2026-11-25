@@ -212,7 +212,7 @@ describe("harness page", () => {
     expect(html).toContain(
       escapeHtml(JSON.stringify({ op: "class", server: "fixture", tool: "fixture_echo", class: null })),
     );
-    expect(html).toContain("1 tool refused");
+    expect(html).toContain("<strong>1 refused</strong>");
   });
 
   it("draws an Exposure select for each server and each tool, saving through the JSON API's own values", () => {

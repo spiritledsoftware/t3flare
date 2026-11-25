@@ -47,6 +47,7 @@ const tool = (name: string, readOnlyHint?: boolean, description = name) => ({
 const fakeEngine = (
   tools: () => Array<Record<string, unknown>>,
   answer: () => unknown = () => ({ content: [{ type: "text", text: "noted" }] }),
+  instructions?: () => string | undefined,
 ) => {
   const seen: Array<any> = [];
   const engine: McpEngineBinding = {
@@ -57,6 +58,7 @@ const fakeEngine = (
         era: "legacy",
         protocolVersion: "2025-06-18",
         capabilities: { tools: {} },
+        ...(instructions?.() === undefined ? {} : { instructions: instructions() }),
         tools: tools(),
         prompts: [],
         problems: [],
@@ -104,17 +106,19 @@ const setup = (
     readonly callTimeoutMs?: () => number;
     readonly resultBytes?: () => number;
     readonly limits?: () => McpServerLimits;
+    readonly instructions?: () => string | undefined;
   } = {},
 ) => {
   let settings = harness;
-  const { engine, seen } = fakeEngine(tools, answer);
+  const { instructions, ...rest } = limits;
+  const { engine, seen } = fakeEngine(tools, answer, instructions);
   const host = new McpHost({
     kv: memory(),
     engine,
     settings: () => settings,
     secret: async (server, field) => (server === "commissary" && field === "header" ? COMMISSARY_KEY : undefined),
     now: () => 1_000_000,
-    ...limits,
+    ...rest,
   });
   return { host, seen, set: (next: StoredHarness) => (settings = next), settings: () => settings };
 };
@@ -526,6 +530,40 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
     const listed = await huge.host.list("commissary");
     expect(Object.keys(listed.definitions)).toEqual(["a", "b", "c"]);
     expect(listed.refused).toEqual([expect.objectContaining({ tool: "d", reason: expect.stringContaining("MiB") })]);
+  });
+
+  it("keeps a server's instructions and offers them in the view, reserved in its inventory's bytes before its tools (SPI-1374)", async () => {
+    const said = setup(() => [tool("fixture_echo", true)], undefined, withCommissary(), {
+      instructions: () => "Call fixture_echo first.",
+    });
+    expect((await said.host.list("commissary")).instructions).toBe("Call fixture_echo first.");
+    expect((await said.host.view()).servers[0]?.instructions).toBe("Call fixture_echo first.");
+    // Instructions take their bytes first: about 1.3 MB of them leave room for only two of the three big tools.
+    const big = (name: string) => ({ ...tool(name, true), description: "d".repeat(440_000) });
+    const shared = setup(() => [big("a"), big("b"), big("c")], undefined, withCommissary(), {
+      instructions: () => "i".repeat(440_000),
+    });
+    const listed = await shared.host.list("commissary");
+    expect(listed.instructions).toHaveLength(440_000);
+    expect(Object.keys(listed.definitions)).toEqual(["a", "b"]);
+    expect(listed.refused.map((entry) => entry.tool)).toEqual(["c"]);
+  });
+
+  it("drops instructions past the bytes one server's inventory holds, refused with the limit named; its tools stay (SPI-1374)", async () => {
+    const run = setup(() => [tool("fixture_echo", true)], undefined, withCommissary(), {
+      instructions: () => "i".repeat(1_500_000),
+    });
+    const listed = await run.host.list("commissary");
+    expect(listed).not.toHaveProperty("instructions");
+    expect(Object.keys(listed.definitions)).toEqual(["fixture_echo"]);
+    expect(listed.refused).toEqual([
+      {
+        tool: "(instructions)",
+        reason:
+          "the server's instructions, past the 3.8 MiB of tool definitions and instructions one server's inventory holds",
+      },
+    ]);
+    expect((await run.host.view()).servers[0]).not.toHaveProperty("instructions");
   });
 
   it("keeps a server's inventory within its one value: refused names whole (SPI-1360), the list cut with how many more (SPI-1363)", async () => {

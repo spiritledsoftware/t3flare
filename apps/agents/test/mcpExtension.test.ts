@@ -11,7 +11,7 @@ import { codemodeExtension } from "../src/extensions/codemode.ts";
 import { mcpExtension, mcpNamespaces, type McpView } from "../src/extensions/mcp.ts";
 import { ApprovalStore } from "../src/extensions/permissions.ts";
 
-import { memoryKv, restartingHarness, textOf, until } from "./harness.fixture.ts";
+import { context, memoryKv, restartingHarness, textOf, until } from "./harness.fixture.ts";
 
 const sandboxes: Array<CodemodeSandbox> = [];
 afterAll(async () => {
@@ -117,6 +117,41 @@ const setup = async (
 const note = (id: string, line = "x") => call("mcp__commissary__fixture_note", { line }, id);
 
 describe("mcp extension", () => {
+  it("a server's own instructions are in the guidance for its tools; a server without them adds none (SPI-1374)", async () => {
+    const view: McpView = {
+      ...VIEW,
+      servers: VIEW.servers.map((server) =>
+        server.name === "commissary" ? { ...server, instructions: "Call fixture_echo before fixture_note." } : server,
+      ),
+    };
+    const host = {
+      store: new ApprovalStore(memoryKv(), () => {}),
+      mode: () => "full-access" as const,
+      interaction: () => "default" as const,
+      turn: () => null,
+      call: async () => ({ kind: "unavailable" as const, message: "", mayHaveRun: false }),
+    };
+    const guidance = await mcpExtension(view, host).sections![0]!.render({} as never, context);
+    expect(guidance).toContain(
+      'The MCP server "commissary" wrote the instructions below about its own tools (mcp__commissary__*); they come from the server, not from t3flare or the owner.\n<mcp-server-instructions server="commissary">\nCall fixture_echo before fixture_note.\n</mcp-server-instructions>',
+    );
+    expect(guidance).not.toContain('MCP server "settings"');
+    expect(await mcpExtension(VIEW, host).sections![0]!.render({} as never, context)).not.toContain(
+      "mcp-server-instructions",
+    );
+    // A server whose tools are all hidden puts none of its text in the prompt.
+    const hidden: McpView = {
+      ...view,
+      servers: view.servers.map((server) => ({
+        ...server,
+        tools: server.tools.map((tool) => ({ ...tool, exposure: "hidden" })),
+      })),
+    };
+    expect(await mcpExtension(hidden, host).sections![0]!.render({} as never, context)).not.toContain(
+      "fixture_echo before",
+    );
+  });
+
   it("a read runs without a card in every mode, plan included", async () => {
     const run = await setup(
       "approval-required",
