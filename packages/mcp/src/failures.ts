@@ -32,6 +32,7 @@ import {
   Cut,
   MCP_TASKS_EXTENSION,
   type McpAuthChallenge,
+  type McpTimeLimitHit,
   MCP_UNASKED_TASK_MESSAGE,
   McpError,
   NotFound,
@@ -120,6 +121,8 @@ export interface FailedRequest {
   readonly serverName?: string | undefined;
   /** Whether the request declared the tasks extension (`ctx.allowTask` on a Modern server that advertises it). */
   readonly tasksDeclared?: boolean | undefined;
+  /** The time limit the request was sent with, which a timeout names (SPI-1432). */
+  readonly timeLimit?: McpTimeLimitHit | undefined;
 }
 
 /** A failure as the core acts on it: the `McpError`, and the HTTP status or JSON-RPC code behind it. */
@@ -252,7 +255,7 @@ const decodeResultType = Schema.decodeUnknownOption(Schema.Struct({ resultType: 
 const fromSdk = (error: SdkError, request: FailedRequest): McpError | undefined => {
   switch (error.code) {
     case SdkErrorCode.RequestTimeout:
-      return TimedOut.make({ message: "The server did not answer in time" });
+      return TimedOut.make({ message: "The server did not answer in time", ...request.timeLimit });
     case SdkErrorCode.ConnectionClosed:
       return Cut.make({
         message: "The connection closed before the answer arrived",

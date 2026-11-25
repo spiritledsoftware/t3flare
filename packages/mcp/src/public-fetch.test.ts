@@ -132,7 +132,8 @@ describe("fetchPublic", () => {
 
     expect(await fetchPublic({ url: URL_OF, timeoutMs: 10 }, fetch)).toEqual({
       status: "refused",
-      message: "The request timed out",
+      // The value of the limit it gave up at (SPI-1432).
+      message: "The request timed out after 0.01 s",
     });
   });
 });

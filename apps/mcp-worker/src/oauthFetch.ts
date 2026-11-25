@@ -4,7 +4,8 @@ import { OAUTH_FETCH_TIMEOUT_MS } from "@t3flare/mcp/oauth";
 
 /**
  * A fetch for OAuth: https only, no credentials in the URL, no redirect followed, each request bounded by `timeoutMs`:
- * the Environment's Outside request time limit (`OUTSIDE_REQUEST_SECONDS`), which its calls pass, or that limit's default.
+ * the Environment's Outside request time limit (`OUTSIDE_REQUEST_SECONDS`), which its calls pass, or, from a caller
+ * that passes none, `OAUTH_FETCH_TIMEOUT_MS`.
  * A Workers fetch has no deadline of its own, so this is what ends a hung authorization server.
  */
 export const guardedFetch =

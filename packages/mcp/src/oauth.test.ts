@@ -203,9 +203,11 @@ describe("revokeTokens", () => {
       client: { client_id: "c" },
       refreshToken: REFRESH,
       fetch: () => Promise.reject(new DOMException("timed out", "TimeoutError")),
+      timeoutMs: 30_000,
     });
 
-    expect(timedOut).toEqual([{ token: "refresh_token", status: "failed", reason: "timed out" }]);
+    // The reason names the time limit's value (SPI-1432).
+    expect(timedOut).toEqual([{ token: "refresh_token", status: "failed", reason: "timed out after 30 s" }]);
   });
 
   it("never lets a token reach a result, whatever the server says", async () => {

@@ -19,6 +19,7 @@ import {
   CARD_WAIT_MS,
   MAX_SCHEMA_BYTES,
   MCP_REQUEST_OFF_MS,
+  OFF_DEADLINE_MS,
   offDeadlineMs,
   type McpServerSetting,
   mcpServersOf,
@@ -27,6 +28,7 @@ import {
   STORED_CHARACTER_BYTES,
   storedBytes,
   type StoredHarness,
+  timeLimitHit,
   type ToolClass,
   toolNamesOf,
 } from "@t3flare/harness-registry";
@@ -171,6 +173,36 @@ const errorText = (error: unknown): string => {
   const tag = typeof record._tag === "string" ? record._tag : "Error";
   const message = typeof record.message === "string" ? record.message : JSON.stringify(error);
   return `${tag}: ${message}`;
+};
+
+/**
+ * A `TimedOut` the engine tagged with its limit (SPI-1432), as the sentence that names it (ADR-0049 §4): which limit,
+ * its value as applied, and where to change it; a fixed limit as fixed. Undefined for anything else, a `TimedOut`
+ * without the tag (an engine before SPI-1432) included, which reads as before (`errorText`).
+ */
+const timeLimitText = (error: unknown, server: string): string | undefined => {
+  const record = (error ?? {}) as { _tag?: unknown; message?: unknown; limit?: unknown; ms?: unknown };
+  if (record._tag !== "TimedOut" || typeof record.ms !== "number") return undefined;
+  const seconds = record.ms / 1000;
+  switch (record.limit) {
+    case "connect":
+      return `${server} did not answer its connection within ${timeLimitHit(seconds, "second", { environment: "mcpConnectSeconds" })}`;
+    case "list": {
+      // The walk's own message names what it listed ("Listing tools took over 120 s"); a page's timeout does not.
+      const listing = typeof record.message === "string" ? /^Listing \S+/.exec(record.message)?.[0] : undefined;
+      return `${listing ?? `Listing ${server}`} took over ${timeLimitHit(seconds, "second", { environment: "mcpListSeconds" })}`;
+    }
+    case "call":
+      // An off call time limit still gives a call a deadline (`OFF_DEADLINE_MS`), the setting's own maximum.
+      return record.ms === OFF_DEADLINE_MS
+        ? `${server} did not answer in ${seconds.toLocaleString("en-US")} s, the most t3flare lets an MCP call run while the MCP call time limit is off`
+        : `${server} did not answer within ${timeLimitHit(seconds, "second", { environment: "mcpCallSeconds" })}`;
+    case "request":
+      // Given apart from the call's only while the call time limit is off: `MCP_REQUEST_OFF_MS`, t3flare's own.
+      return `${server} did not answer in ${seconds.toLocaleString("en-US")} s, t3flare's fixed MCP request time limit`;
+    default:
+      return undefined;
+  }
 };
 
 export interface McpHostDeps {
@@ -406,7 +438,7 @@ export class McpHost {
       return failed(`the MCP engine failed: ${String(error)}`);
     }
     this.#keepState(name, result.state as never, generation);
-    if (result.kind !== "discovered") return failed(errorText(result.error));
+    if (result.kind !== "discovered") return failed(timeLimitText(result.error, name) ?? errorText(result.error));
     const definitions: Record<string, Readonly<Record<string, unknown>>> = {};
     const refused: Array<{ tool: string; reason: string }> = (result.problems ?? []).map((problem) => ({
       tool: problem.tool,
@@ -671,11 +703,16 @@ export class McpHost {
       return { kind: "refused", message: `The read failed: ${String(error)}` };
     }
     this.#keepState(input.server, result.state as never, generation);
-    if (result.kind !== "complete")
+    if (result.kind !== "complete") {
+      const named = result.kind === "failed" ? timeLimitText(result.error, input.server) : undefined;
       return {
         kind: "refused",
-        message: `The read failed (${result.kind === "failed" ? errorText(result.error) : result.kind}).`,
+        message:
+          named === undefined
+            ? `The read failed (${result.kind === "failed" ? errorText(result.error) : result.kind}).`
+            : `The read failed: ${named}.`,
       };
+    }
     const max = this.#resultBytes();
     const read =
       result.result.kind === "inline"
@@ -754,7 +791,8 @@ export class McpHost {
     this.#keepState(name, result.state as never, generation);
     if (result.kind === "failed") {
       const tag = (result.error as { _tag?: string })._tag;
-      const message = `The MCP call failed (${errorText(result.error)}). It may have run upstream; do not repeat a change without checking.`;
+      const named = timeLimitText(result.error, name);
+      const message = `The MCP call failed${named === undefined ? ` (${errorText(result.error)})` : `: ${named}`}. It may have run upstream; do not repeat a change without checking.`;
       if (tag === "NotFound") this.#deps.background?.(this.list(name).catch(() => undefined));
       return { kind: "unavailable", message, mayHaveRun: true };
     }

@@ -1,7 +1,7 @@
 // @effect-diagnostics globalTimers:off
 // OAuth sign-ins for direct MCP servers (review M4): single-use state, the issuer check, write-only tokens, and one
 // refresh in flight. The MCP Worker's side is stubbed; it is the only one that fetches.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { HarnessOAuth, type McpOAuthBinding, signInGone, STATE_TTL_MS } from "../src/harness/oauth.ts";
 import { harnessSecrets } from "../src/harness/secrets.ts";
@@ -18,8 +18,16 @@ const memory = () => {
 };
 
 const setup = (
-  options: { issSupported?: boolean; expiresIn?: number; stateTtlMs?: () => number; requestMs?: () => number } = {},
+  options: {
+    issSupported?: boolean;
+    expiresIn?: number;
+    stateTtlMs?: () => number;
+    requestMs?: () => number;
+    /** The Worker's calls that time out (SPI-1432). */
+    timesOut?: ReadonlyArray<"begin" | "exchange" | "refresh">;
+  } = {},
 ) => {
+  const late = { ok: false, error: "TimeoutError: The operation was aborted due to timeout", timedOut: true } as const;
   const kv = memory();
   let now = 1_000_000;
   const calls: Array<string> = [];
@@ -29,6 +37,7 @@ const setup = (
     begin: async (input) => {
       calls.push("begin");
       timeouts.push(input.timeoutMs);
+      if (options.timesOut?.includes("begin") === true) return late;
       return {
         ok: true,
         value: {
@@ -47,6 +56,7 @@ const setup = (
     exchange: async (input) => {
       calls.push(`exchange:${input.code}:${input.codeVerifier}`);
       timeouts.push(input.timeoutMs);
+      if (options.timesOut?.includes("exchange") === true) return late;
       return {
         ok: true,
         value: {
@@ -62,6 +72,7 @@ const setup = (
       calls.push(`refresh:${input.refreshToken}`);
       timeouts.push(input.timeoutMs);
       await new Promise((resolve) => setTimeout(resolve, 10));
+      if (options.timesOut?.includes("refresh") === true) return late;
       return { ok: true, value: { access_token: `access-${refreshes + 1}`, token_type: "Bearer", expires_in: 3600 } };
     },
   };
@@ -195,6 +206,49 @@ describe("OAuth sign-ins (review M4)", () => {
     await h.oauth.accessToken("srv", true);
     expect(h.timeouts).toEqual([15_000, 40_000, 90_000]);
     expect(setup().timeouts).toEqual([]);
+  });
+
+  it("names the fixed outside request time limit and its value when a Worker request times out (SPI-1432)", async () => {
+    const named = "the authorization server did not answer in 30 s, t3flare's fixed outside request time limit";
+    expect(
+      await setup({ requestMs: () => 30_000, timesOut: ["begin"] }).oauth.begin("srv", "https://srv.example/mcp"),
+    ).toEqual({
+      ok: false,
+      error: named,
+    });
+
+    const h = setup({ expiresIn: 120, requestMs: () => 30_000, timesOut: ["exchange"] });
+    const begun = await h.oauth.begin("srv", "https://srv.example/mcp");
+    if (!begun.ok) throw new Error(begun.error);
+    const page = await h.oauth.callback(
+      callback(h.stateOf(begun.value.authorizationUrl), { iss: "https://as.example" }),
+    );
+    expect(page.status).toBe(502);
+    // The page escapes its text: "t3flare's" is "t3flare&#39;s".
+    expect((await page.text()).replaceAll("&#39;", "'")).toContain(`The token exchange failed: ${named}`);
+
+    const r = setup({ expiresIn: 120, requestMs: () => 30_000, timesOut: ["refresh"] });
+    const started = await r.oauth.begin("srv", "https://srv.example/mcp");
+    if (!started.ok) throw new Error(started.error);
+    await r.oauth.callback(callback(r.stateOf(started.value.authorizationUrl), { iss: "https://as.example" }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      expect(await r.oauth.accessToken("srv", true)).toBeUndefined();
+      expect(warn.mock.calls.map(([line]) => JSON.parse(String(line)))).toContainEqual({
+        t3flare: "mcp-oauth-refresh-failed",
+        server: "srv",
+        error: named,
+      });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("keeps the Worker's own words for a timeout when it gave the Worker no limit (a test's)", async () => {
+    expect(await setup({ timesOut: ["begin"] }).oauth.begin("srv", "https://srv.example/mcp")).toMatchObject({
+      ok: false,
+      error: "TimeoutError: The operation was aborted due to timeout",
+    });
   });
 
   it("forgets a removed server's client and tokens", async () => {
