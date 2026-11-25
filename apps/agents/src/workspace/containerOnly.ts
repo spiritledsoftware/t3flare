@@ -1,4 +1,3 @@
-// @effect-diagnostics globalDate:off
 // Container-only paths (the prod bug of 2026-11-11): a repo's submodules live on its Container's disk alone, like
 // `node_modules`, never in the Workspace DO's files. t3flare's own `t3code` submodule is 31,946 files: t3's worktree
 // creation (`git submodule update --init --recursive`) and the agent checked it out, computer pulled every file into the
@@ -9,7 +8,7 @@
 // git directories (`.git/modules`), and each path `.gitmodules` names (read from the DO's files at each start).
 import type { WorkspaceBackend } from "@cloudflare/computer";
 import { timeLimitHit } from "@t3flare/harness-registry";
-import { SKILLS_LOCK_SCRIPT } from "@t3flare/workspace-client";
+import { SKILLS_LOCK_SCRIPT, startRefusal } from "@t3flare/workspace-client";
 
 import { REPO_ROOT, WORKSPACE_ROOT } from "./constants.ts";
 
@@ -125,20 +124,27 @@ export interface ContainerOnlyOptions {
 const MISMATCH = "ContainerIgnoreMismatchError";
 
 /**
- * `connect`, its failure at or past its wait (`connectTimeoutMs`) named as the Container start wait, with its seconds and
- * where to change it (SPI-1430), computer's error after it and kept as the `cause`: `startRefusal` still finds a budget
- * refusal in it. A failure before the wait ran out (a refusal) is computer's, as it is.
+ * computer's own errors for a start that ran out its wait (computer 0.11.2, `ContainerBackend`): its health checks
+ * retried until the deadline (`stage=health`), or the `/api` upgrade did not arrive by it (`stage=ws`).
+ */
+const WAIT_RAN_OUT =
+  /ContainerBackend\([^)]*\)(?:: connect failed at stage=health |(?: \[stage=ws\]: \/api upgrade did not arrive within ))/;
+
+/**
+ * `connect`, its failure for running out its wait (`connectTimeoutMs`) named as the Container start wait, with its
+ * seconds and where to change it (SPI-1430), computer's error after it and kept as the `cause`. A budget refusal, which
+ * `startRefusal` finds, and any other failure are computer's, as they are.
  */
 const startWaited = async <Handle>(connect: () => Promise<Handle>, connectTimeoutMs: number): Promise<Handle> => {
-  const started = Date.now();
   try {
     return await connect();
   } catch (error) {
-    if (Date.now() - started < connectTimeoutMs || (error instanceof Error && error.name === MISMATCH)) throw error;
-    const seconds = Math.round(connectTimeoutMs / 1000);
-    const limit = timeLimitHit(seconds, "second", { environment: "containerConnectSeconds" });
-    const said = error instanceof Error ? error.message : String(error);
-    throw new Error(`the Container did not answer within ${limit}. ${said}`, { cause: error });
+    if (!(error instanceof Error) || !WAIT_RAN_OUT.test(error.message) || startRefusal(error) !== undefined)
+      throw error;
+    const limit = timeLimitHit(Math.round(connectTimeoutMs / 1000), "second", {
+      environment: "containerConnectSeconds",
+    });
+    throw new Error(`the Container did not answer within ${limit}. ${error.message}`, { cause: error });
   }
 };
 

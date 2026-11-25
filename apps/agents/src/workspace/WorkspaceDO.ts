@@ -71,7 +71,15 @@ import {
   TEMP_FILES_HOURS,
 } from "@t3flare/harness-registry";
 import { BaseBuild } from "./baseBuild.ts";
-import { checkpointLimit, cloneLimit, commandLimit, type ExecLimit, limitNoted, type TimedBy } from "./execLimit.ts";
+import {
+  checkpointLimit,
+  cloneLimit,
+  commandLimit,
+  type ExecLimit,
+  limitNoted,
+  spawnTimed,
+  type TimedBy,
+} from "./execLimit.ts";
 import {
   BASE_WAIT_POLL_MS,
   baseIdOf,
@@ -1562,25 +1570,28 @@ export class WorkspaceDO extends ContainerHost {
         return { exitCode: -1, status: "not-running", stdout: "", stderr: "", ms: Date.now() - started };
       const timed: TimedBy =
         input.timeoutMs === undefined ? this.#commandLimit() : { timeoutMs: input.timeoutMs, limit: input.limit };
-      // From before computer's exec, which its deadline follows: a run that reached the deadline is one computer ended.
-      const sent = Date.now();
-      const handle = await this.#workspace.runtime.exec(script, {
-        backend,
-        cwd: input.cwd ?? WORKSPACE_ROOT,
-        encoding: "utf8",
-        // A passive read is marked so the Container's backend sends it without waiting for the lay-down (ADR-0032's Global mise config refinement).
-        env:
-          backend === CONTAINER_BACKEND
-            ? commandEnvOf(COMMAND_ENV, input.env, input.passive === true)
-            : { ...input.env },
-        ...(input.stdin === undefined ? {} : { stdin: input.stdin }),
-        timeoutMs: timed.timeoutMs,
-        ...(execOutput(input.wholeOutput === true) === false ? { output: false } : {}),
-      });
+      // Timed from the spawn, as computerd times its deadline: not the Container's start or the files' push before it.
+      const { handle, ranMs } = await spawnTimed(
+        () =>
+          this.#workspace.runtime.exec(script, {
+            backend,
+            cwd: input.cwd ?? WORKSPACE_ROOT,
+            encoding: "utf8",
+            // A passive read is marked so the Container's backend sends it without waiting for the lay-down (ADR-0032's Global mise config refinement).
+            env:
+              backend === CONTAINER_BACKEND
+                ? commandEnvOf(COMMAND_ENV, input.env, input.passive === true)
+                : { ...input.env },
+            ...(input.stdin === undefined ? {} : { stdin: input.stdin }),
+            timeoutMs: timed.timeoutMs,
+            ...(execOutput(input.wholeOutput === true) === false ? { output: false } : {}),
+          }),
+        () => Date.now(),
+      );
       if (input.runId !== undefined) this.#runCancels.started(input.runId, handle);
       const ran = await handle.result();
       // SPI-1430: a command computer ended at its deadline names the limit behind it.
-      const result = limitNoted({ ...ran, ms: Date.now() - sent }, timed.timeoutMs, timed.limit);
+      const result = limitNoted({ ...ran, ms: ranMs() }, timed.timeoutMs, timed.limit);
       // The sync guard's scan ran after the command whatever its answer: its result is read first, so a leak it found is
       // flagged whatever the answer does next.
       if (guard !== undefined) await this.#readScanResult();
@@ -2266,7 +2277,7 @@ export class WorkspaceDO extends ContainerHost {
     }
     const script = worktreeFinishScript({ bundle: local, ref: input.ref, commit: input.commit, config: input.config });
     try {
-      const result = await this.exec({ script, cwd: REPO_ROOT, ...cloneLimit(input.timeoutMs) });
+      const result = await this.exec({ script, cwd: REPO_ROOT, ...cloneLimit(input.timeoutMs, "worktree checkout") });
       const head = result.stdout.trim().split("\n").at(-1) ?? "";
       if (result.exitCode !== 0) return { ok: false, error: result.stderr };
       if (head !== input.commit) return { ok: false, error: `HEAD is ${head}, not ${input.commit}` };
