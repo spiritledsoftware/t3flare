@@ -131,7 +131,7 @@ Left as they are: the stage-only check harnesses (`acpCheck.ts`, `agentsCheck.ts
 and the stage-only Browser Run spike (`preview/spike.ts`), whose error cuts only shape its result lines;
 the reboot check's module-state fingerprint (`moduleState.ts`), which no one reads as text; and the dead stdio path's
 `STDERR_QUOTE_BYTES`, which goes when that path returns or is deleted. An MCP server's `instructions` are no longer
-stored: nothing read them.
+stored: nothing read them. (Superseded by the SPI-1374 refinement below: they are stored again and reach the agent.)
 
 ## Refinement (SPI-1368, 2026-11-23): the last fixed values
 
@@ -178,3 +178,15 @@ The Container budget is an opt-in cost guard ([ADR-0049](0049-settings-follow-lo
 0, no budget, by default, so as many Containers run as the account's own limits allow. It takes 0 or 1 to 100; off ranks
 above every number in its `down-free` tier, so setting a budget from off is free and turning it off is asked.
 [ADR-0032](0032-environment-settings-and-harness-settings-are-separate-entities-edited-on-one-owner-page.md)'s SPI-1386 refinement lists the other defaults that moved.
+
+## Refinement (SPI-1374, 2026-11-24): an MCP server's instructions reach the agent
+
+This supersedes the SPI-1360 refinement's "an MCP server's `instructions` are no longer stored". Stock MCP clients pass a
+server's instructions on, and servers rely on them to explain their tools, so under local parity
+([ADR-0049](0049-settings-follow-local-parity-and-guardrails-are-opt-in.md)) t3flare passes them on too, always, with no
+switch (the Owner, 2026-11-24). The engine still scrubs them of the server's credentials.
+
+The host keeps them in the server's inventory, inside its `MAX_SCHEMA_BYTES`, reserved before its tools; there is no
+separate cap. Instructions past it are dropped, and the inventory's refusals say so as `(instructions)`, naming the
+limit and its value. The relay's `initialize` answers t3flare's sentence followed by them, and a pi Durable Session's MCP
+extension gives them in its guidance for that server's tools. The Settings server's own instructions are unchanged.

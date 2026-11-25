@@ -43,6 +43,8 @@ export interface McpView {
       readonly hinted?: ToolClass;
       readonly exposure: string;
     }>;
+    /** The server's own instructions (SPI-1374), given in the guidance for its tools. */
+    readonly instructions?: string;
   }>;
 }
 
@@ -171,7 +173,15 @@ export const mcpExtension = (view: McpView, host: McpHostOfSession): Extension =
                   : "unavailable: never listed"
             }`,
         );
-        return `MCP tool sources. Deferred tools are found with tool_search or, in code mode, searchTools()/describeNamespace(). Read tools run; write tools may ask the owner.\n${lines.join("\n")}`;
+        // Each server's own instructions, as stock MCP clients pass them on (SPI-1374).
+        const own = view.servers.flatMap((server) =>
+          server.instructions === undefined
+            ? []
+            : [
+                `\n\nInstructions of the MCP server "${server.name}", for its tools (mcp__${server.name}__*):\n${server.instructions}`,
+              ],
+        );
+        return `MCP tool sources. Deferred tools are found with tool_search or, in code mode, searchTools()/describeNamespace(). Read tools run; write tools may ask the owner.\n${lines.join("\n")}${own.join("")}`;
       }),
     ],
   });

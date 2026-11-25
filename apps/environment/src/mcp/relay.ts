@@ -124,6 +124,11 @@ export const relayMessage = async (input: McpRelayInput, deps: RelayDeps): Promi
       const asked = (message.params as { protocolVersion?: unknown } | undefined)?.protocolVersion;
       const protocolVersion =
         typeof asked === "string" && RELAY_PROTOCOL_VERSIONS.includes(asked) ? asked : RELAY_PROTOCOL_VERSIONS[1]!;
+      // The server's own instructions follow t3flare's sentence, as stock clients pass them on (SPI-1374).
+      const own =
+        input.server === SETTINGS_SERVER
+          ? undefined
+          : (await deps.view()).servers.find((candidate) => candidate.name === input.server)?.instructions;
       return ok(id, {
         protocolVersion,
         capabilities: {
@@ -134,7 +139,9 @@ export const relayMessage = async (input: McpRelayInput, deps: RelayDeps): Promi
         instructions:
           input.server === SETTINGS_SERVER
             ? settingsInstructions(deps.openPerThread?.())
-            : `Tools of the MCP server "${input.server}" through t3flare. Write tools may wait for the owner's approval on this thread.`,
+            : `Tools of the MCP server "${input.server}" through t3flare. Write tools may wait for the owner's approval on this thread.${
+                own === undefined ? "" : `\n\n${own}`
+              }`,
       });
     }
     case "ping":

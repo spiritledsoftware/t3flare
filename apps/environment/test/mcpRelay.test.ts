@@ -150,6 +150,27 @@ describe("the relay's MCP server", () => {
     });
   });
 
+  it("answers initialize with t3flare's sentence, then the server's own instructions when it gave some (SPI-1374)", async () => {
+    const init = async (instructions: string | undefined) => {
+      const base = harness();
+      const view: McpView = {
+        ...VIEW,
+        servers: VIEW.servers.map((server) => ({ ...server, ...(instructions === undefined ? {} : { instructions }) })),
+      };
+      const answer = await relayMessage(input({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }), {
+        ...base.deps,
+        view: async () => view,
+      });
+      return (answer as { body: { result: { instructions: string } } }).body.result.instructions;
+    };
+    const sentence =
+      'Tools of the MCP server "commissary" through t3flare. Write tools may wait for the owner\'s approval on this thread.';
+    expect(await init(undefined)).toBe(sentence);
+    expect(await init("Call fixture_echo before fixture_note.")).toBe(
+      `${sentence}\n\nCall fixture_echo before fixture_note.`,
+    );
+  });
+
   it("accepts notifications without an answer", async () => {
     expect(await relayMessage(input({ jsonrpc: "2.0", method: "notifications/initialized" }), harness().deps)).toEqual({
       kind: "accepted",
