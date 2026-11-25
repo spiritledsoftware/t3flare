@@ -16,8 +16,8 @@ export { SWEEP_EVERY_MS, type SweepSettings, sweepSettingsOf } from "./deletionS
 /** A `deleting` row is driven again this soon (review F5: t3 may re-create the same worktree path). */
 export const DELETING_RETRY_MS = 5 * 60_000;
 /**
- * Whether `error` is Workers' subrequest limit (10,000 a paid invocation; "Too many subrequests"): past it, every RPC and
- * fetch of the invocation fails.
+ * Whether `error` is Workers' subrequest limit (10,000 a paid invocation): past it, every RPC and fetch of the invocation
+ * fails. "Too many subrequests" is the one message Cloudflare documents for it (its Workflows limits page, SPI-1379).
  */
 export const isSubrequestLimit = (error: unknown): boolean => /too many subrequests/i.test(String(error));
 
@@ -564,6 +564,19 @@ export const sweep = async (
   }
   const actions = planSweep(rows, references.byWorkspace, now, grace, references.released);
   const purged: Array<PurgeReport> = [];
+  const sessions: Array<string> = [];
+  const dues = actions.flatMap((action) => (action.due === undefined ? [] : [action.due]));
+  // Set at Workers' 10,000 subrequests per invocation (each destroy is one DO RPC): every later destroy and the cost guard's
+  // budget read would fail too. The Sweep stops there, what it destroyed recorded, and the rest go at the next run, soon
+  // (SPI-1366, SPI-1379), not a day later.
+  let cut = false;
+  const stop = () => {
+    console.warn(
+      JSON.stringify({ t3flare: "sweep-subrequest-limit", purged: purged.length, sessions: sessions.length }),
+    );
+    cut = true;
+    dues.push(now);
+  };
   // Marks are written with purging off too (ADR-0043 §4); `dry` alone writes nothing. planSweep purges with purging off only
   // a row already `deleting`.
   if (!dry) {
@@ -574,29 +587,29 @@ export const sweep = async (
     for (const action of actions) {
       if (action.action === "mark-unreferenced") services.workspaces.setUnreferencedSince(action.id, now);
       if (action.action === "clear-unreferenced") services.workspaces.setUnreferencedSince(action.id, null);
-      if (action.action !== "purge") continue;
+      // Past the subrequest limit, the marks are still written (they are this DO's own storage); no purge is tried.
+      if (action.action !== "purge" || cut) continue;
       const threads = (references.deletedThreads.get(action.id) ?? []).filter(
         (thread) => !taken.has(thread.threadId) && sweptSessions?.has(thread.threadId) !== true,
       );
       const report = await purgeWorkspace(action.id, threads);
-      // A failed purge's Sessions stay unrecorded: the Session pass below, or its `deleting` row's retry, counts them.
-      if (report.destroyed) {
-        for (const threadId of report.sessionsDestroyed) {
-          taken.add(threadId);
-          sweptSessions?.add(threadId);
-        }
+      // The Sessions a purge destroyed are recorded even when it failed: its `deleting` row's retry would otherwise destroy
+      // them again, and a Workspace with more of them than one invocation's subrequests would never be purged (SPI-1379).
+      // A failed purge has no `sweep.purge` entry, so its Sessions count in the run's Sessions.
+      for (const threadId of report.sessionsDestroyed) {
+        taken.add(threadId);
+        sweptSessions?.add(threadId);
       }
+      if (!report.destroyed) sessions.push(...report.sessionsDestroyed);
       purged.push(report);
       if (report.destroyed) onPurge?.(report, action.why);
+      if (report.error !== undefined && isSubrequestLimit(report.error)) stop();
     }
   }
   // ADR-0008: the Sessions of threads deleted more than the Grace ago go too, whether or not their Workspace does; with
   // purging off, none (ADR-0043 §4).
-  const sessions: Array<string> = [];
-  const dues = actions.flatMap((action) => (action.due === undefined ? [] : [action.due]));
-  const purgedIds = new Set(purged.filter((p) => p.destroyed).flatMap((p) => p.sessionsDestroyed));
-  let cut = false;
-  for (const thread of purging ? [...references.deletedThreads.values()].flat() : []) {
+  const purgedIds = new Set(purged.flatMap((p) => p.sessionsDestroyed));
+  for (const thread of purging && !cut ? [...references.deletedThreads.values()].flat() : []) {
     if (purgedIds.has(thread.threadId) || sweptSessions?.has(thread.threadId) === true) continue;
     const due = purgeDue({ kind: "session", deletedAt: thread.deletedAt }, grace);
     if (due === null) continue;
@@ -609,13 +622,8 @@ export const sweep = async (
         await destroyed(byName(services.agents.SESSIONS, `thread:${thread.threadId}`, "SESSIONS").destroy());
         sweptSessions?.add(thread.threadId);
       } catch (error) {
-        // Workers' 10,000 subrequests per invocation (each destroy is one DO RPC): every later destroy and the cost
-        // guard's budget read would fail too. The pass stops here, what it destroyed recorded, and the rest go at the
-        // next pass, soon (SPI-1366), not a day later.
         if (isSubrequestLimit(error)) {
-          console.warn(JSON.stringify({ t3flare: "sweep-subrequest-limit", destroyed: sessions.length }));
-          cut = true;
-          dues.push(now);
+          stop();
           break;
         }
         console.warn(

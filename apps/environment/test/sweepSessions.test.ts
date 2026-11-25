@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
-import { sweep, type PurgeReport } from "../src/agents/deletion.ts";
+import { isSubrequestLimit, sweep, type PurgeReport } from "../src/agents/deletion.ts";
 import { sweptSessionsIn } from "../src/agents/sweptSessions.ts";
 import type { WorkspaceRecord } from "../src/agents/workspaces.ts";
 import { DAY, record, t3Tables } from "./fixtures/workspaces.ts";
@@ -302,5 +302,134 @@ describe("the Sweep's Purge of a deleted project with a worktree thread", () => 
     // The rest wait for the next pass, a minute out; the cost guard, another subrequest, waits for it too.
     expect(Date.parse(report.nextDue)).toBe(NOW + 60_000);
     expect(budgetRead).toBe(false);
+  });
+});
+
+/**
+ * Services whose Durable Object calls (a Session's or Workspace's `destroy`, a Workspace's `terminalState`, the budget's
+ * `state`) fail with Workers' subrequest error once `limit` of them ran in one invocation; `invocation()` starts the next.
+ */
+const limitedServices = (rows: Array<WorkspaceRecord>, limit: number) => {
+  let calls = 0;
+  const destroyedSessions: Array<string> = [];
+  const marks: Array<string> = [];
+  let budgetReads = 0;
+  const call = async <T>(run: () => T): Promise<T> => {
+    if (calls >= limit) throw new Error("Error: Too many subrequests.");
+    calls += 1;
+    return run();
+  };
+  bindEnvironmentServices({
+    workspaces: {
+      list: () => rows,
+      get: (id: string) => rows.find((row) => row.id === id),
+      setState: (id: string, state: WorkspaceRecord["state"]) => {
+        const at = rows.findIndex((row) => row.id === id);
+        rows[at] = { ...rows[at]!, state };
+      },
+      setLastError: () => undefined,
+      setUnreferencedSince: (id: string, at: number | null) => void (at === null || marks.push(id)),
+      remove: (id: string) =>
+        void rows.splice(
+          rows.findIndex((row) => row.id === id),
+          1,
+        ),
+    },
+    agents: {
+      SESSIONS: namespace((name) => ({ destroy: () => call(() => void destroyedSessions.push(name)) })),
+      WORKSPACES: namespace(() => ({
+        terminalState: () => call(() => ({ keys: [] })),
+        destroy: () => call(() => undefined),
+      })),
+      CONTAINER_BUDGET: namespace(() => ({ state: () => call(() => ((budgetReads += 1), { leases: [] })) })),
+    },
+  } as unknown as EnvironmentServices);
+  return {
+    destroyedSessions,
+    marks,
+    budgetReads: () => budgetReads,
+    invocation: () => void (calls = 0),
+  };
+};
+
+const SWEEP_ON = {
+  purging: true,
+  graceMs: GRACE_MS,
+  graceDays: 7,
+  overridden: true,
+  provisioningMs: 80 * 60_000,
+  dry: false,
+} as const;
+
+describe("the Sweep's purge loop at Workers' subrequest limit (SPI-1379)", () => {
+  it("records the Sessions a failed purge destroyed, stops there, and comes back a minute later", async () => {
+    const threads = Array.from({ length: 10 }, (_, n) => `t${n}`);
+    const sql = deletedProject(threads);
+    const rows = [record({ id: "app", unreferencedSince: NOW - 5 * 60_000 })];
+    // One subrequest goes to the Workspace's open Terminals; four Sessions go before the limit.
+    const services = limitedServices(rows, 5);
+    const swept = new Set<string>();
+    const report = await sweep(sql, SWEEP_ON, NOW, sweptIn(swept), { get: () => NOW - DAY, set: () => undefined });
+    expect(report.ok).toBe(true);
+    expect(rows[0]?.state).toBe("deleting");
+    expect(report.purged).toMatchObject([{ id: "app", destroyed: false, sessionsDestroyed: ["t0", "t1", "t2", "t3"] }]);
+    expect([...swept]).toEqual(["t0", "t1", "t2", "t3"]);
+    // Counted once, in the run's Sessions, and no other destroy tried past the limit.
+    expect(report.sessions).toEqual(["t0", "t1", "t2", "t3"]);
+    expect(services.destroyedSessions).toHaveLength(4);
+    expect(Date.parse(report.nextDue)).toBe(NOW + 60_000);
+  });
+
+  it("reads no budget once the purge loop hit the limit, though no Session is due", async () => {
+    const sql = deletedProject(["t0", "t1"]);
+    const rows = [record({ id: "app", unreferencedSince: NOW - 5 * 60_000 })];
+    // The Terminals read and both Sessions: the Workspace's own destroy is past the limit.
+    const services = limitedServices(rows, 3);
+    const report = await sweep(sql, SWEEP_ON, NOW, sweptIn(new Set()), { get: () => NOW - DAY, set: () => undefined });
+    expect(report.ok).toBe(true);
+    expect(report.purged).toMatchObject([{ id: "app", destroyed: false }]);
+    expect(report.costGuard).toEqual([]);
+    expect(services.budgetReads()).toBe(0);
+  });
+
+  it("purges no other Workspace past the limit, and still writes the run's marks", async () => {
+    const sql = deletedProject(["t0"]);
+    const rows = [
+      record({ id: "app", unreferencedSince: NOW - 5 * 60_000 }),
+      record({ id: "other", state: "deleting" }),
+      record({ id: "loose" }),
+    ];
+    // Both `ready` rows' Terminals reads: the first Session's destroy is past the limit.
+    const services = limitedServices(rows, 2);
+    const report = await sweep(sql, SWEEP_ON, NOW, sweptIn(new Set()), { get: () => NOW - DAY, set: () => undefined });
+    expect(report.purged.map((purged) => purged.id)).toEqual(["app"]);
+    expect(rows.find((row) => row.id === "other")?.state).toBe("deleting");
+    expect(services.marks).toEqual(["loose"]);
+  });
+
+  it("finishes a Workspace with more deleted Sessions than one invocation's limit across several Sweeps", async () => {
+    const threads = Array.from({ length: 25 }, (_, n) => `t${n}`);
+    const sql = deletedProject(threads);
+    const rows = [record({ id: "app", unreferencedSince: NOW - 5 * 60_000 })];
+    const services = limitedServices(rows, 10);
+    const swept = new Set<string>();
+    const progress: Array<number> = [];
+    for (let run = 0; run < 5 && rows.length > 0; run++) {
+      services.invocation();
+      await sweep(sql, SWEEP_ON, NOW + run * 60_000, sweptIn(swept), { get: () => NOW - DAY, set: () => undefined });
+      progress.push(swept.size);
+    }
+    expect(rows).toEqual([]);
+    // Each Sweep recorded what it destroyed; none destroyed a Session twice.
+    expect(progress).toEqual([9, 19, 25]);
+    expect(services.destroyedSessions).toHaveLength(25);
+    expect(new Set(services.destroyedSessions).size).toBe(25);
+  });
+});
+
+describe("isSubrequestLimit", () => {
+  it("matches the error Cloudflare documents for the per-invocation subrequest limit", () => {
+    expect(isSubrequestLimit(new Error("Error: Too many subrequests."))).toBe(true);
+    expect(isSubrequestLimit("Workspace DO unreachable")).toBe(false);
   });
 });
