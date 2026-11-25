@@ -506,7 +506,7 @@ describe("TerminalHost", () => {
       );
     });
 
-    it("applies no hold with no terminal open, and a plain stop keeps the plain line", async () => {
+    it("applies no hold with no Terminal open, and a plain stop keeps the plain line", async () => {
       expect(harness().host.appliedHold(hold)).toBeUndefined();
       const h = await atPrompt();
       h.host.containerStopped();

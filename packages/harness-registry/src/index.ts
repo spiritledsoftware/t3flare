@@ -571,8 +571,8 @@ export const timeLimitHit = (
 ): string => `its ${value === undefined ? "" : `${limitValue(value, unit)} `}time limit${rest}${changeItUnder(ref)}`;
 
 /**
- * A hold, hit, to the end of its sentence (SPI-1431): "30-minute Terminal hold while a command runs", its value then its
- * setting's title without the title's unit, then where to change it (`changeItUnder`), last.
+ * A hold, hit, to the end of its sentence (SPI-1431): "30-minute Terminal hold while a command runs", its value then
+ * its setting's title without the title's unit, then where to change it (`changeItUnder`), last.
  */
 export const holdHit = (value: number, unit: "minute" | "second", ref: SettingRef): string =>
   `${limitValue(value, unit)} ${placed(ref).entry.title.replace(/ \([^)]*\)$/, "")}${changeItUnder(ref)}`;

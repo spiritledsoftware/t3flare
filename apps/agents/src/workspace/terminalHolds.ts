@@ -23,10 +23,11 @@ const HOLD_SETTINGS: Readonly<Record<AppliedHold["kind"], SettingRef>> = {
  * input past their 30-minute Terminal hold while a command runs; change it under …". Nothing for a stop past no hold
  * (a close, a destroy, an explicit stop, a stop with no Terminal open).
  */
-export const stoppedPastHoldClause = (applied: AppliedHold | null | undefined): string =>
-  applied === undefined || applied === null
-    ? ""
-    : ` after its Terminals had no input past their ${holdHit(applied.ms / 60_000, "minute", HOLD_SETTINGS[applied.kind])}`;
+export const stoppedPastHoldClause = (applied: AppliedHold | null | undefined): string => {
+  if (applied === undefined || applied === null) return "";
+  const hold = holdHit(applied.ms / 60_000, "minute", HOLD_SETTINGS[applied.kind]);
+  return ` after its Terminals had no input past their ${hold}`;
+};
 
 /** A host of Terminals as a stop past the holds ends them (`TerminalHost`). */
 interface HoldingHost {

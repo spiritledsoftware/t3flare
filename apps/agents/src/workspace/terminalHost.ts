@@ -145,8 +145,8 @@ export class TerminalHost {
   }
 
   /**
-   * The hold `holdsContainer` applies to the open Terminals now, with its value in `hold`: the busy one while one runs a
-   * command, else the prompt one (SPI-1431: what a stop past it names). None with no Terminal open.
+   * The hold `holdsContainer` applies to the open Terminals now, with its value in `hold`: the busy one while one runs
+   * a command, else the prompt one (SPI-1431: what a stop past it names). None with no Terminal open.
    */
   appliedHold(hold: TerminalHold): AppliedHold | undefined {
     const open = [...this.#terminals.values()].filter((terminal) => !terminal.exited);

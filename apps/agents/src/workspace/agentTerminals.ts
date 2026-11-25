@@ -781,9 +781,9 @@ export class AgentTerminals {
   }
 
   /**
-   * The Container stopped or this object ends: every running entry ended with it (the host's exit frames say so too).
-   * `applied`: the hold the agent's open Terminals were past (an idle stop or a reclaim, SPI-1431), named in each exit's
-   * note.
+   * The Container stopped or this object ends: every running entry ended with it (the host's exit frames say so
+   * too). `applied`: the hold the agent's open Terminals were past (an idle stop or a reclaim, SPI-1431), named in
+   * each exit's note.
    */
   containerStopped(applied?: AppliedHold | null): void {
     const exit: AgentExit = {
