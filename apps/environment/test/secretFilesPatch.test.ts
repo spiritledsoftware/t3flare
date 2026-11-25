@@ -15,6 +15,7 @@ import { ProjectId, SecretRef, ThreadId, TurnItemId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as ThreadManagementService from "t3/src/orchestration-v2/ThreadManagementService.ts";
+import type * as SecretRequestsTypes from "t3/src/secrets/SecretRequests.ts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { placeSecretFile, SECRET_FILES_DIR } from "../../agents/src/workspace/secretFiles.ts";
@@ -33,7 +34,7 @@ const BARE: Record<string, string> = {
   ),
 };
 
-type SecretRequestsModule = typeof import("t3/src/secrets/SecretRequests.ts");
+type SecretRequestsModule = typeof SecretRequestsTypes;
 let patched: SecretRequestsModule;
 let work: string;
 afterAll(() => {
@@ -106,7 +107,7 @@ const memoryWorkspace = () => {
 };
 
 const run = <A, E>(
-  body: (service: InstanceType<typeof patched.SecretRequests>["Service"]) => Effect.Effect<A, E>,
+  body: (service: SecretRequestsTypes.SecretRequests["Service"]) => Effect.Effect<A, E>,
   options: { readonly workspace: ReturnType<typeof memoryWorkspace> | undefined },
 ) => {
   const { storage, values } = memoryStorage();
