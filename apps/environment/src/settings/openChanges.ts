@@ -201,6 +201,8 @@ export interface AnswerDeps {
     input: { readonly by: AnsweredBy; readonly secret?: string },
   ) => Promise<ApplyResult>;
   readonly log?: (event: Record<string, unknown>) => void;
+  /** Told each close after its waiters are settled, with the closed state (SPI-1404). A throw is logged, never raised. */
+  readonly changeClosed?: (id: string, state: ChangeState) => void;
 }
 
 export type AnswerResult =
@@ -267,6 +269,11 @@ const closeAs = (
   const outcome = outcomeOf(next);
   deps.log?.(closedLine(next));
   settle(record.id, outcome);
+  try {
+    deps.changeClosed?.(record.id, state);
+  } catch (error) {
+    deps.log?.({ t3flare: "change-closed-hook-failed", change: record.id, error: String(error) });
+  }
   return outcome;
 };
 
@@ -344,7 +351,7 @@ export const answerOpenChange = async (deps: AnswerDeps, id: string, answer: Ans
  * or `expired`. Answers its outcome, which is the earlier one when it had already closed.
  */
 export const closeOpenChange = (
-  deps: Pick<AnswerDeps, "changes" | "now" | "log">,
+  deps: Pick<AnswerDeps, "changes" | "now" | "log" | "changeClosed">,
   id: string,
   state: "withdrawn" | "expired",
   by?: ClosedBy,
@@ -392,7 +399,7 @@ export const ownApplyingWaitMs = (outsideRequestMs: number): number =>
  * marks a withdrawal by a cut stream, for the close's one log line.
  */
 export const closeOrSettle = async (
-  deps: Pick<AnswerDeps, "changes" | "now" | "log">,
+  deps: Pick<AnswerDeps, "changes" | "now" | "log" | "changeClosed">,
   id: string,
   state: "withdrawn" | "expired",
   by?: ClosedBy,

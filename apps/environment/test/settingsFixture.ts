@@ -104,6 +104,8 @@ export interface FixtureOptions {
   readonly panelStatus?: boolean;
   /** The MCP engine the host lists and calls through (none by default: a list or call answers that it is not bound). */
   readonly engine?: McpEngineBinding;
+  /** Told each Open change's close, as the Environment DO is (SPI-1404). */
+  readonly changeClosed?: SettingsServerDeps["changeClosed"];
 }
 
 export const settingsFixture = (options: FixtureOptions = {}) => {
@@ -182,6 +184,7 @@ export const settingsFixture = (options: FixtureOptions = {}) => {
     log: (event) => void logs.push(event),
     ...(options.cardWaitMs === undefined ? {} : { cardWaitMs: options.cardWaitMs }),
     ...(options.workspaces === undefined ? {} : { workspaces: options.workspaces }),
+    ...(options.changeClosed === undefined ? {} : { changeClosed: options.changeClosed }),
   };
   const durable = (thread = "thread-d", runtimeMode = "approval-required"): OwnCaller => {
     if (!noted.includes(thread)) {

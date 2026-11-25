@@ -3,7 +3,7 @@
 // server-written parts and fixed lines; no Approve on a change that needs the page; the page answering first withdraws the card; a Stop
 // withdraws the Open change.
 import { applyChange, CARD_TEXT_MAX, CARD_WAIT_MS, EMPTY_HARNESS } from "@t3flare/harness-registry";
-import { type McpQuestionCard, PARKED_REASON } from "@t3flare/session-protocol";
+import { type McpQuestionCard, PARK_QUESTION_MARKER, PARKED_REASON } from "@t3flare/session-protocol";
 import type { McpCallAnswer } from "../src/mcp/host.ts";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -15,6 +15,9 @@ import { HOST, PANEL, settingsFixture, type SettingsFixture, structured, textOf,
 import { answerParkedChange, ownerOutcome } from "../src/settings/server.ts";
 import { settingsInstructions, settingsOwnerInstructions } from "../src/settings/tools.ts";
 import { csrfToken } from "../src/harness/csrf.ts";
+import { parkedCards } from "../src/provider/cli/parked.ts";
+import { clearClosedParkedChanges, type ParkQuestion } from "../src/provider/cli/parkedChanges.ts";
+import { nodeSqlStorage, nodeTransaction } from "./nodeSqlStorage.ts";
 
 let fixture: SettingsFixture | undefined;
 afterEach(() => fixture?.dispose());
@@ -317,5 +320,105 @@ describe("the asked change's wait (SPI-1316, SPI-1389)", () => {
     expect(settingsInstructions(3)).toContain("(at most 3 at a time per thread)");
     expect(settingsOwnerInstructions()).toContain("waits for the owner's answer on its Change page: open the link");
     for (const text of [settingsInstructions(1), settingsOwnerInstructions()]) expect(text).not.toContain("at most a");
+  });
+});
+
+describe("a parked change closed elsewhere (SPI-1404)", () => {
+  const PARK_ID = `runtime-request:codex:${PARK_QUESTION_MARKER}:x`;
+
+  /** A CLI turn parked on the change its call opened: the fixture's parked card, and its record kept as `park` keeps it. */
+  const parkedRun = async (question: () => ParkQuestion = () => "pending") => {
+    const closed: Array<[string, string]> = [];
+    fixture = settingsFixture({
+      answer: { decision: "cancel", reason: PARKED_REASON },
+      changeClosed: (id, state) => void closed.push([id, state]),
+    });
+    const run = fixture;
+    await run.call(run.durable(), "change_environment", ASKED);
+    const changeId = run.cards[0]!.changeId!;
+    const sql = nodeSqlStorage();
+    const parked = parkedCards(sql, nodeTransaction(sql));
+    parked.park({ id: PARK_ID, thread: "thread-d", kind: "change", title: "t", changeId, parkedAt: 1 });
+    const answered: Array<[string, boolean]> = [];
+    const dismissed: Array<string> = [];
+    const reconcile = () =>
+      clearClosedParkedChanges({
+        parked,
+        change: (id) => run.deps.changes.get(id),
+        question,
+        answer: async (card, approve) => void answered.push([card.id, approve]),
+        dismiss: async (card) => void dismissed.push(card.id),
+        log: (event) => void run.logs.push(event),
+      });
+    return { run, changeId, parked, closed, answered, dismissed, reconcile };
+  };
+
+  it("approved on its page: the close is told, and its question answered Approve once, its record left for the answer", async () => {
+    let question: ParkQuestion = "pending";
+    const { run, changeId, parked, closed, answered, dismissed, reconcile } = await parkedRun(() => question);
+    // Still open: nothing to do.
+    expect(await reconcile()).toEqual({ answered: 0, dismissed: 0, dropped: 0 });
+    expect((await pagePost(run, changeId, { action: "approve" })).status).toBe(200);
+    expect(closed).toEqual([[changeId, "applied"]]);
+    expect(await reconcile()).toEqual({ answered: 1, dismissed: 0, dropped: 0 });
+    expect(answered).toEqual([[PARK_ID, true]]);
+    expect(dismissed).toEqual([]);
+    // `answerText` reads the record when the answer's message comes, and tells the agent the page's outcome.
+    expect(parked.get(PARK_ID)).toBeDefined();
+    expect(await answerParkedChange(run.deps, changeId, true)).toMatch(/^Applied: .*on the Change page/);
+    // t3 holds the answer now: a second run does nothing.
+    question = "answered";
+    expect(await reconcile()).toEqual({ answered: 0, dismissed: 0, dropped: 0 });
+    expect(answered).toHaveLength(1);
+  });
+
+  it("declined on its page: its question answered Decline", async () => {
+    const { run, changeId, answered, reconcile } = await parkedRun();
+    expect((await pagePost(run, changeId, { action: "decline" })).status).toBe(200);
+    await reconcile();
+    expect(answered).toEqual([[PARK_ID, false]]);
+  });
+
+  it("expired: its question dismissed and its record dropped, with no answer", async () => {
+    const { run, parked, answered, dismissed, reconcile } = await parkedRun();
+    run.advance(CARD_WAIT_MS + 1);
+    expect(await reconcile()).toEqual({ answered: 0, dismissed: 1, dropped: 1 });
+    expect(dismissed).toEqual([PARK_ID]);
+    expect(answered).toEqual([]);
+    expect(parked.get(PARK_ID)).toBeUndefined();
+    expect(await reconcile()).toEqual({ answered: 0, dismissed: 0, dropped: 0 });
+  });
+
+  it("a question already answered keeps its record; one dismissed by hand, or gone, drops it", async () => {
+    for (const [question, kept] of [
+      ["answered", true],
+      ["dismissed", false],
+      ["gone", false],
+    ] as const) {
+      const { run, changeId, parked, answered, dismissed, reconcile } = await parkedRun(() => question);
+      await pagePost(run, changeId, { action: "approve" });
+      await reconcile();
+      expect([answered, dismissed]).toEqual([[], []]);
+      expect(parked.get(PARK_ID) !== undefined).toBe(kept);
+      run.dispose();
+    }
+  });
+
+  it("a failed answer is logged and left for the next run", async () => {
+    const { run, changeId, parked, reconcile } = await parkedRun();
+    await pagePost(run, changeId, { action: "approve" });
+    const failing = await clearClosedParkedChanges({
+      parked,
+      change: (id) => run.deps.changes.get(id),
+      question: () => "pending",
+      answer: async () => {
+        throw new Error("t3 refused");
+      },
+      dismiss: async () => undefined,
+      log: (event) => void run.logs.push(event),
+    });
+    expect(failing).toEqual({ answered: 0, dismissed: 0, dropped: 0 });
+    expect(run.logs).toContainEqual(expect.objectContaining({ t3flare: "cli-park-clear-failed", changeId }));
+    expect(await reconcile()).toMatchObject({ answered: 1 });
   });
 });

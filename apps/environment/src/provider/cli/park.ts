@@ -91,6 +91,13 @@ const CHANGE_OPTIONS: typeof PARK_OPTIONS = [
   { label: "Decline", description: "The change closes, and the agent is told so.", decision: "decline" },
 ];
 
+/** The id of a parked approval's one question (`decisionQuestion`): an answer given on the Owner's behalf names it. */
+export const PARK_DECISION_QUESTION = "decision";
+
+/** The option a parked change's question answers with for an approve or a decline (SPI-1404). */
+export const changeOptionLabel = (approve: boolean): string =>
+  CHANGE_OPTIONS.find((option) => option.decision === (approve ? "accept" : "decline"))!.label;
+
 /** The decision of a parked approval's answer: the last line of t3's reply, an option's label. Anything else declines. */
 export const parkedDecisionOf = (kind: ParkedCard["kind"], reply: string): ParkedDecision => {
   const answer = reply.trim().split("\n").at(-1)?.trim() ?? "";
@@ -135,7 +142,7 @@ const decisionQuestion = (
   options: ReadonlyArray<{ readonly label: string; readonly description: string }>,
 ): OrchestrationV2UserInputQuestion =>
   ({
-    id: "decision",
+    id: PARK_DECISION_QUESTION,
     header: "Parked",
     question: text,
     options: options.map(({ label, description }) => ({ label, description })),

@@ -5,7 +5,8 @@
 // arguments' hash, so the repeated call runs without a second card.
 //
 // Kept in the Environment DO's SQLite, not memory: the answer can come days later, after the Environment reset (ADR-0003).
-// A record goes when it is answered; an allowance when it is taken, when its answer turn ends without the call, or when
+// A record goes when it is answered, or, for a change card, when its Open change closed elsewhere and its question is
+// dismissed or gone (`parkedChanges.ts`); an allowance when it is taken, when its answer turn ends without the call, or when
 // the Environment boots (its answer turn's process is gone with the old instance).
 import type { SqlStorage } from "@cloudflare/workers-types/index.ts";
 
@@ -60,6 +61,10 @@ export interface ParkedCards {
   parkAll(cards: ReadonlyArray<ParkedCard>): void;
   /** Removes a card that was never shown (its park was abandoned). */
   discard(id: string): void;
+  /** The change cards parked on Open change `changeId`, or on any Open change when it is omitted (SPI-1404). */
+  changeCards(changeId?: string): ReadonlyArray<ParkedCard>;
+  /** Removes a change card whose Open change closed elsewhere and whose question is dealt with (SPI-1404). */
+  drop(id: string): void;
   get(id: string): ParkedCard | undefined;
   /** The Owner's answer: the record goes, and an allow leaves one allowance for its call. Undefined if none is parked. */
   answer(id: string, decision: ParkedDecision): ParkedCard | undefined;
@@ -128,6 +133,24 @@ export const parkedCards = (sql: Pick<SqlStorage, "exec">, transaction: <T>(run:
       });
     },
     discard: remove,
+    changeCards: (changeId) => {
+      prepare();
+      const kind = `json_valid(record) AND json_extract(record, '$.kind') = 'change'`;
+      return (
+        changeId === undefined
+          ? sql.exec<{ record: string }>(`SELECT record FROM ${PARKED_TABLE} WHERE ${kind}`)
+          : sql.exec<{ record: string }>(
+              `SELECT record FROM ${PARKED_TABLE} WHERE ${kind} AND json_extract(record, '$.changeId') = ?`,
+              changeId,
+            )
+      )
+        .toArray()
+        .flatMap((row) => {
+          const card = parse(row.record);
+          return card === undefined ? [] : [card];
+        });
+    },
+    drop: remove,
     get,
     answer: (id, decision) => {
       const card = get(id);
