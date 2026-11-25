@@ -5,7 +5,6 @@ import {
   DEFAULT_CHECKPOINT_MS,
   DEFAULT_CLONE_MS,
   DEFAULT_MCP_CALL_MS,
-  DEFAULT_PREVIEW_PORTS,
   DEFAULT_PARK_AFTER_MS,
   DEFAULT_TURN_LIMIT_MS,
   EMPTY_ENVIRONMENT,
@@ -66,7 +65,7 @@ export interface EnvironmentServices {
    * applies at the next one. Absent (a test's services): the default.
    */
   readonly checkpointMs?: () => number;
-  /** SPI-1364: the Container preview ports (`previewPorts`) now. Absent (tests): the default. */
+  /** SPI-1364: the Owner's Container preview ports (`previewPorts`) now, none when off. Absent (tests): none. */
   readonly previewPorts?: () => ReadonlyArray<number>;
   /**
    * Park after (SPI-1389, `parkAfterMinutes`) in ms, as stored now (0: never park): read at each CLI spawn, which keeps it
@@ -172,14 +171,14 @@ export const checkpointMsNow = (): number => {
 };
 
 /**
- * The Container preview ports now (SPI-1364): the stored setting, or its default when the services or the store cannot be
- * read, so a preview browser always routes some.
+ * The Owner's Container preview ports now (SPI-1364): the stored list, or none (any port but t3flare's own, SPI-1390)
+ * when it is off or the services or the store cannot be read.
  */
 export const previewPortsNow = (): ReadonlyArray<number> => {
   try {
-    return current?.previewPorts?.() ?? DEFAULT_PREVIEW_PORTS;
+    return current?.previewPorts?.() ?? [];
   } catch {
-    return DEFAULT_PREVIEW_PORTS;
+    return [];
   }
 };
 

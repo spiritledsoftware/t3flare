@@ -605,7 +605,7 @@ to its real id when an endpoint is at Commissary): `apps/environment/test/modelL
 
 ### U62. Container previews and the carried-socket script (G11)
 
-- **Where**: `apps/agents/src/workspace/containerPreview.ts` and `containerPreviewScript.ts`, `WorkspaceDO.containerPreview` with its use and hold accounting (`#someoneWorks`, `#previewHold`), `WorkspaceContainerPreviews` (agents Worker) and `ContainerPreviews` (Environment Worker), the Owner's `previewPorts` (at most eight, never `RESERVED_CONTAINER_PORTS`; SPI-1364).
+- **Where**: `apps/agents/src/workspace/containerPreview.ts` and `containerPreviewScript.ts`, `WorkspaceDO.containerPreview` with its use and hold accounting (`#someoneWorks`, `#previewHold`), `WorkspaceContainerPreviews` (agents Worker) and `ContainerPreviews` (Environment Worker), the routes `previewRoutes` picks (`apps/environment/src/preview/previewRoutes.ts`: at most eight, Browser Run's limit; the Owner's opt-in `previewPorts`, else the Container's listeners and the usual ports; never `RESERVED_CONTAINER_PORTS`; SPI-1364, SPI-1390).
 - **Breaks when**: Browser Run starts routing WebSockets (the script becomes dead weight), a dev-server client changes how it opens sockets (Vite's `SharedWorker` ping), or Containers change `getTcpPort`.
 - **Detection**: `apps/agents/test/containerPreview.test.ts` (Host and Location, refusals, the script). **Silent**: HMR stops while pages still load. Cheapest check: `scripts/previews.ts browser` (its HMR line).
 - **Blast radius**: no live reload; pages still load.

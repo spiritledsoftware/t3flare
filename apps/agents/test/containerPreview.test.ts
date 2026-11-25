@@ -110,16 +110,24 @@ describe("a Container preview", () => {
     expect(run.used()).toBe(0);
   });
 
-  it("never serves t3flare's own ports, computerd's 8080 and the MCP bridge's 17781, asking nothing of the Container", async () => {
+  it("never serves t3flare's own ports, each refused by name with what it is for, asking nothing of the Container", async () => {
     const run = harness();
-    expect((await run.preview.serve(new Request("http://8080.t3flare.internal/"), 8080)).status).toBe(404);
-    expect((await run.preview.serve(new Request("http://17781.t3flare.internal/"), 17_781)).status).toBe(404);
+    const computerd = await run.preview.serve(new Request("http://8080.t3flare.internal/"), 8080);
+    expect(computerd.status).toBe(404);
+    expect(await computerd.text()).toContain(
+      "Port 8080 is reserved by t3flare for computerd, which runs the Container's commands and serves its files.",
+    );
+    const bridge = await run.preview.serve(new Request("http://17781.t3flare.internal/"), 17_781);
+    expect(bridge.status).toBe(404);
+    expect(await bridge.text()).toContain(
+      "Port 17781 is reserved by t3flare for the MCP bridge, which runs stdio MCP servers.",
+    );
     expect(run.seen).toEqual([]);
   });
 
-  it("serves a port the Owner added (SPI-1364: the browser's routes decide which ports it reaches)", async () => {
+  it("serves any other port (SPI-1390: the browser's routes decide which ports it reaches)", async () => {
     const run = harness();
-    expect((await run.preview.serve(new Request("http://4200.t3flare.internal/"), 4200)).status).not.toBe(404);
+    expect((await run.preview.serve(new Request("http://9999.t3flare.internal/"), 9999)).status).not.toBe(404);
     expect(run.seen).not.toEqual([]);
   });
 

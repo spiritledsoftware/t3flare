@@ -210,7 +210,13 @@ export const environmentItems = (
     }
     if (textual(schema)) return { kind: "text", name: key, before: asText(before[key]), after: asText(after[key]) };
     if (schema.type === "ports") {
-      const ports = (value: unknown) => (Array.isArray(value) ? value.join(", ") : String(value));
+      // An opt-in list's none (SPI-1390) as its off word.
+      const ports = (value: unknown) =>
+        Array.isArray(value)
+          ? value.length === 0 && schema.off === true
+            ? (schema.offLabel ?? "off")
+            : value.join(", ")
+          : String(value);
       return { kind: "scalar", name: key, before: ports(before[key]), after: ports(after[key]) };
     }
     return { kind: "scalar", name: key, before: before[key], after: after[key] };

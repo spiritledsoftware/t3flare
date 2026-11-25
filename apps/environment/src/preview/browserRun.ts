@@ -13,8 +13,8 @@ const CONTAINER_PREVIEW_HOST = /^(\d{1,5})\.t3flare\.internal$/;
 
 /**
  * The Container port a Container preview's URL is for; undefined for any other host, an explicit port, or one of
- * t3flare's own. Which ports a browser reaches is its `outboundByHost`, made from `previewPorts` when it was acquired
- * (SPI-1364), so a port the Owner removed since still serves that browser.
+ * t3flare's own. Which ports a browser reaches is its `outboundByHost`, made when it was acquired (`previewRoutes`,
+ * SPI-1390), so a port the Owner removed from `previewPorts` since still serves that browser.
  */
 export const containerPreviewPortOf = (url: URL): number | undefined => {
   const port = Number(CONTAINER_PREVIEW_HOST.exec(url.hostname)?.[1]);

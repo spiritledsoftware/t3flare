@@ -227,20 +227,40 @@ export const FIRST_PROMPT_SECONDS = 20;
 export const TERMINAL_HISTORY_KIB = 8 * 1024;
 export const EXITED_TERMINALS_KEPT = 128;
 
-/** The Container preview ports by default (G11, ADR-0031): the dev servers' usual ports. */
-export const DEFAULT_PREVIEW_PORTS: ReadonlyArray<number> = [3000, 3001, 4173, 4321, 5173, 5174, 8000, 8787];
+/**
+ * The dev servers' usual ports (G11, ADR-0031). A preview browser that may open any port (`previewPorts` off, SPI-1390)
+ * routes these in the slots its Container's listeners leave free, so a dev server that starts on one later needs no
+ * restart of the browser.
+ */
+export const USUAL_DEV_SERVER_PORTS: ReadonlyArray<number> = [3000, 3001, 4173, 4321, 5173, 5174, 8000, 8787];
 
 /**
- * The most Container preview ports. A named constraint: Browser Run routes at most eight hosts (`outboundByHost`) per
- * browser, and each port is one host.
+ * The most Container ports one preview browser reaches. A named constraint: Browser Run routes at most eight hosts
+ * (`outboundByHost`) per browser, each port is one host, and they are fixed when the browser is acquired (its acquire
+ * refuses a ninth: "at most 8 outbound hosts are allowed", the SPI-1390 Stage probe).
  */
 export const MAX_PREVIEW_PORTS = 8;
 
 /**
- * The ports no Container preview may reach. A named constraint: computerd's (8080) and the MCP bridge's (17781,
- * apps/sandbox-image/src/mcp-bridge.ts) are t3flare's own servers in the Container.
+ * The Container ports t3flare's own servers listen on, each with what it is for: no Container preview may reach one
+ * (SPI-1390's listener check, ADR-0031). computerd answers the Container's commands and files to the Workspace DO, and
+ * the MCP bridge (apps/sandbox-image/src/mcp-bridge.ts, not run by the image yet) would run stdio MCP servers.
  */
-export const RESERVED_CONTAINER_PORTS: ReadonlyArray<number> = [8080, 17_781];
+export const RESERVED_CONTAINER_PORT_USES: Readonly<Record<number, string>> = {
+  8080: "computerd, which runs the Container's commands and serves its files",
+  17_781: "the MCP bridge, which runs stdio MCP servers",
+};
+
+/** The ports of `RESERVED_CONTAINER_PORT_USES`, ascending. */
+export const RESERVED_CONTAINER_PORTS: ReadonlyArray<number> = Object.keys(RESERVED_CONTAINER_PORT_USES)
+  .map(Number)
+  .sort((a, b) => a - b);
+
+/** What a refused reserved port says: "port 8080 is reserved by t3flare for computerd, …"; undefined for any other. */
+export const reservedPortMessage = (port: number): string | undefined => {
+  const use = RESERVED_CONTAINER_PORT_USES[port];
+  return use === undefined ? undefined : `port ${port} is reserved by t3flare for ${use}`;
+};
 
 /**
  * How long a port's probe waits for an answer, in ms (SPI-1364, SPI-1387): stock t3's `WEB_PROBE_TIMEOUT`
@@ -1216,14 +1236,16 @@ export const ENVIRONMENT_SETTINGS = {
   },
   previewPorts: {
     title: "Container preview ports",
-    description: `The Container ports a preview browser can open, comma-separated, each as http://<port>.t3flare.internal/: a dev server on any other port cannot be previewed. At most ${MAX_PREVIEW_PORTS}, and never ${RESERVED_CONTAINER_PORTS.join(" or ")}, t3flare's own; by default ${DEFAULT_PREVIEW_PORTS.join(", ")}. Applies to preview browsers opened after the change.`,
+    description: `Off by default: a preview browser can open a dev server on any Container port, as a browser on your own machine opens any localhost port, but never ${RESERVED_CONTAINER_PORTS.join(" or ")}, t3flare's own. Any page that browser opens can then reach every server listening on 0.0.0.0 in the Workspace's Container. Name ports here, comma-separated, to allow only those: at most ${MAX_PREVIEW_PORTS}, the most Browser Run routes for one browser. Applies to preview browsers opened after the change.`,
     // Named constraints: Browser Run's eight hosts (`MAX_PREVIEW_PORTS`), t3flare's own ports (`RESERVED_CONTAINER_PORTS`).
     // No tier, deliberately: which Container ports a browser may reach is asked either way (ADR-0035 §3).
     schema: {
       type: "ports",
       maxCount: MAX_PREVIEW_PORTS,
-      reserved: RESERVED_CONTAINER_PORTS,
-      default: DEFAULT_PREVIEW_PORTS,
+      reserved: RESERVED_CONTAINER_PORT_USES,
+      off: true,
+      offLabel: "any port",
+      default: [],
     },
     disclosure: "advanced",
   },

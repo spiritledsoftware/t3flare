@@ -2,15 +2,15 @@
 // the Environment Worker's `ContainerPreviews` entrypoint, made for this Workspace, which hands it here through the agents
 // Worker's `WorkspaceContainerPreviews`. It is answered from the Container's port (`getTcpPort`), on the Container's
 // interface, so a dev server must listen on `0.0.0.0`. A Container preview never starts the Container: a stopped one
-// answers 503, a port with nothing listening 502. Only the eight Container preview ports are served; computerd's is not
-// one of them.
+// answers 503, a port with nothing listening 502. Any port is served but t3flare's own (`RESERVED_CONTAINER_PORTS`,
+// SPI-1390); which ones a page reaches is its browser's routes.
 //
 // Each request is a use of the Container, and a page's carried socket (`containerPreviewScript.ts`) holds it while open;
 // both only within the hold cap from the Workspace's last input (ADR-0021's 30 minutes, review M5), which the Workspace DO
 // decides (`used`, `hold`). Neither is the owner's or the agent's activity: an open page keeps the Container only while
 // someone works there. Nothing here logs a request's path, query or cookies (review L5).
 // @effect-diagnostics globalTimers:off
-import { RESERVED_CONTAINER_PORTS } from "@t3flare/harness-registry";
+import { reservedPortMessage } from "@t3flare/harness-registry";
 import { containerPreviewHost } from "@t3flare/workspace-client";
 
 import {
@@ -162,13 +162,17 @@ export class ContainerPreview {
 
   /** Answer `request`, made to the Container preview of `port`. */
   async serve(request: Request, port: number): Promise<Response> {
-    // Which ports a browser reaches is its routes, made from the Owner's `previewPorts` (SPI-1364); t3flare's own never.
-    if (RESERVED_CONTAINER_PORTS.includes(port) || !Number.isInteger(port) || port < 1 || port > 65_535) {
+    // Which ports a browser reaches is its routes (SPI-1390: any port, or the Owner's `previewPorts`); t3flare's own never.
+    const reserved = reservedPortMessage(port);
+    if (reserved !== undefined) {
       return page(
         404,
-        `Port ${port} has no Container preview`,
-        `Port ${port} is t3flare's own. Start the dev server on another port, one of the Environment setting Container preview ports.`,
+        `Port ${port} is reserved`,
+        `${reserved.charAt(0).toUpperCase()}${reserved.slice(1)}. Start the dev server on another port.`,
       );
+    }
+    if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+      return page(404, `Port ${port} has no Container preview`, `${port} is not a port from 1 to 65535.`);
     }
 
     if (!this.#deps.running()) {

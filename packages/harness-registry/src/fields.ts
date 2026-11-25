@@ -58,13 +58,16 @@ export type EnvironmentFieldSchema =
   | { readonly type: "variables"; readonly default: ReadonlyArray<StoredVariable> }
   /**
    * A list of TCP ports (SPI-1364: the Container preview ports): 1 to `maxCount` distinct ports from 1 to 65535, none of
-   * `reserved`. Stored ascending; the panel edits it as text ("3000, 5173"), which `normalizeField` reads.
+   * `reserved` (each port with what t3flare uses it for, which a refusal names). Stored ascending; the panel edits it as text ("3000, 5173"), which `normalizeField` reads. `off`: an
+   * opt-in list (SPI-1390), whose empty list is no list at all, shown as `offLabel` ("off" without it).
    */
   | {
       readonly type: "ports";
       readonly maxCount: number;
-      readonly reserved: ReadonlyArray<number>;
+      readonly reserved: Readonly<Record<number, string>>;
       readonly default: ReadonlyArray<number>;
+      readonly off?: true;
+      readonly offLabel?: string;
     };
 
 export type SettingValue = boolean | number | string;
@@ -179,7 +182,7 @@ export const fieldProblem = (schema: EnvironmentFieldSchema, value: unknown): st
     case "file":
       return typeof value === "string" ? fileProblem(value, schema.maxBytes) : "text";
     case "ports":
-      return portsProblem(value, schema.maxCount, schema.reserved);
+      return portsProblem(value, schema.maxCount, schema.reserved, schema.off === true);
   }
 };
 
@@ -200,18 +203,26 @@ const normalizePorts = (value: unknown): unknown => {
   return [...new Set(read as ReadonlyArray<number>)].sort((a, b) => a - b);
 };
 
-/** Why `value` is not a list of 1 to `maxCount` ports, none of `reserved`, or undefined. */
-const portsProblem = (value: unknown, maxCount: number, reserved: ReadonlyArray<number>): string | undefined => {
-  if (!Array.isArray(value) || value.length === 0) return "a list of at least one port";
+/** Why `value` is not a list of 1 to `maxCount` ports (0 too when `off`), none of `reserved`, or undefined. */
+const portsProblem = (
+  value: unknown,
+  maxCount: number,
+  reserved: Readonly<Record<number, string>>,
+  off: boolean,
+): string | undefined => {
+  if (!Array.isArray(value)) return off ? "a list of ports, or none" : "a list of at least one port";
+  if (value.length === 0) return off ? undefined : "a list of at least one port";
   for (const port of value as ReadonlyArray<unknown>) {
     if (typeof port !== "number" || !Number.isInteger(port) || port < 1 || port > 65_535)
       return `ports from 1 to 65535, not ${String(port)}`;
-    if (reserved.includes(port)) return `not ${port}, which t3flare uses itself`;
+    const use = reserved[port];
+    if (use !== undefined) return `port ${port} is reserved by t3flare for ${use}`;
   }
   if (new Set(value).size !== value.length) return "each port once";
   return value.length > maxCount ? `at most ${maxCount} ports` : undefined;
 };
 
-/** Whether `value` is an `off` setting's no limit (SPI-1386): its 0. */
+/** Whether `value` is an `off` setting's no limit (SPI-1386): its 0, or an opt-in port list's none (SPI-1390). */
 export const isOff = (schema: EnvironmentFieldSchema, value: unknown): boolean =>
-  schema.type === "integer" && schema.off === true && value === 0;
+  (schema.type === "integer" && schema.off === true && value === 0) ||
+  (schema.type === "ports" && schema.off === true && Array.isArray(value) && value.length === 0);

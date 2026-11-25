@@ -119,7 +119,7 @@ const offRank = (schema: EnvironmentFieldSchema | undefined, value: unknown): un
 /** A value as a reason shows it: an `off` setting's 0 as its off word (`offLabel`: "never", "no budget"), else "off". */
 const shownValue = (schema: EnvironmentFieldSchema | undefined, value: unknown): string =>
   schema !== undefined && isOff(schema, value)
-    ? ((schema.type === "integer" ? schema.offLabel : undefined) ?? "off")
+    ? ((schema.type === "integer" || schema.type === "ports" ? schema.offLabel : undefined) ?? "off")
     : JSON.stringify(value);
 
 /**

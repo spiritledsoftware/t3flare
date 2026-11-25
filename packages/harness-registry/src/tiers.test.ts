@@ -134,7 +134,7 @@ const ENVIRONMENT: Readonly<
   commandMinutes: { up: [2, 0, "asked"], down: [0, 1, "free"] },
   containerConnectSeconds: { up: [60, 120, "asked"], down: [60, 30, "free"] },
   // SPI-1364: which Container ports a preview browser reaches, asked either way.
-  previewPorts: { up: [[3000], [3000, 3002], "asked"], down: [[3000, 3002], [3000], "asked"] },
+  previewPorts: { up: [[3000], [], "asked"], down: [[], [3000], "asked"] },
   // ADR-0047 §9 (SPI-1332): a lowered time limit is free; the script, the Builder's budget and the schedule asked.
   imageSetup: { up: ["", "apt-get install -y jq\n", "asked"], down: ["apt-get install -y jq\n", "", "asked"] },
   imageSetupMinutes: { up: [30, 60, "asked"], down: [30, 10, "free"] },

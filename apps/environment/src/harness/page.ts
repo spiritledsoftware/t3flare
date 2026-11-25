@@ -195,7 +195,8 @@ const field = (
     case "ports":
       // Typed as text (a keypad with a comma or a space, not `numeric`'s); the script checks it at the field before a save
       // as the API does (`normalizeField`), from its bounds here.
-      return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="text" required autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="3000, 5173" ${attrs} data-max-count="${setting.schema.maxCount}" data-reserved="${escapeHtml(setting.schema.reserved.join(" "))}" value="${escapeHtml(Array.isArray(value) ? value.join(", ") : "")}">${hint}</div>`;
+      // An opt-in list (SPI-1390) may be left empty, its off word the placeholder.
+      return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="text"${setting.schema.off === true ? ` data-off="1"` : " required"} autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="${escapeHtml(setting.schema.off === true ? (setting.schema.offLabel ?? "off") : "3000, 5173")}" ${attrs} data-max-count="${setting.schema.maxCount}" data-reserved="${escapeHtml(JSON.stringify(setting.schema.reserved))}" value="${escapeHtml(Array.isArray(value) ? value.join(", ") : "")}">${hint}</div>`;
     case "file":
       // No maxlength (it counts UTF-16 units; the API's byte limit refuses, whole). The newline after the tag is the one
       // an HTML parser drops, so a text that starts with one round-trips and an unrelated save changes nothing.
