@@ -1985,11 +1985,12 @@ Moved from U58 when its Commissary readers went (SPI-1176).
   `payload_json`, or starts recording answers on a dismissal.
 - **Detection**: the commands are built with `satisfies OrchestrationV2Command`, so typecheck catches a changed shape;
   `apps/environment/test/parkQuestions.test.ts` decodes both with t3's own schema, runs `parkQuestionOf` over the table
-  as t3's migrations create it (and fails on any `ALTER TABLE` of it) with rows t3's `OrchestrationV2RuntimeRequest`
+  as t3's migrations create it (and fails on any `ALTER TABLE` of it, subdirectories included) with rows t3's `OrchestrationV2RuntimeRequest`
   encoder wrote. **Silent**: a change in what t3 does with a valid respond (no `async-answer` message, so the agent is
   never told and its record is kept), and answers recorded on a dismissal (a dismissed question read as answered: its
-  record is kept, and its CLI session never pruned). A dispatch t3 refuses is logged `cli-park-clear-failed` and
-  tried again at each boot.
+  record is kept, and its CLI session never pruned). A dispatch t3 refuses while the question is still pending is logged
+  `cli-park-clear-failed` and tried again, while it stays pending, at the next boot or the next close of a parked
+  change; one refused because the question was resolved meanwhile is read again, unlogged.
 - **Blast radius**: a parked agent is not told its change was answered on its page, and its park question stays up
   (SPI-1404's bug again); or a parked record is kept, holding its CLI session from pruning.
 - **Fix**: compare the commands with `OrchestrationV2Command` and `dispatchRuntimeRequestRespond` /

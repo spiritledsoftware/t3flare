@@ -330,7 +330,7 @@ describe("the asked change's wait (SPI-1316, SPI-1389)", () => {
 describe("a parked change closed elsewhere (SPI-1404)", () => {
   const PARK_ID = `runtime-request:codex:${PARK_QUESTION_MARKER}:x`;
 
-  /** A CLI turn parked on the change its call opened: the fixture's parked card, and its record kept as `park` keeps it. */
+  /** A CLI turn parked on the change its call opened: the fixture's parked card, its record kept as `park` keeps it. */
   const parkedRun = async (question: () => ParkQuestionState = () => "pending") => {
     const closed: Array<[string, string, boolean]> = [];
     const sql = nodeSqlStorage();
@@ -358,7 +358,7 @@ describe("a parked change closed elsewhere (SPI-1404)", () => {
     return { run, changeId, parked, closed, answered, dismissed, reconcile };
   };
 
-  it("approved on its page: the close is told, and its question answered Approve once, its record left for the answer", async () => {
+  it("approved on its page: the close is told, its question answered Approve once, its record kept", async () => {
     let question: ParkQuestionState = "pending";
     const { run, changeId, parked, closed, answered, dismissed, reconcile } = await parkedRun(() => question);
     // Still open: nothing to do.
@@ -446,24 +446,30 @@ describe("a parked change closed elsewhere (SPI-1404)", () => {
     expect([answered, dismissed]).toEqual([[[PARK_ID, false]], []]);
   });
 
-  it("an answer t3 refuses because the Owner answered the question meanwhile is left to that answer, unlogged", async () => {
-    let question: ParkQuestionState = "pending";
-    const { run, changeId, parked } = await parkedRun(() => question);
-    await pagePost(run, changeId, { action: "approve" });
-    const logged = run.logs.length;
-    const cleared = await clearClosedParkedChanges({
-      parked,
-      change: (id) => run.deps.changes.get(id),
-      question: () => question,
-      answer: async () => {
-        question = "answered";
-        throw new Error(`Runtime request ${PARK_ID} is resolved.`);
-      },
-      dismiss: async () => undefined,
-      log: (event) => void run.logs.push(event),
+  for (const [resolved, kept] of [
+    ["answered", true],
+    ["dismissed", false],
+  ] as const) {
+    it(`refused, its question ${resolved} meanwhile: unlogged, record ${kept ? "kept" : "dropped"}`, async () => {
+      let question: ParkQuestionState = "pending";
+      const { run, changeId, parked } = await parkedRun(() => question);
+      await pagePost(run, changeId, { action: "approve" });
+      const logged = run.logs.length;
+      const cleared = await clearClosedParkedChanges({
+        parked,
+        change: (id) => run.deps.changes.get(id),
+        question: () => question,
+        answer: async () => {
+          question = resolved;
+          throw new Error(`Runtime request ${PARK_ID} is resolved.`);
+        },
+        dismiss: async () => undefined,
+        log: (event) => void run.logs.push(event),
+      });
+      expect(cleared).toEqual({ answered: 0, dismissed: 0, dropped: kept ? 0 : 1 });
+      expect(run.logs.slice(logged)).toEqual([]);
+      expect(parked.get(PARK_ID) !== undefined).toBe(kept);
+      run.dispose();
     });
-    expect(cleared).toEqual({ answered: 0, dismissed: 0, dropped: 0 });
-    expect(run.logs.slice(logged)).toEqual([]);
-    expect(parked.get(PARK_ID)).toBeDefined();
-  });
+  }
 });

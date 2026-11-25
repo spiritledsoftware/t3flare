@@ -6,8 +6,8 @@
 //
 // Kept in the Environment DO's SQLite, not memory: the answer can come days later, after the Environment reset (ADR-0003).
 // A record goes when it is answered, or, for a change card, when its Open change closed elsewhere and its question is
-// dismissed or gone (`parkedChanges.ts`); an allowance when it is taken, when its answer turn ends without the call, or when
-// the Environment boots (its answer turn's process is gone with the old instance).
+// dismissed or gone (`parkedChanges.ts`); an allowance when it is taken, when its answer turn ends without the call, or
+// when the Environment boots (its answer turn's process is gone with the old instance).
 import type { SqlStorage } from "@cloudflare/workers-types/index.ts";
 
 export const PARKED_TABLE = "t3flare_parked_cards";

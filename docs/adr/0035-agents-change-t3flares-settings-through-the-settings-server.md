@@ -281,22 +281,24 @@ cut off is closed as failed `APPLYING_GRACE_MS` after it started (`applyingAt`),
 ## Refinement (SPI-1404, 2026-11-25): a page answer tells the parked agent, as the question does
 
 Supersedes the SPI-1389 refinement's last sentence. The parked card and its question are ADR-0015's SPI-1389 refinement.
-An Open change a CLI turn parked on, answered on its Change page (or
-through the page's API, by the Owner or a service token), no longer leaves its park question behind. Each close of an
-Open change tells the Environment DO (`changeClosed`), and where a parked card waits on that change, its question is
-brought in line once t3 takes commands (`clearClosedParkedChanges`, `provider/cli/parkedChanges.ts`):
+An Open change a CLI turn parked on, answered on its Change page (or through the page's API, by the Owner or a service
+token), no longer leaves its park question behind. Each close of an Open change tells the Environment DO
+(`changeClosed`), and where a parked card waits on that change, its question is brought in line once t3 takes commands
+(`clearClosedParkedChanges`, `provider/cli/parkedChanges.ts`):
 
 - **Answered on the page:** the page's decision (Approve, or Decline) is noted on the parked record at the close, so it
-  outlives the change's row. The question is answered on the Owner's behalf with it
-  through t3's own `runtime-request.respond`. t3 sends the agent the same `async-answer` message the Owner's own answer
-  there sends, once, and the parked answer path reports the change's outcome as the page closed it, then drops the
-  record. That message starts a turn, and a Container with it, as answering on the question does; when t3 is not
-  running, the answer boots it for the delivery. The page's answer never waits on it.
+  outlives the change's row. The question is answered on the Owner's behalf with it through t3's own
+  `runtime-request.respond`. t3 sends the agent the same `async-answer` message the Owner's own answer there sends,
+  once, and the parked answer path reports the change's outcome as the page closed it, then drops the record. That
+  message starts a turn, and a Container with it, as answering on the question does; when t3 is not running, the answer
+  boots it for the delivery. The page's answer never waits on it.
 - **Closed without an answer** (it expired after `CARD_WAIT_MS`, or it is no longer kept): the question is dismissed
   (`thread.user-input.dismiss`: no message, no turn) and the record dropped. An expiry never boots t3: it is brought in
   line at the next boot, or at the next close of a parked change while t3 runs. The agent is not told of an expiry; its
   held call already said the outcome comes when the Owner answers.
 - **The question already answered:** left to the answer's message, which reads the record. **Dismissed by hand, or gone
-  from t3:** the record dropped, so its CLI session can be pruned again.
+  from t3:** the record dropped, so its CLI session can be pruned again. The same holds when t3 refuses an answer or a
+  dismissal because the Owner resolved the question meanwhile: it is read again, and nothing is logged.
 
-The reconcile also runs at each boot, so a delivery that failed (logged `cli-park-clear-failed`) is tried again then.
+Any other failure is logged (`cli-park-clear-failed`) and tried again while the question is pending: at the next boot,
+or at the next close of a parked change.

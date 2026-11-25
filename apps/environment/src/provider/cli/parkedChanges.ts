@@ -1,4 +1,4 @@
-// A parked Open change closed elsewhere (SPI-1404): when a CLI agent's turn parked on an Open change's card (`park.ts`),
+// A parked Open change closed elsewhere (SPI-1404): when a CLI agent's turn parked on an Open change's card (park.ts),
 // the change can still close without its park question: answered on its Change page (or that page's API), or expired.
 // Nothing watches it then (the held call returned). At the close, an answer's decision is noted on the parked record
 // (`noteChangeClosed`), so it outlives the change's row; then this reconcile brings the park question and its record in
@@ -11,12 +11,13 @@
 // - its question already answered: left to `answerText`, whose message is on its way (the record is what it reads);
 // - its question dismissed by hand, or gone: the record dropped, so the CLI session can be pruned again.
 // Each step reads state again, so running it twice does nothing the second time. An answer or dismissal t3 refuses
-// because the Owner resolved the question meanwhile is left to the next run, unlogged; any other failure is logged and
-// left for the next run (the next boot, or the next close of a parked change).
+// because the Owner resolved the question meanwhile is read again, unlogged: answered, it is left to `answerText`;
+// dismissed or gone, its record is dropped. Any other failure is logged, and tried again while the question is pending
+// (at the next boot, or the next close of a parked change).
 import type { ChangeRecord, ChangeState } from "../../settings/changes.ts";
 import type { ParkedCard, ParkedCards } from "./parked.ts";
 
-/** A park question as t3 holds it: pending, resolved with the Owner's answers, resolved without (dismissed), or none. */
+/** A park question as t3 holds it: pending, resolved with answers, resolved without them (dismissed), or none. */
 export type ParkQuestionState = "pending" | "answered" | "dismissed" | "gone";
 
 export interface ParkedChangesDeps {
@@ -56,7 +57,8 @@ const decisionOf = (state: ChangeState): boolean | undefined => {
 };
 
 /**
- * An Open change closed as `state`: an answer's decision is noted on the change cards parked on it, before any delivery.
+ * An Open change closed as `state`: an answer's decision is noted on the change cards parked on it, before any
+ * delivery.
  * Whether any card is parked on it.
  */
 export const noteChangeClosed = (parked: ParkedCards, changeId: string, state: ChangeState): boolean => {
@@ -80,21 +82,23 @@ export const clearClosedParkedChanges = async (deps: ParkedChangesDeps): Promise
       if (question === "pending") {
         const approve =
           card.answeredElsewhere?.approve ?? (change === undefined ? undefined : decisionOf(change.state));
-        const settled = await (approve === undefined ? deps.dismiss(card) : deps.answer(card, approve)).then(
-          () => true,
+        // A refusal because the Owner resolved it meanwhile (t3 refuses a resolved request) reads it again: an answer
+        // is left to `answerText`, a dismissal (or a request gone) drops the record as below.
+        const outcome = await (approve === undefined ? deps.dismiss(card) : deps.answer(card, approve)).then(
+          () => "settled" as const,
           (error: unknown) => {
-            // The Owner resolved it meanwhile (t3 refuses a resolved request): the next run reads it as it is now.
-            if (deps.question(card.id) !== "pending") return false;
-            throw error;
+            const now = deps.question(card.id);
+            if (now === "pending") throw error;
+            return now;
           },
         );
-        if (!settled) continue;
-        if (approve !== undefined) {
+        if (outcome === "answered") continue;
+        if (outcome === "settled" && approve !== undefined) {
           // `answerText` drops the record when the answer's message reaches the agent.
           answered++;
           continue;
         }
-        dismissed++;
+        if (outcome === "settled") dismissed++;
       }
       deps.parked.drop(card.id);
       dropped++;
