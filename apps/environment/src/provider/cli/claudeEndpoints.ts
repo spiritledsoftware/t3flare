@@ -20,22 +20,55 @@ import { relayPickerModels, relayTextModel } from "./relayModels.ts";
 export const claudeEndpoints = (endpoints: ModelEndpoints | undefined): ReadonlyArray<ModelEndpoint> =>
   endpointsOfApi(endpoints, "anthropic-messages", "claude").filter((endpoint) => endpoint.models.length > 0);
 
-/** A model family's word (`opus`, `sonnet`) in a model id. */
-const familyOf = (family: string) => new RegExp(`(?:^|[-_./:])${family}(?:$|[-_.:])`, "i");
+/**
+ * A model id's version within `family`: the numbers right after the family's word (`claude-opus-4-1-20250805` is 4.1,
+ * `claude-opus-5-5` 5.5), else right before it (`claude-3-7-sonnet-20250219` is 3.7). A date (more than three digits)
+ * is no part of it. Undefined: the id does not name the family.
+ */
+export const familyVersion = (id: string, family: string): ReadonlyArray<number> | undefined => {
+  const words = id.toLowerCase().split(/[-_./:]/);
+  const at = words.indexOf(family);
+  if (at < 0) return undefined;
+  const numbers = (from: ReadonlyArray<string>) => {
+    const version: Array<number> = [];
+    for (const word of from) {
+      if (!/^\d{1,3}$/.test(word)) break;
+      version.push(Number(word));
+    }
+    return version;
+  };
+  const after = numbers(words.slice(at + 1));
+  return after.length > 0 ? after : numbers(words.slice(0, at).toReversed()).toReversed();
+};
+
+/** Positive when version `a` is newer than `b` (a missing part counts as 0: 4 is 4.0). */
+const newer = (a: ReadonlyArray<number>, b: ReadonlyArray<number>): number => {
+  for (let index = 0; index < Math.max(a.length, b.length); index++) {
+    const step = (a[index] ?? 0) - (b[index] ?? 0);
+    if (step !== 0) return step;
+  }
+  return 0;
+};
 
 /**
- * The slug Claude Code's `opus` or `sonnet` alias resolves to: the first model of that family in the owner's order that
- * pi-ai's catalog knows (an endpoint's list can name a dated model its server no longer serves, which pi-ai's catalog
- * dropped: Commissary lists `claude-3-7-sonnet-20250219` first and answers 503 for it), else the family's first, else
- * the first model listed (so the alias still names a slug the relay routes, never Claude Code's own id). A resumed
- * session calls the alias.
+ * The slug Claude Code's `opus` or `sonnet` alias resolves to: the family's newest model, as stock Claude Code's alias
+ * is (ADR-0049's local parity). Among models of one version, the one pi-ai's catalog knows, then the owner's order.
+ * Never the family's first listed: Commissary lists dated models first (`claude-opus-4-1-20250805`), which its
+ * credentials refuse, and an imported `"model": "opus"` opens every session on the alias. No model of the family: the
+ * first model listed (so the alias still names a slug the relay routes, never Claude Code's own id).
  */
 const familyModelOf = (own: ReadonlyArray<ModelEndpoint>, family: "opus" | "sonnet"): string | undefined => {
   const slugs = own.flatMap((endpoint) =>
     endpoint.models.map((model) => ({ slug: endpointSlug(endpoint.id, model.id), id: model.id, known: model.known })),
   );
-  const ofFamily = slugs.filter((entry) => familyOf(family).test(entry.id));
-  return (ofFamily.find((entry) => entry.known) ?? ofFamily[0] ?? slugs[0])?.slug;
+  let best: { readonly slug: string; readonly known: boolean; readonly version: ReadonlyArray<number> } | undefined;
+  for (const entry of slugs) {
+    const version = familyVersion(entry.id, family);
+    if (version === undefined) continue;
+    const step = best === undefined ? 1 : newer(version, best.version);
+    if (step > 0 || (step === 0 && entry.known && best?.known !== true)) best = { ...entry, version };
+  }
+  return (best ?? slugs[0])?.slug;
 };
 
 /** Claude Code's relay configuration for the endpoints as stored now, or undefined when there is no such endpoint. */

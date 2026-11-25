@@ -152,7 +152,7 @@ describe("generateEndpointText", () => {
       [404, 'The Model endpoint "gw" does not serve the model small-mini (HTTP 404).'],
       [429, 'The Model endpoint "gw" is rate-limited (HTTP 429).'],
       [400, 'The Model endpoint "gw" refused the request (HTTP 400).'],
-      [503, 'The Model endpoint "gw" is overloaded (HTTP 503).'],
+      [503, 'The Model endpoint "gw" is temporarily unavailable (HTTP 503).'],
       [500, 'The Model endpoint "gw" failed (HTTP 500).'],
     ] as const) {
       it(`names the endpoint and never echoes the body or the key on HTTP ${status} (${api})`, async () => {
