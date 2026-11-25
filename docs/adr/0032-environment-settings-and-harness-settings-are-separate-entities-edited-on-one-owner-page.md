@@ -517,13 +517,14 @@ _Superseded in part by the SPI-1397 refinement: an agent's Terminal keeps its sc
   text to it take it: `ls`, `find` and `grep` (grep's context share), the web tools (`web_search`'s stored result lists,
   `resultsBytes`, from what it leaves), a Terminal's screen beside its scrolled-off lines, a Background job's tail, and
   a `context_history` read's page. `read` still reads at most pi-durable's 50 KiB or 2,000 lines of a file per call,
-  which its description names.
+  which its description names. (`outputLines` is superseded by the SPI-1388 refinement: fixed at 2,000.)
 - **New Harness settings, today's values as defaults:** `web.searchContextCharacters` (6000), `context.previewCharacters`
   (120: a list line; a tool call's argument half, a search match a sixth before and half after), `termctrl.startWaitMs`
   (2000, also bash's background threshold), `inputWaitMs` (500), `pollWaitMs` (30000), `scrollbackLines` (100) and
   `scrollbackKiB` (16, at most half the Tool output limit in effect), `guardian.batchArgumentCharacters` (2000, at most
   the evidence budget; asked, as every Guard's setting), and a `prompt-suggestions` entry, "Always on" (t3's Labs flag
-  turns suggestions on), with `excerptCharacters` (4000) and `timeoutSeconds` (20).
+  turns suggestions on), with `excerptCharacters` (4000) and `timeoutSeconds` (20). (Each superseded by the SPI-1388
+  refinement: fixed in code, or derived for `scrollbackKiB`.)
 - **A new Environment setting:** `agentTerminalScrollbackLines` (1000, 0 to 10,000, `down-free`, in the Containers row
   after the agents' Terminal count), riding the launch as the SPI-1317 refinement's four do. Its maximum is a named,
   provisional constraint, as the agents' Terminal count's: each line of an agent's Terminal takes about 12 bytes per
@@ -680,7 +681,8 @@ settings, so a change can take one more start to apply, as the settings read wai
 Two Harness settings: termctrl's `quietMs` (250) and `stopGraceSeconds` (3), carried on each agent Terminal settle and
 stop; and code mode's `interruptBudget` (100,000 polls, pi-codemode's default), at most `MAX_CODEMODE_INTERRUPT_BUDGET`,
 derived from the sandbox Worker's CPU limit (a Durable Object's default 30 s, which apps/environment/alchemy.run.ts
-leaves unset) at pi-codemode's measured 10,000 polls a CPU second.
+leaves unset) at pi-codemode's measured 10,000 polls a CPU second. (`quietMs` and `stopGraceSeconds` superseded by the
+SPI-1388 refinement: fixed, and no longer carried.)
 
 Derived, not set: t3's git commands end when t3 gives up on them. t3 times each git command by interrupting its own wait
 (30 s by default, 5 minutes for a fetch, none for a push), which the spawner sees only as its scope closing; the router
@@ -800,7 +802,8 @@ bound; `down-free`, since each hop spends up to three of the turn invocation's s
 (default 200, at most 10,000; `down-free`, since a longer title takes more of the thread's stored history). The 4,000-character window the title was
 searched in is gone, as are the 300-character cuts of `web_fetch`'s and `web_search`'s snippets: `web_fetch`'s snippet
 is the model's text, cut only where the result's Session row has no more room, and `web_search`'s are whole, within the
-result lists' share of the row.
+result lists' share of the row. (Both settings superseded by the SPI-1388 refinement: 20 redirects and 200 characters,
+fixed.)
 
 Changed Harness settings: `codemode.inlineBudget` takes any whole number from 0, with no maximum (was 500 to 20,000),
 and becomes `down-free` (was `free`), since a larger budget puts more in every request's prompt; the Guardian's
@@ -810,7 +813,7 @@ settings' one Durable Object value instead, as a tools change already was. `term
 1 up to `MAX_TERMINAL_COLS` and `MAX_TERMINAL_ROWS` (were 40 to 400 and 10 to 200), derived from the Workspace DO's
 128 MB shared among `MAX_AGENT_TERMINALS_PER_WORKSPACE` Terminals at about 12 bytes a cell, each with the other's
 default and the default scrollback, and within a PTY's 16-bit size: 320 and 1,777 today, provisional with the
-estimate they share.
+estimate they share. (Superseded by the SPI-1388 refinement: the size is fixed at 120 by 40, and the maxima are gone.)
 
 An extension change keeps the rest of Global: before, it stored Global as only its `extensions`, which dropped the
 tools' Exposures and t3's tools set before it.
@@ -953,7 +956,7 @@ each guards only t3flare's own machinery, or bounds memory in a 128 MB isolate, 
   temp files kept (24 h), git answers kept (500), router trace entries (300), reclaim protection (30 s), the skills wait
   (5 s), the first-prompt wait (20 s) and the port check (1,000 ms). The stopped command's grace (2 s) and the stopped
   port's (3 s) are one stop grace, `STOP_GRACE_SECONDS` (3 s), which also defaults the Harness's
-  `termctrl.stopGraceSeconds`.
+  `termctrl.stopGraceSeconds` (superseded by the SPI-1388 refinement: the agent Terminal's stop takes it, fixed).
 - **Derived:** the CLI agents' processes per Workspace are the Container size's memory past 1 GiB over the largest
   measured CLI turn, rounded up to 440 MiB (about 461 MB): 4 on `cpu-1`, 16 on `standard-3`. The Workspace computes it from the size its last start
   kept; the Environment carries no count.
@@ -1022,7 +1025,8 @@ Background job kept a headless xterm with its whole scrollback in the Workspace 
   since its Terminals ended with the last instance.
 - **The Terminal size maxima stay.** `termctrl.cols` and `termctrl.rows` keep 320 and 1,777, now fixed values: a
   sanity bound for a live Terminal's xterm, provisional (about 7 MB at both maxima, its screen and the spill margin),
-  no longer derived from a count of Terminals or their scrollback.
+  no longer derived from a count of Terminals or their scrollback. (Superseded by the SPI-1388 refinement: the size is
+  fixed at 120 by 40, and the maxima are gone.)
 
 ## Refinement (SPI-1389, 2026-11-24): Park after replaces the Answer wait
 
@@ -1037,3 +1041,45 @@ Where the machinery needs a deadline, a card takes `CARD_WAIT_MS`, the off deadl
 change's `expiresAt` and page token, and the MCP library's input bound. A CLI agent's MCP tool timeout follows Park after
 at its spawn: `cliToolTimeoutSec(parkAfter, call) = 2 × parkAfter + call + 30 s`, each off part counting as the off
 deadline. The process keeps the value for its life (`ChannelStart.parkAfterMs`).
+
+## Refinement (SPI-1388, 2026-11-24): the Harness's internal values become named constants
+
+Supersedes, for the Harness settings below, the refinements that made them settings (SPI-1320, SPI-1321, SPI-1362,
+SPI-1364, SPI-1368), under ADR-0049 §3: each only guards t3flare's own machinery, or is pi's own default, so it is a
+named constant in `packages/harness-registry/src/harnessConstants.ts`, with a comment naming why. Each value is the
+Owner's (2026-11-24).
+
+- **Fixed in code**, at the setting's old default unless named: the Tool output limit's lines (2,000, pi-durable's
+  own beside the KiB setting); `web_fetch`'s time limit (30 s, which a call may lengthen), size limit (5,120 KiB),
+  redirects (20, up from 10: the Fetch standard's, about 60 of an invocation's 10,000 subrequests) and title (200
+  characters); `web_search`'s summary tokens (1,500), time limit (90 s) and result characters (6,000, which a call may
+  change); a History preview (120 characters); termctrl's Background jobs from bash (offered while Terminals are on),
+  size (120 by 40, pi-termctrl's viewport), Start, Input and Poll waits (2,000, 500 and 30,000 ms, which a call may
+  change), scrolled-off lines (100), settle quiet (250 ms) and stop grace (the one `STOP_GRACE_SECONDS`, 3 s); the
+  Guardian's batch argument characters (2,000, pi-guardian's, tied to its 96,000-character evidence); the Advisor's
+  findings per Review (4), Nits per request (3), Concern cooldown (3 turns), catch-up backlog (3 turns) and wait (30 s);
+  and Prompt suggestions' characters read (4,000) and time limit (20 s).
+- **ls, find and grep as pi.** Their 500 entries, 1,000 paths and 100 matches are pi's own `DEFAULT_LIMIT`s (checked
+  against pi-coding-agent 1.5.2), and, as in pi, a call's own `limit` may be larger: no cap of t3flare's remains, and
+  the Tool output limit bounds what the model reads. A result stopped at its limit says so, with the value and how to
+  ask for more, as pi's does.
+- **Derived:** the scrolled-off lines' bytes are half the Tool output limit's KiB (25 at its default 50).
+- **Removed:** `web_fetch`'s longest call timeout (the turn limit bounds a call's own; t3flare's week, ADR-0048 §2,
+  keeps its timer from overflowing), and the Project context's characters per file: each AGENTS.md or CLAUDE.md reaches
+  the prompt whole. A file that exists but cannot be read (one past the Workspace's 32 MiB RPC message, or any other
+  failure) is named in its place with why, never left out silently; a prompt larger than the model's context is the
+  endpoint's to refuse, and the turn fails with its error. A web_fetch body is never returned unconverted: every body
+  within the size limit converts.
+- **A stored value** for any of these keys is dropped on resolve, never refused, and a change beside it is taken; a
+  change that sets one is refused as an unknown setting. The agent Terminal requests no longer carry a quiet or a
+  grace: the Workspace uses the constants.
+- **Every limit names itself when hit**, with its value: `web_fetch`'s size limit, redirects and default time limit,
+  `web_search`'s time limit, answer limit and summary tokens, a cut of the scrolled-off lines, a stop that outlived
+  the grace (on its exit), a cut of a batch call's arguments and the evidence budget (in the Guardian's Review), the
+  Advisor's tool result and seed budgets (in its Review), and, in the log, the Advisor's findings and Nit caps, its
+  catch-up wait and Session size, a late prompt suggestion and a skills take that ran out (`SKILLS_TAKE_MS`). A title
+  cut at 200 characters ends with "…".
+- **Sanity bound:** `advisor.correctiveTurns` stays a setting, shown while the Advisor is on; its maximum rises from 3
+  to 100, the sanity bound `maxToolRounds` has (ADR-0048).
+- The Settings page loses those rows: Tool output's and every listed extension's Advanced fields, termctrl's ten
+  settings and the Project context's one. The Settings server's descriptions and the Change tiers follow the registry.

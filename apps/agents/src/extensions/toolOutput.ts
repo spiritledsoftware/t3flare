@@ -1,10 +1,11 @@
-// Tool output (SPI-1362): the Harness settings' always-on entry (`tool-output`) whose two settings are the Tool output
-// limit, what the model is shown of every tool's result. pi-durable cuts a result to its tool's `outputLimits`, and falls back to its own defaults (50 KiB,
-// 2,000 lines) for a tool that names none; this extension gives every tool the setting instead. A tool that names its
+// Tool output (SPI-1362): the Harness settings' always-on entry (`tool-output`) whose setting, with the fixed
+// `TOOL_OUTPUT_LINES` (SPI-1388), is the Tool output limit, what the model is shown of every tool's result. pi-durable
+// cuts a result to its tool's `outputLimits`, and falls back to its own defaults (50 KiB, 2,000 lines) for a tool that
+// names none; this extension gives every tool the setting instead. A tool that names its
 // own `maxBytes` or `maxLines` keeps them (pi-durable's code mode, `todo`); the tools that size their own text to the
 // limit (`ls`, `find`, `grep`, the web tools, the Terminals, `context_history`) are built with the same limits.
 import { defineExtension, type Extension, type ToolRegistration } from "@earendil-works/pi-durable";
-import { defaultSettings, type SettingValue } from "@t3flare/harness-registry";
+import { defaultSettings, type SettingValue, TOOL_OUTPUT_LINES } from "@t3flare/harness-registry";
 
 export const TOOL_OUTPUT_EXTENSION = "tool-output";
 
@@ -14,10 +15,10 @@ export interface ToolOutputLimits {
   readonly maxLines: number;
 }
 
-/** The `tool-output` extension's resolved settings as limits. */
+/** The `tool-output` extension's resolved settings as limits, its lines the fixed `TOOL_OUTPUT_LINES`. */
 export const toolOutputLimits = (values: Readonly<Record<string, SettingValue>>): ToolOutputLimits => ({
   maxBytes: Number(values.outputKiB) * 1024,
-  maxLines: Number(values.outputLines),
+  maxLines: TOOL_OUTPUT_LINES,
 });
 
 export const DEFAULT_TOOL_OUTPUT_LIMITS: ToolOutputLimits = toolOutputLimits(defaultSettings(TOOL_OUTPUT_EXTENSION));

@@ -7,6 +7,8 @@
 // differently to two queries milliseconds apart can still pass. Both go through Cloudflare's caching resolver, and
 // Cloudflare's edge refuses Worker subrequests to private addresses anyway.
 // @effect-diagnostics globalFetch:off extendsNativeError:off globalTimers:off
+import { FETCH_REDIRECTS } from "@t3flare/harness-registry";
+
 import { blockedAddressReason, blockedHostReason } from "./ssrf.ts";
 
 /** A web tool could not do what it was asked: the model sees `message` as the tool's error result. */
@@ -79,14 +81,15 @@ const formatByteLimit = (bytes: number): string =>
 
 /**
  * Read a response's body incrementally, never holding more than `maximumBytes`: a larger declared or streamed body
- * fails and the rest is cancelled.
+ * fails and the rest is cancelled, its error naming the limit by `named` of its value in words ("5 MiB").
  */
 export const readBoundedBody = async (
   response: Response,
   maximumBytes: number,
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
+  named: (size: string) => string,
 ): Promise<Uint8Array> => {
-  const tooLarge = () => new WebToolError(`response body exceeds the ${formatByteLimit(maximumBytes)} limit`);
+  const tooLarge = () => new WebToolError(`response body exceeds ${named(formatByteLimit(maximumBytes))}`);
   const declared = Number.parseInt(response.headers.get("content-length") ?? "", 10);
   if (Number.isSafeInteger(declared) && declared > maximumBytes) {
     await discardBody(response);
@@ -202,14 +205,13 @@ const checkUrl = async (transport: WebTransport, url: URL, hop: number, signal?:
 };
 
 /**
- * Send `request`, following redirects by hand (up to `maxRedirects`, the `fetchRedirects` setting) and checking the URL
- * and every redirect target first. Returns the first response that is not a redirect, with the URL it came from. A refused target fails with
- * `blocked: …` and nothing is sent to it.
+ * Send `request`, following redirects by hand (up to `FETCH_REDIRECTS`, SPI-1388) and checking the URL and every
+ * redirect target first. Returns the first response that is not a redirect, with the URL it came from. A refused target
+ * fails with `blocked: …` and nothing is sent to it.
  */
 export const guardedFetch = async (
   transport: WebTransport,
   request: WebRequest,
-  maxRedirects: number,
   signal?: AbortSignal,
 ): Promise<{ readonly response: Response; readonly url: URL }> => {
   let current: URL;
@@ -226,7 +228,10 @@ export const guardedFetch = async (
     if (!REDIRECT_STATUSES.has(response.status) || location === null) return { response, url: current };
     // The redirect's body is never read.
     await discardBody(response);
-    if (hop >= maxRedirects) throw new WebToolError(`too many redirects (more than ${maxRedirects})`);
+    if (hop >= FETCH_REDIRECTS)
+      throw new WebToolError(
+        `too many redirects (more than ${FETCH_REDIRECTS}, web_fetch's fixed redirect limit, the Fetch standard's)`,
+      );
     try {
       current = new URL(location, current);
     } catch {
@@ -235,13 +240,17 @@ export const guardedFetch = async (
   }
 };
 
-/** `run` with a deadline of `seconds`: aborts `signal`'s child and fails with `timed out after N seconds`. */
+/**
+ * `run` with a deadline of `seconds`: aborts `signal`'s child and fails with `timed out after N seconds`, then `named`
+ * (", web_search's fixed time limit") when the deadline is a limit of t3flare's rather than the call's own.
+ */
 export const withDeadline = async <T>(
   seconds: number,
   outer: AbortSignal | undefined,
   run: (signal: AbortSignal) => Promise<T>,
+  named = "",
 ): Promise<T> => {
-  const label = `${seconds} ${seconds === 1 ? "second" : "seconds"}`;
+  const label = `${seconds} ${seconds === 1 ? "second" : "seconds"}${named}`;
   const controller = new AbortController();
   const onAbort = () => controller.abort(outer?.reason);
   outer?.addEventListener("abort", onAbort, { once: true });

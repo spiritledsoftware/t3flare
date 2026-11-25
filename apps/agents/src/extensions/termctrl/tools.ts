@@ -2,7 +2,7 @@
 // (SPI-1057): the owner's `terminal_start`, `terminal_send`, `terminal_stop`, `terminal_list` and `terminal_wait`, as
 // plain pi-durable tools over the Workspace DO's agent terminals (`workspace/agentTerminals.ts`). Kept: the parameters,
 // defaults and clamps, the settle reasons, `wait_for_text`, the result's first line, the Screen Delta, scrolled-off lines
-// within `termctrl.scrollback`'s limits (the `termctrl` settings, 100 lines or 16 KiB by default, first and last kept),
+// within termctrl's scrollback limits (`TERMINAL_SCROLLED_LINES` and half the Tool output limit, first and last kept),
 // `changed`, the exit texts, and the Steer Yield (a queued steer ends a wait as `steered`). Changed: the wait runs in the Workspace DO in slices, and
 // between slices the tool checks this conversation's inbox for a steer; nothing is written to files on the Worker
 // (termctrl's full-output files), so a cut result says to run the command with `bash` or redirect it; the cwd is the
@@ -17,7 +17,17 @@ import {
   type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { arr, bool, int, obj, opt, str } from "@earendil-works/pi-schema";
-import { AGENT_TERMINAL_HISTORY_BYTES, defaultSettings, type SettingValue } from "@t3flare/harness-registry";
+import {
+  AGENT_TERMINAL_HISTORY_BYTES,
+  TERMINAL_COLS,
+  TERMINAL_INPUT_WAIT_MS,
+  TERMINAL_POLL_WAIT_MS,
+  TERMINAL_QUIET_MS,
+  TERMINAL_ROWS,
+  TERMINAL_SCROLLED_LINES,
+  TERMINAL_START_WAIT_MS,
+  terminalScrolledBytes,
+} from "@t3flare/harness-registry";
 import type {
   AgentEntryInfo,
   AgentExit,
@@ -30,54 +40,27 @@ import type {
 import { isAgentTerminalDropped } from "../../workspace/agentTerminalDropped.ts";
 import { DEFAULT_TOOL_OUTPUT_LIMITS, jobTailOf, type ToolOutputLimits } from "../toolOutput.ts";
 
-/** The `termctrl` settings the tools read (SPI-1362), and the Tool output limit their results fit. */
-export interface TermctrlLimits {
-  /** terminal_start's default wait, and how long bash's `background` runs before the command becomes a job. */
-  readonly startWaitMs: number;
-  /** terminal_send's default wait after typing. */
-  readonly inputWaitMs: number;
-  /** terminal_send's default wait with nothing to type. */
-  readonly pollWaitMs: number;
-  /** termctrl's `scrollback`: the scrolled-off lines a result shows, first and last kept. */
-  readonly scrollback: { readonly lines: number; readonly bytes: number };
-  readonly output: ToolOutputLimits;
-}
-
-/** The `termctrl` extension's resolved settings, with the Tool output limit, as limits. */
-export const termctrlLimits = (
-  values: Readonly<Record<string, SettingValue>>,
-  output: ToolOutputLimits = DEFAULT_TOOL_OUTPUT_LIMITS,
-): TermctrlLimits => ({
-  startWaitMs: Number(values.startWaitMs),
-  inputWaitMs: Number(values.inputWaitMs),
-  pollWaitMs: Number(values.pollWaitMs),
-  scrollback: { lines: Number(values.scrollbackLines), bytes: Number(values.scrollbackKiB) * 1024 },
-  output,
-});
-
-export const DEFAULT_TERMCTRL_LIMITS: TermctrlLimits = termctrlLimits(defaultSettings("termctrl"));
-
 /** Room a Terminal result keeps for its first line, a note and its notices, beside the scrolled-off lines and the screen. */
 const RESULT_ROOM = { lines: 10, bytes: 1024 };
 
 /**
- * The scrolled-off lines a result shows: the `scrollback` settings, and at most half the Tool output limit, so the
- * screen always fits beside them.
+ * The scrolled-off lines a result shows: `TERMINAL_SCROLLED_LINES`, and at most half the Tool output limit's lines and
+ * its bytes (`terminalScrolledBytes`), so the screen always fits beside them.
  */
-export const scrolledLimits = (limits: TermctrlLimits): { readonly lines: number; readonly bytes: number } => ({
-  lines: Math.min(limits.scrollback.lines, Math.floor(limits.output.maxLines / 2)),
-  bytes: Math.min(limits.scrollback.bytes, Math.floor(limits.output.maxBytes / 2)),
+export const scrolledLimits = (output: ToolOutputLimits): { readonly lines: number; readonly bytes: number } => ({
+  lines: Math.min(TERMINAL_SCROLLED_LINES, Math.floor(output.maxLines / 2)),
+  bytes: terminalScrolledBytes(output.maxBytes),
 });
 
 /**
  * The screen a result shows, its last lines: what the Tool output limit leaves beside the scrolled-off lines and the
  * result's own lines, so the Harness's cut, which keeps a result's head, never cuts the screen.
  */
-export const screenLimits = (limits: TermctrlLimits): { readonly lines: number; readonly bytes: number } => {
-  const scrolled = scrolledLimits(limits);
+export const screenLimits = (output: ToolOutputLimits): { readonly lines: number; readonly bytes: number } => {
+  const scrolled = scrolledLimits(output);
   return {
-    lines: Math.max(1, limits.output.maxLines - scrolled.lines - RESULT_ROOM.lines),
-    bytes: Math.max(1, limits.output.maxBytes - scrolled.bytes - RESULT_ROOM.bytes),
+    lines: Math.max(1, output.maxLines - scrolled.lines - RESULT_ROOM.lines),
+    bytes: Math.max(1, output.maxBytes - scrolled.bytes - RESULT_ROOM.bytes),
   };
 };
 
@@ -103,17 +86,19 @@ export const TERMINAL_KEYS: ReadonlyArray<string> = [
   "PageDown",
 ];
 
-/** What the tools need of the Session: its Workspace's agent terminals, the owner name, the viewport, path translation. */
+/** What the tools need of the Session: its Workspace's agent terminals, the owner name, path translation. */
 export interface TermctrlHost {
   readonly call: <R extends AgentTerminalRequest>(request: R) => Promise<AgentTerminalResult<R["op"]>>;
   /** This Session (the owner of its entries). */
   readonly owner: () => string;
-  readonly viewport: () => { readonly cols: number; readonly rows: number };
   /** t3's `/w/<id>` as `/workspace/repo` in a command or typed text (`permissions.ts` `toToolPath`). */
   readonly toToolPath: (text: string) => string;
-  /** The `termctrl` settings and the Tool output limit, as the turn's install took them. */
-  readonly limits: () => TermctrlLimits;
+  /** The Tool output limit, as the turn's install took it. */
+  readonly output: () => ToolOutputLimits;
 }
+
+/** A new Terminal's or Background job's size: termctrl's viewport (`TERMINAL_COLS` by `TERMINAL_ROWS`, SPI-1388). */
+export const VIEWPORT = { cols: TERMINAL_COLS, rows: TERMINAL_ROWS } as const;
 
 const encoder = new TextEncoder();
 const bytes = (text: string) => encoder.encode(text).length;
@@ -194,6 +179,9 @@ export const keepTail = (
   return { text: lines.join("\n"), cut };
 };
 
+/** How a cut of the scrolled-off lines names its limits (SPI-1388): the fixed lines, and the bytes' derivation. */
+const scrolledLimitWords = "t3flare's fixed scrolled-off lines, and half the Tool output limit";
+
 /**
  * Scrolled-off lines within `limits` (`scrolledLimits`): the first and last kept around a marker. `omittedBetween`:
  * lines the Workspace left out between the ends it sent (`AgentView.scrolledOffOmitted`), counted as lines.
@@ -227,7 +215,7 @@ export const fitScrolled = (
   const left = total - head.length - tail.length;
   return {
     text: [...head, marker(left), ...tail].join("\n"),
-    summary: `Showing the first ${head.length} and last ${tail.length} of ${total} scrolled-off lines (${(limits.bytes / 1024).toFixed(1)}KB or ${limits.lines} line limit).`,
+    summary: `Showing the first ${head.length} and last ${tail.length} of ${total} scrolled-off lines (the ${limits.lines}-line or ${(limits.bytes / 1024).toFixed(1)}KB limit: ${scrolledLimitWords}).`,
   };
 };
 
@@ -278,7 +266,7 @@ export const terminalResult = (
     readonly fullScreen?: boolean | undefined;
     readonly label?: string;
   } = {},
-  limits: TermctrlLimits = DEFAULT_TERMCTRL_LIMITS,
+  output: ToolOutputLimits = DEFAULT_TOOL_OUTPUT_LIMITS,
 ) => {
   const rows = splitRows(view.screen);
   // A line the agent saw on its previous screen is not repeated when it scrolls off unchanged. When the Workspace left
@@ -290,11 +278,11 @@ export const terminalResult = (
     ...view.scrolledOff.slice(0, headEnd).filter((line, index) => line !== seen[index]),
     ...view.scrolledOff.slice(headEnd),
   ];
-  const fitted = fitScrolled(scrolled, scrolledLimits(limits), view.scrolledOffOmitted?.count ?? 0);
+  const fitted = fitScrolled(scrolled, scrolledLimits(output), view.scrolledOffOmitted?.count ?? 0);
   const unchanged = view.previous !== null && view.previous.screen === view.screen;
   const start = options.fullScreen === true || unchanged ? 0 : deltaStart(view, rows);
   const omitted = options.fullScreen !== true && unchanged;
-  const screen = screenLimits(limits);
+  const screen = screenLimits(output);
   const shown = keepTail(start === 0 ? view.screen : rows.slice(start).join("\n"), screen);
   const cursor = view.cursor === null ? null : { row: view.cursor.y + 1, column: view.cursor.x + 1 };
   const result: TerminalResult = {
@@ -383,8 +371,8 @@ const settle = async (
         ...(input.pattern === undefined ? {} : { pattern: input.pattern }),
         ...(since === undefined ? {} : { since }),
         view: true,
-        tail: jobTailOf(host.limits().output),
-        scrolledLines: scrolledLimits(host.limits()).lines,
+        tail: jobTailOf(host.output()),
+        scrolledLines: scrolledLimits(host.output()).lines,
       }),
     );
     if (steered) return { view: answer.view, reason: "steered" };
@@ -406,7 +394,7 @@ const waitMs = (description: string) => opt(int({ minimum: 0, description }));
 export const terminalStartTool = (host: TermctrlHost): ToolRegistration =>
   defineTool({
     name: "terminal_start",
-    description: `Start a program in a new interactive Terminal (a PTY in the Workspace's container) and return its screen once it settles: 250 ms of quiet, exit, wait_ms (default ${host.limits().startWaitMs}), or a message queued for you (settle_reason steered; the Terminal keeps running). Use it for REPLs, TUIs, prompts and other programs that need input or a screen. Drive it with terminal_send and end it with terminal_stop.`,
+    description: `Start a program in a new interactive Terminal (a PTY in the Workspace's container) and return its screen once it settles: ${TERMINAL_QUIET_MS} ms of quiet, exit, wait_ms (default ${TERMINAL_START_WAIT_MS}), or a message queued for you (settle_reason steered; the Terminal keeps running). Use it for REPLs, TUIs, prompts and other programs that need input or a screen. Drive it with terminal_send and end it with terminal_stop.`,
     parameters: obj({
       command: str({ description: "Shell command that starts the program" }),
       cwd: opt(str({ description: "Working directory (default: the repo)" })),
@@ -431,16 +419,16 @@ export const terminalStartTool = (host: TermctrlHost): ToolRegistration =>
           kind: "terminal",
           command: host.toToolPath(args.command),
           cwd,
-          ...host.viewport(),
+          ...VIEWPORT,
           notify: args.notify ?? true,
         }),
       );
       const { view, reason } = await settle(host, api, context, {
         id: entry.id,
         mode: "start",
-        waitMs: waitOf(args.wait_ms, host.limits().startWaitMs),
+        waitMs: waitOf(args.wait_ms, TERMINAL_START_WAIT_MS),
       });
-      const shown = terminalResult(view, reason, { fullScreen: true }, host.limits());
+      const shown = terminalResult(view, reason, { fullScreen: true }, host.output());
       return toolResult(shown.text, shown.result);
     },
   });
@@ -448,7 +436,7 @@ export const terminalStartTool = (host: TermctrlHost): ToolRegistration =>
 export const terminalSendTool = (host: TermctrlHost): ToolRegistration =>
   defineTool({
     name: "terminal_send",
-    description: `Type text and press keys in a Terminal, then return its screen once it settles: 250 ms of quiet, a wait_for_text match, exit, wait_ms (default ${host.limits().inputWaitMs}), or a message queued for you (settle_reason steered; the Terminal keeps running). With neither text nor keys it polls: it waits up to wait_ms (default ${host.limits().pollWaitMs}) for new output. Results include the lines that scrolled off since your previous result. When the rows above the previous result's cursor row are unchanged, the screen shows only the rows from there down; an unchanged screen shows no rows; full_screen: true shows the whole screen.`,
+    description: `Type text and press keys in a Terminal, then return its screen once it settles: ${TERMINAL_QUIET_MS} ms of quiet, a wait_for_text match, exit, wait_ms (default ${TERMINAL_INPUT_WAIT_MS}), or a message queued for you (settle_reason steered; the Terminal keeps running). With neither text nor keys it polls: it waits up to wait_ms (default ${TERMINAL_POLL_WAIT_MS}) for new output. Results include the lines that scrolled off since your previous result. When the rows above the previous result's cursor row are unchanged, the screen shows only the rows from there down; an unchanged screen shows no rows; full_screen: true shows the whole screen.`,
     parameters: obj({
       id: str({ description: "Terminal id, such as t1" }),
       text: opt(str({ description: "Text to type; \\n presses Enter" })),
@@ -477,14 +465,14 @@ export const terminalSendTool = (host: TermctrlHost): ToolRegistration =>
         ...(args.text === undefined || args.text === "" ? {} : { text: args.text.replaceAll("\n", "\r") }),
         ...(keys.length === 0 ? {} : { keys }),
         mode: hasInput ? "input" : "poll",
-        waitMs: waitOf(args.wait_ms, hasInput ? host.limits().inputWaitMs : host.limits().pollWaitMs),
+        waitMs: waitOf(args.wait_ms, hasInput ? TERMINAL_INPUT_WAIT_MS : TERMINAL_POLL_WAIT_MS),
         ...(args.wait_for_text === undefined ? {} : { pattern: args.wait_for_text }),
       });
       const shown = terminalResult(
         view,
         reason,
         { note: unmatchedNote(reason, args.wait_for_text), fullScreen: args.full_screen },
-        host.limits(),
+        host.output(),
       );
       return toolResult(shown.text, shown.result);
     },
@@ -503,8 +491,8 @@ export const terminalStopTool = (host: TermctrlHost): ToolRegistration =>
           op: "stop",
           owner: host.owner(),
           id: args.id,
-          tail: jobTailOf(host.limits().output),
-          scrolledLines: scrolledLimits(host.limits()).lines,
+          tail: jobTailOf(host.output()),
+          scrolledLines: scrolledLimits(host.output()).lines,
         }),
       );
       if (stopped.kind === "background_job") {
@@ -518,7 +506,7 @@ export const terminalStopTool = (host: TermctrlHost): ToolRegistration =>
         const text = `Background job ${stopped.id} stopped (${describeExitStatus(stopped.exit ?? { code: null, signal: null })}).\n--- recent output ---\n${view.output === "" ? "(none)" : (view.output ?? "")}`;
         return toolResult(text, result);
       }
-      const shown = terminalResult(view, "exited", { label: "final screen" }, host.limits());
+      const shown = terminalResult(view, "exited", { label: "final screen" }, host.output());
       const text = shown.text.replace(
         /^[^\n]*/,
         `Terminal ${stopped.id} stopped · ${view.cursor === null ? "cursor hidden" : `cursor ${view.cursor.y + 1}:${view.cursor.x + 1}`}`,
@@ -615,7 +603,7 @@ export const terminalWaitTool = (host: TermctrlHost): ToolRegistration =>
             deadline: Date.now(),
             chunkMs: 0,
             view: false,
-            tail: jobTailOf(host.limits().output),
+            tail: jobTailOf(host.output()),
             // Only its screen or output shows: no scrolled-off lines from the end, only the Terminal's rows' worth from
             // the start.
             scrolledLines: 0,
@@ -629,7 +617,7 @@ export const terminalWaitTool = (host: TermctrlHost): ToolRegistration =>
               ? settled.error
               : "";
         }),
-      ).then((all) => exitTails(all, host.limits().output));
+      ).then((all) => exitTails(all, host.output()));
       const now = Date.now();
       const parts = answer.exited.map((entry, index) => formatExitNotice(entry, tails[index] ?? ""));
       if (reason !== "exited") parts.unshift(WAIT_REASON_TEXT[reason](ms));

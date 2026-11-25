@@ -37,7 +37,7 @@ export const webExtension = (options: WebOptions = {}): Extension => {
   return defineExtension({
     name: WEB_EXTENSION,
     tools: [
-      webFetchTool(transport, limits, output),
+      webFetchTool(transport, output),
       ...(options.search === undefined ? [] : [webSearchTool(transport, options.search, limits, output)]),
     ],
   });

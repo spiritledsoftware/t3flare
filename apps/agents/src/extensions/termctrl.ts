@@ -24,8 +24,7 @@ import {
   type ToolExecutionApi,
 } from "@earendil-works/pi-durable";
 import type { CodemodeNamespace } from "@earendil-works/pi-durable/codemode";
-import { DEFAULT_TERMINAL_QUIET_MS, STOP_GRACE_SECONDS } from "@t3flare/harness-registry";
-import type { AgentTerminalRequest } from "@t3flare/workspace-client";
+import { TERMINAL_START_WAIT_MS } from "@t3flare/harness-registry";
 
 import type { BackgroundJobs } from "./coding-tools.ts";
 import { jobTailOf } from "./toolOutput.ts";
@@ -40,9 +39,10 @@ import {
   terminalStartTool,
   terminalStopTool,
   terminalWaitTool,
+  VIEWPORT,
 } from "./termctrl/tools.ts";
 
-export { DEFAULT_TERMCTRL_LIMITS, type TermctrlHost, type TermctrlLimits, termctrlLimits } from "./termctrl/tools.ts";
+export type { TermctrlHost } from "./termctrl/tools.ts";
 
 export const TERMCTRL_EXTENSION = "termctrl";
 
@@ -55,30 +55,6 @@ export const TERMCTRL_NAMESPACE: CodemodeNamespace = {
   prefix: "terminal_",
 };
 
-/** termctrl's settings a Session's Terminals use (SPI-1057, SPI-1364): the viewport and the settle and stop waits. */
-export interface TermctrlView {
-  readonly cols: number;
-  readonly rows: number;
-  readonly quietMs: number;
-  readonly stopGraceSeconds: number;
-}
-
-/** `settings` (termctrl's resolved Harness settings) as the Session's Terminals use them. */
-export const termctrlViewOf = (settings: Readonly<Record<string, unknown>>): TermctrlView => ({
-  cols: Number(settings.cols),
-  rows: Number(settings.rows),
-  quietMs: Number(settings.quietMs ?? DEFAULT_TERMINAL_QUIET_MS),
-  stopGraceSeconds: Number(settings.stopGraceSeconds ?? STOP_GRACE_SECONDS),
-});
-
-/** `request` with the Owner's waits a Workspace applies: a settle's quiet, a stop's grace. */
-export const withTermctrlWaits = <R extends AgentTerminalRequest>(request: R, view: TermctrlView): R =>
-  request.op === "settle"
-    ? { ...request, quietMs: view.quietMs }
-    : request.op === "stop"
-      ? { ...request, graceMs: view.stopGraceSeconds * 1000 }
-      : request;
-
 export interface TermctrlOptions {
   readonly host: TermctrlHost;
   /** Whether this Session ever started an entry (no Workspace call is made for exits before). */
@@ -90,7 +66,7 @@ export interface TermctrlOptions {
  * job's tail (`exitTails`), so the notice is no longer than one result.
  */
 const dueExits = async (host: TermctrlHost): Promise<string | undefined> => {
-  const { output } = host.limits();
+  const output = host.output();
   const answer = await host.call({ op: "exits", owner: host.owner(), tail: jobTailOf(output) });
   if (!answer.ok || answer.value.exits.length === 0) return undefined;
   const tails = exitTails(
@@ -165,11 +141,11 @@ export const termctrlExtension = (harness: () => Promise<Harness>, options: Term
 
 /**
  * `bash`'s `background: true` (pi-termctrl `bash-replacement.ts`): the command starts as a Background job and waits the
- * Start wait (`startWaitMs`); one that finished answers as `bash` does (its output and exit code), else the call
+ * Start wait (`TERMINAL_START_WAIT_MS`); one that finished answers as `bash` does (its output and exit code), else the call
  * returns the job's id and log.
  */
 export const backgroundJobs = (host: TermctrlHost): BackgroundJobs => ({
-  waitMs: host.limits().startWaitMs,
+  waitMs: TERMINAL_START_WAIT_MS,
   async run(command: string, cwd: string, _api: ToolExecutionApi, _context: Context) {
     const owner = host.owner();
     const started = await host.call({
@@ -178,7 +154,7 @@ export const backgroundJobs = (host: TermctrlHost): BackgroundJobs => ({
       kind: "background_job",
       command: host.toToolPath(command),
       cwd,
-      ...host.viewport(),
+      ...VIEWPORT,
       notify: true,
     });
     if (!started.ok) throw new Error(started.error);
@@ -188,11 +164,11 @@ export const backgroundJobs = (host: TermctrlHost): BackgroundJobs => ({
       owner,
       id,
       mode: "start",
-      deadline: Date.now() + host.limits().startWaitMs,
-      chunkMs: host.limits().startWaitMs,
+      deadline: Date.now() + TERMINAL_START_WAIT_MS,
+      chunkMs: TERMINAL_START_WAIT_MS,
       pattern: "\u0000never",
       view: true,
-      tail: jobTailOf(host.limits().output),
+      tail: jobTailOf(host.output()),
       // Only its output shows: no scrolled-off lines from the end, only the Terminal's rows' worth from the start.
       scrolledLines: 0,
     });

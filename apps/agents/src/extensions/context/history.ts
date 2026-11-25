@@ -31,7 +31,7 @@ const READ_ROOM_BYTES = 1024;
 export const readCharacters = (maxBytes: number): number =>
   Math.max(1, Math.floor((maxBytes - READ_ROOM_BYTES) / READ_BYTES_PER_CHARACTER));
 
-/** How long list lines and search previews are: the `context` extension's `previewCharacters` setting. */
+/** How long list lines and search previews are: `CONTEXT_PREVIEW_CHARACTERS` (SPI-1388). */
 export interface PreviewLimits {
   /** An entry's whole preview line. */
   readonly preview: number;

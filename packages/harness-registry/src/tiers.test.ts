@@ -50,39 +50,11 @@ const SETTINGS: Readonly<Record<string, "free" | "down-free" | "up-free" | "aske
   "codemode.interruptBudget": "down-free",
   "web.searchModel": "asked",
   // SPI-1321: more output puts more text in front of agents, and web_search spends model requests.
-  "web.fetchTimeoutSeconds": "down-free",
-  "web.fetchMaxTimeoutSeconds": "down-free",
-  "web.fetchMaxKiB": "down-free",
-  // SPI-1368: more redirects spend more of a turn's subrequests; a longer title takes more stored history.
-  "web.fetchRedirects": "down-free",
-  "web.fetchTitleCharacters": "down-free",
   "web.searchResults": "down-free",
   "web.searchesPerCall": "down-free",
-  "web.searchSummaryTokens": "down-free",
-  "web.searchTimeoutSeconds": "down-free",
-  // SPI-1362: more of what the model and the small model read; waits change neither spend nor what is seen.
-  "web.searchContextCharacters": "down-free",
+  // SPI-1362: more of what the model reads.
   "tool-output.outputKiB": "down-free",
-  "tool-output.outputLines": "down-free",
-  "context.previewCharacters": "down-free",
-  "termctrl.startWaitMs": "free",
-  "termctrl.inputWaitMs": "free",
-  "termctrl.pollWaitMs": "free",
-  "termctrl.scrollbackLines": "down-free",
-  "termctrl.scrollbackKiB": "down-free",
-  "guardian.batchArgumentCharacters": "asked",
-  "prompt-suggestions.excerptCharacters": "down-free",
-  "prompt-suggestions.timeoutSeconds": "free",
-  "files.lsLimit": "down-free",
-  "files.findLimit": "down-free",
-  "files.grepLimit": "down-free",
-  "project-context.maxFileCharacters": "down-free",
   "context.rolloverOnCompaction": "free",
-  "termctrl.backgroundBash": "down-free",
-  "termctrl.cols": "free",
-  "termctrl.rows": "free",
-  "termctrl.quietMs": "free",
-  "termctrl.stopGraceSeconds": "free",
   "guardian.model": "asked",
   "guardian.thinkingLevel": "asked",
   "guardian.tools": "asked",
@@ -93,15 +65,9 @@ const SETTINGS: Readonly<Record<string, "free" | "down-free" | "up-free" | "aske
   "advisor.reviewEvery": "asked",
   "advisor.thinkingLevel": "asked",
   "advisor.correctiveTurns": "down-free",
-  // SPI-1320: more spends model requests and puts more text in front of the agent; a longer cooldown only narrows; the
-  // catch-up changes neither spend nor what the agent sees.
+  // SPI-1320: more spends model requests and puts more text in front of the agent.
   "advisor.reviewTimeoutSeconds": "down-free",
-  "advisor.maxFindings": "down-free",
-  "advisor.maxNits": "down-free",
   "advisor.maxToolRounds": "down-free",
-  "advisor.concernCooldownTurns": "up-free",
-  "advisor.catchUpBacklog": "free",
-  "advisor.catchUpWaitSeconds": "free",
 };
 
 /** Each Environment key: from, to, and the expected tier; `down` is the same key moved the other way. */
@@ -297,15 +263,9 @@ describe("tierOf: extensions", () => {
     expect(from("guardian", { reviewTimeoutSeconds: 300 })).toBe("asked");
     expect(from("advisor", { maxToolRounds: 4 })).toBe("free");
     expect(from("advisor", { maxToolRounds: 12 })).toBe("asked");
-    expect(from("advisor", { concernCooldownTurns: 5 })).toBe("free");
-    expect(from("advisor", { concernCooldownTurns: 1 })).toBe("asked");
-    for (const settings of [
-      { catchUpBacklog: 1 },
-      { catchUpBacklog: 9 },
-      { catchUpWaitSeconds: 0 },
-      { catchUpWaitSeconds: 600 },
-    ])
-      expect(from("advisor", settings)).toBe("free");
+    // SPI-1388: up to its sanity bound of 100, more continuations are asked.
+    expect(from("advisor", { correctiveTurns: 0 })).toBe("free");
+    expect(from("advisor", { correctiveTurns: 100 })).toBe("asked");
   });
 
   it("a change that moves nothing is unchanged; several parts are asked when any is", () => {
@@ -320,28 +280,28 @@ describe("tierOf: extensions", () => {
       tier({
         entity: "extension",
         stored: EMPTY_HARNESS,
-        change: { extension: "termctrl", settings: { cols: 200, backgroundBash: false } },
+        change: { extension: "web", settings: { searchResults: 4, searchesPerCall: 1 } },
       }),
     ).toBe("free");
     expect(
       tierOf({
         entity: "extension",
         stored: EMPTY_HARNESS,
-        change: { extension: "termctrl", settings: { backgroundBash: true, cols: 200 } },
+        change: { extension: "web", settings: { searchResults: 8, searchesPerCall: 1 } },
       }),
     ).toEqual({
       tier: "free",
-      reasons: ["termctrl.cols: 120 to 200 (free in either direction)"],
+      reasons: ["web.searchesPerCall: 2 to 1 (turned down)"],
     });
     expect(
       tierOf({
         entity: "extension",
-        stored: withExtension("termctrl", undefined, { backgroundBash: false }),
-        change: { extension: "termctrl", settings: { backgroundBash: true, cols: 200 } },
+        stored: withExtension("web", undefined, { searchesPerCall: 1 }),
+        change: { extension: "web", settings: { searchesPerCall: 2, searchResults: 4 } },
       }),
     ).toEqual({
       tier: "asked",
-      reasons: ["termctrl.backgroundBash: false to true (turned up)"],
+      reasons: ["web.searchesPerCall: 1 to 2 (turned up)"],
     });
   });
 

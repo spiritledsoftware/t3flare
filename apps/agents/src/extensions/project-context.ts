@@ -2,27 +2,19 @@
 // the repo root down to the conversation's working directory, read through the call's environment before each request.
 // Part 1 keeps only the section: `read`/`edit`/`write` do not show nested files' instructions as the agent reaches
 // them.
+//
+// Each file reaches the prompt whole (SPI-1388): t3flare cuts none. A file that exists but cannot be read (one past the
+// Workspace's 32 MiB RPC message, or any other failure) is named in its place with why, never left out silently; one
+// that reads but makes the prompt larger than the model's context is refused by the endpoint, and the turn fails with
+// its error.
 import { defineExtension, type Extension, section } from "@earendil-works/pi-durable";
-import { defaultSettings, type SettingValue } from "@t3flare/harness-registry";
 
 export const PROJECT_CONTEXT_EXTENSION = "project-context";
 
-/** The `project-context` extension's settings (SPI-1321). */
-export interface ProjectContextLimits {
-  /** The most of one AGENTS.md or CLAUDE.md the section shows. */
-  readonly maxFileCharacters: number;
-}
-
-/** The `project-context` extension's resolved settings as limits. */
-export const projectContextLimits = (values: Readonly<Record<string, SettingValue>>): ProjectContextLimits => ({
-  maxFileCharacters: Number(values.maxFileCharacters),
-});
-
-export const DEFAULT_PROJECT_CONTEXT_LIMITS: ProjectContextLimits = projectContextLimits(
-  defaultSettings(PROJECT_CONTEXT_EXTENSION),
-);
-
 const NAMES = ["AGENTS.md", "CLAUDE.md"] as const;
+
+/** Read failures that mean there is no such file to show: the next name, or the next directory, is tried. */
+const ABSENT = new Set(["not_found", "is_directory", "not_directory"]);
 
 /** The directories from `root` down to `cwd` (just `root` when `cwd` is outside it). */
 const chain = (root: string, cwd: string): ReadonlyArray<string> => {
@@ -31,13 +23,13 @@ const chain = (root: string, cwd: string): ReadonlyArray<string> => {
   return [root, ...below.map((_, at) => `${root}/${below.slice(0, at + 1).join("/")}`)];
 };
 
-/** The section, for a repo at `root`, within `limits`. */
-export const projectContext = (
-  root: string,
-  limits: ProjectContextLimits = DEFAULT_PROJECT_CONTEXT_LIMITS,
-): Extension => {
-  const maxChars = limits.maxFileCharacters;
-  return defineExtension({
+/** What the section says in place of a file it could not read: the file, why, and that its instructions are missing. */
+export const unreadable = (path: string, why: string): string =>
+  `## ${path}\n\n[t3flare could not read this file (${why}), so its instructions are missing from this prompt. Tell the owner.]`;
+
+/** The section, for a repo at `root`. */
+export const projectContext = (root: string): Extension =>
+  defineExtension({
     name: PROJECT_CONTEXT_EXTENSION,
     sections: [
       section("project_context", async (input, context) => {
@@ -48,10 +40,16 @@ export const projectContext = (
         ];
         for (const directory of chain(root, env.cwd)) {
           for (const name of NAMES) {
-            const read = await env.readTextFile(`${directory}/${name}`, context).catch(() => undefined);
-            if (read === undefined || !read.ok) continue;
-            const body = read.value.length > maxChars ? `${read.value.slice(0, maxChars)}\n… [cut]` : read.value;
-            parts.push(`## ${directory}/${name}\n\n${body.trim()}`);
+            const path = `${directory}/${name}`;
+            const read = await env
+              .readTextFile(path, context)
+              .catch((error: unknown) => ({ ok: false as const, error: { code: "unknown", message: String(error) } }));
+            if (read.ok) {
+              parts.push(`## ${path}\n\n${read.value.trim()}`);
+              break;
+            }
+            if (ABSENT.has(read.error.code)) continue;
+            parts.push(unreadable(path, read.error.message));
             break;
           }
         }
@@ -59,4 +57,3 @@ export const projectContext = (
       }),
     ],
   });
-};

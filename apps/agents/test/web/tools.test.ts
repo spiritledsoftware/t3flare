@@ -3,23 +3,35 @@
 // blocks, as Commissary returns it for Claude and for Codex upstreams).
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ToolRegistration } from "@earendil-works/pi-durable";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { webExtension } from "../../src/extensions/web.ts";
-import { UNCONVERTED_NOTE, webFetchTool } from "../../src/extensions/web/fetch.ts";
+import { webFetchTool } from "../../src/extensions/web/fetch.ts";
 import { DEFAULT_WEB_LIMITS, type WebLimits } from "../../src/extensions/web/limits.ts";
 import { STRUCTURED_MAX_BYTES } from "../../src/extensions/web/output.ts";
 import { SESSION_ROW_BYTES, SESSION_ROW_ENVELOPE_BYTES } from "@t3flare/session-protocol";
-import { MAX_TOOL_OUTPUT_KIB } from "@t3flare/harness-registry";
+import { MAX_TIMED_SECONDS, MAX_TOOL_OUTPUT_KIB } from "@t3flare/harness-registry";
+import { limitSearchText } from "../../src/extensions/web/shaping.ts";
 import { DEFAULT_TOOL_OUTPUT_LIMITS } from "../../src/extensions/toolOutput.ts";
 import type { WebRequest, WebTransport } from "../../src/extensions/web/net.ts";
 import {
   ANSWER_MAX_BYTES,
   readAnswer,
   resultsBytes,
+  SUMMARY_CUT_NOTE,
   systemPrompt,
   webSearchTool,
 } from "../../src/extensions/web/search.ts";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+/** `outcome` once `ms` of fake time has passed: the tools' deadlines are `setTimeout`s. */
+const after = async <T>(ms: number, outcome: Promise<T>): Promise<T> => {
+  await vi.advanceTimersByTimeAsync(ms);
+  return outcome;
+};
 
 const PUBLIC = "93.184.215.14";
 
@@ -115,54 +127,36 @@ describe("web_fetch", () => {
     expect(textOf(await run(tool, { url: "https://example.com/missing" }))).toBe(
       "Unable to fetch https://example.com/missing: HTTP 404 Not Found",
     );
-    expect(textOf(await run(tool, { url: "https://example.com/big" }))).toMatch(/exceeds the 5 MiB limit/);
-  });
-
-  it("refuses a body over fetchMaxKiB (SPI-1321)", async () => {
-    const { transport } = network(
-      () => new Response("x".repeat(64 * 1024 + 1), { headers: { "content-type": "text/plain" } }),
+    expect(textOf(await run(tool, { url: "https://example.com/big" }))).toBe(
+      "Unable to fetch https://example.com/big: response body exceeds web_fetch's fixed 5 MiB size limit",
     );
-    expect(
-      textOf(await run(webFetchTool(transport, limits({ fetchMaxKiB: 64 })), { url: "https://example.com/" })),
-    ).toBe("Unable to fetch https://example.com/: response body exceeds the 64 KiB limit");
-    const small = network(() => new Response("x".repeat(64 * 1024), { headers: { "content-type": "text/plain" } }));
-    expect(
-      await run(webFetchTool(small.transport, limits({ fetchMaxKiB: 64 })), { url: "https://example.com/" }),
-    ).toMatchObject({
-      ok: true,
-    });
   });
 
-  it("returns an HTML body over 5 MiB as it came, with a note, and still converts one at 5 MiB (SPI-1321)", async () => {
+  it("reads and converts a body of FETCH_MAX_KIB, and refuses one byte more, naming the limit (SPI-1388)", async () => {
     const page = (bytes: number) => {
       const head = "<html><body><h1>Big</h1><p>";
       return `${head}${"x".repeat(bytes - head.length)}`;
     };
     const big = network(() => new Response(page(5 * 1024 * 1024 + 1), { headers: { "content-type": "text/html" } }));
-    const raw = await run(webFetchTool(big.transport, limits({ fetchMaxKiB: 8192 })), { url: "https://example.com/" });
-    expect(textOf(raw)).toMatch(
-      /^\[The response is over 5 MiB, so it is returned as it came, without conversion\.\]\n/,
-    );
-    expect(raw.ok && (raw.result.structuredOutput as { content: string }).content).toMatch(
-      new RegExp(`^${RegExp.escape(UNCONVERTED_NOTE)}\n<html><body><h1>Big`),
+    expect(textOf(await run(webFetchTool(big.transport), { url: "https://example.com/" }))).toBe(
+      "Unable to fetch https://example.com/: response body exceeds web_fetch's fixed 5 MiB size limit",
     );
     const fits = network(() => new Response(page(5 * 1024 * 1024), { headers: { "content-type": "text/html" } }));
     const converted = await run(webFetchTool(fits.transport), { url: "https://example.com/" });
     expect(textOf(converted)).toMatch(/^# Big/);
   });
 
-  it("offers a per-call timeout up to the larger of the maximum and the default, and uses the default with none (SPI-1321)", async () => {
+  it("takes any per-call timeout up to what t3flare times, and names the 30 s default when it runs out (SPI-1388)", async () => {
     expect(parameter(webFetchTool(hanging()), "timeout")).toMatchObject({
-      maximum: 120,
-      description: "Total timeout in seconds (default: 30, maximum: 120)",
+      maximum: MAX_TIMED_SECONDS,
+      description: "Total timeout in seconds (default: 30); a call may set a longer one",
     });
-    const tool = webFetchTool(hanging(), limits({ fetchTimeoutSeconds: 2, fetchMaxTimeoutSeconds: 1 }));
-    expect(parameter(tool, "timeout")).toMatchObject({
-      maximum: 2,
-      description: "Total timeout in seconds (default: 2, maximum: 2)",
-    });
-    expect(textOf(await run(tool, { url: "https://example.com/" }))).toBe(
-      "Unable to fetch https://example.com/: timed out after 2 seconds",
+    expect(textOf(await run(webFetchTool(hanging()), { url: "https://example.com/", timeout: 1 }))).toBe(
+      "Unable to fetch https://example.com/: timed out after 1 second",
+    );
+    vi.useFakeTimers();
+    expect(textOf(await after(30_000, run(webFetchTool(hanging()), { url: "https://example.com/" })))).toBe(
+      "Unable to fetch https://example.com/: timed out after 30 seconds, web_fetch's default time limit; pass timeout for longer",
     );
   });
 
@@ -176,7 +170,7 @@ describe("web_fetch", () => {
     expect(sent).toHaveLength(2);
   });
 
-  it("follows fetchRedirects redirects and fails on one more (SPI-1368)", async () => {
+  it("follows the Fetch standard's 20 redirects and fails on one more, naming the limit (SPI-1388)", async () => {
     const hops = (count: number) =>
       network((request) => {
         const at = Number(new URL(request.url).pathname.slice(1));
@@ -184,20 +178,19 @@ describe("web_fetch", () => {
           ? new Response(null, { status: 302, headers: { location: `/${at + 1}` } })
           : new Response("arrived", { headers: { "content-type": "text/plain" } });
       });
-    const tool = (redirects: number) => webFetchTool(hops(3).transport, limits({ fetchRedirects: redirects }));
-    expect(textOf(await run(tool(3), { url: "https://example.com/0" }))).toContain("arrived");
-    expect(textOf(await run(tool(2), { url: "https://example.com/0" }))).toMatch(/too many redirects \(more than 2\)/);
+    expect(textOf(await run(webFetchTool(hops(20).transport), { url: "https://example.com/0" }))).toContain("arrived");
+    expect(textOf(await run(webFetchTool(hops(21).transport), { url: "https://example.com/0" }))).toBe(
+      "Unable to fetch https://example.com/0: too many redirects (more than 20, web_fetch's fixed redirect limit, the Fetch standard's)",
+    );
   });
 
-  it("cuts the title at fetchTitleCharacters however far down the heading is, and shows the whole text (SPI-1368)", async () => {
+  it("cuts the title at FETCH_TITLE_CHARACTERS, marked, however far down the heading is, and shows the whole text (SPI-1388)", async () => {
     const body = `${"intro line\n".repeat(1000)}# ${"T".repeat(500)}\n\n${"word ".repeat(200)}`;
     const { transport } = network(() => new Response(body, { headers: { "content-type": "text/markdown" } }));
-    const outcome = await run(webFetchTool(transport, limits({ fetchTitleCharacters: 50 })), {
-      url: "https://example.com/",
-    });
+    const outcome = await run(webFetchTool(transport), { url: "https://example.com/" });
     if (!outcome.ok) throw new Error(outcome.error);
     const details = outcome.result.details as { title?: string; snippet: string };
-    expect(details.title).toBe("T".repeat(50));
+    expect(details.title).toBe(`${"T".repeat(200)}…`);
     expect(details.snippet).toBe(textOf(outcome));
   });
 
@@ -333,16 +326,12 @@ describe("web_search", () => {
     expect(sent).toEqual([]);
   });
 
-  it("asks with the settings' searches and summary tokens, and returns searchResults by default (SPI-1321)", async () => {
+  it("asks with the settings' searches and the fixed summary tokens, and returns searchResults by default (SPI-1321)", async () => {
     const { transport, sent } = network(() => Response.json(answer));
-    const tool = webSearchTool(
-      transport,
-      endpoint,
-      limits({ searchesPerCall: 1, searchSummaryTokens: 300, searchResults: 1 }),
-    );
+    const tool = webSearchTool(transport, endpoint, limits({ searchesPerCall: 1, searchResults: 1 }));
     const outcome = await run(tool, { query: "pi durable" });
     expect(JSON.parse(sent[0]?.body ?? "{}")).toMatchObject({
-      max_tokens: 300,
+      max_tokens: 1500,
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
     });
     expect(outcome.ok && (outcome.result.details as { results: Array<unknown> }).results).toHaveLength(1);
@@ -363,7 +352,7 @@ describe("web_search", () => {
     };
     const refused = network(() => Response.json(huge));
     expect(textOf(await run(webSearchTool(refused.transport, endpoint), { query: "q" }))).toBe(
-      `Unable to search the web for q: response body exceeds the ${ANSWER_MAX_BYTES / 1024 / 1024} MiB limit`,
+      `Unable to search the web for q: response body exceeds web_search's fixed ${ANSWER_MAX_BYTES / 1024 / 1024} MiB answer limit`,
     );
   });
 
@@ -491,16 +480,28 @@ describe("web_search", () => {
     },
   );
 
-  it("times a search out at searchTimeoutSeconds (SPI-1321)", async () => {
-    const tool = webSearchTool(hanging(), endpoint, limits({ searchTimeoutSeconds: 1 }));
-    expect(textOf(await run(tool, { query: "q" }))).toBe("Unable to search the web for q: timed out after 1 second");
+  it("times a search out at its fixed 90 seconds, naming the limit (SPI-1388)", async () => {
+    vi.useFakeTimers();
+    expect(textOf(await after(90_000, run(webSearchTool(hanging(), endpoint), { query: "q" })))).toBe(
+      "Unable to search the web for q: timed out after 90 seconds, web_search's fixed time limit",
+    );
+  });
+
+  it("says when the search model's summary stopped at the summary token limit (SPI-1388)", async () => {
+    expect(SUMMARY_CUT_NOTE).toBe(
+      "[The search model's summary stopped at web_search's fixed 1,500-token summary limit.]",
+    );
+    const cut = network(() => Response.json({ ...answer, stop_reason: "max_tokens" }));
+    expect(textOf(await run(webSearchTool(cut.transport, endpoint), { query: "q" }))).toContain(SUMMARY_CUT_NOTE);
+    const whole = network(() => Response.json({ ...answer, stop_reason: "end_turn" }));
+    expect(textOf(await run(webSearchTool(whole.transport, endpoint), { query: "q" }))).not.toContain("stopped at");
   });
 
   it("keeps a fetched page that is all JSON escapes within one Session row at the Tool output limit's maximum (SPI-1362)", async () => {
     const output = { maxBytes: MAX_TOOL_OUTPUT_KIB * 1024, maxLines: 100_000 };
     const page = "\u0001".repeat(4 * 1024 * 1024);
     const { transport } = network(() => new Response(page, { headers: { "content-type": "text/plain" } }));
-    const outcome = await run(webFetchTool(transport, DEFAULT_WEB_LIMITS, output), { url: "https://example.com/" });
+    const outcome = await run(webFetchTool(transport, output), { url: "https://example.com/" });
     if (!outcome.ok) throw new Error(outcome.error);
     const { result } = outcome;
     const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
@@ -509,21 +510,16 @@ describe("web_search", () => {
     ).toBeLessThan(SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES);
   });
 
-  it("shares the searchContextCharacters setting across results when a call names no budget (SPI-1362)", async () => {
-    const tool = webSearchTool(
-      network(() => Response.json(answer)).transport,
-      endpoint,
-      limits({ searchContextCharacters: 40 }),
-    );
-    expect(tool.description).toContain("cut at 40 characters by default");
-    expect(parameter(tool, "contextMaxCharacters")?.description).toContain("default: 40");
-    expect(textOf(await run(tool, { query: "q" }))).toContain("Search results cut at 40 characters");
+  it("shares SEARCH_CONTEXT_CHARACTERS across results when a call names no budget (SPI-1362, SPI-1388)", async () => {
+    const tool = webSearchTool(network(() => Response.json(answer)).transport, endpoint);
+    expect(tool.description).toContain("cut at 6,000 characters by default");
+    expect(parameter(tool, "contextMaxCharacters")?.description).toContain("default: 6,000");
+    expect(limitSearchText("x".repeat(7_000), undefined)).toContain("[Search results cut at 6000 characters");
   });
 
-  it("passes the extension's limits to both tools (SPI-1321)", () => {
-    const tools =
-      webExtension({ search: endpoint, limits: limits({ fetchTimeoutSeconds: 7, searchResults: 3 }) }).tools ?? [];
-    expect(parameter(tools[0]!, "timeout")?.description).toContain("default: 7");
+  it("passes the extension's limits to web_search (SPI-1321)", () => {
+    const tools = webExtension({ search: endpoint, limits: limits({ searchResults: 3 }) }).tools ?? [];
+    expect(parameter(tools[0]!, "timeout")?.description).toContain("default: 30");
     expect(parameter(tools[1]!, "numResults")?.description).toContain("default: 3");
   });
 

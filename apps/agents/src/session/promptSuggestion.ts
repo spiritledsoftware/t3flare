@@ -3,11 +3,11 @@
 // with `CODEX_PROMPT_SUGGESTION_PROMPT` at low effort (t3code `CodexAdapterV2.ts`, `samplePromptSuggestion`); Claude
 // Code makes its own. A Durable agent has neither, so the Session asks a small model of its Model endpoints (the
 // endpoints' small model, text generation's default rule), with
-// the turn's request and answer only (their last `excerptCharacters`, a setting), never the whole thread: one cheap request per completed turn, only while
-// the owner has the labs flag on.
-// @effect-diagnostics globalTimers:off
+// the turn's request and answer only (their last `SUGGESTION_EXCERPT_CHARACTERS`, SPI-1388), never the whole thread: one
+// cheap request per completed turn, only while the owner has the labs flag on.
+// @effect-diagnostics globalTimers:off globalConsole:off
 import type { Api, Context, Model, Models } from "@earendil-works/pi-ai";
-import { defaultSettings, type SettingValue } from "@t3flare/harness-registry";
+import { SUGGESTION_EXCERPT_CHARACTERS, SUGGESTION_TIMEOUT_SECONDS } from "@t3flare/harness-registry";
 import { defaultSmallModel, type ModelEndpoints, parseEndpointSlug } from "@t3flare/models/endpoints";
 
 /** t3's prompt (`CODEX_PROMPT_SUGGESTION_PROMPT`, t3code `apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts`). */
@@ -41,24 +41,17 @@ export const newestMatch = async <A, C>(
   return undefined;
 };
 
-/** Prompt suggestions' settings (`prompt-suggestions`, SPI-1362): how much of the turn the model reads, how long it may take. */
+/** How much of the turn the model reads, how long it may take: fixed (SPI-1388); a test may name its own. */
 export interface SuggestionLimits {
   /** Most characters of the request and of the answer the model reads, the last of each. */
   readonly excerptCharacters: number;
   readonly timeoutMs: number;
 }
 
-export const PROMPT_SUGGESTIONS_EXTENSION = "prompt-suggestions";
-
-/** The Prompt suggestions entry's resolved settings as limits. */
-export const suggestionLimits = (values: Readonly<Record<string, SettingValue>>): SuggestionLimits => ({
-  excerptCharacters: Number(values.excerptCharacters),
-  timeoutMs: Number(values.timeoutSeconds) * 1000,
-});
-
-export const DEFAULT_SUGGESTION_LIMITS: SuggestionLimits = suggestionLimits(
-  defaultSettings(PROMPT_SUGGESTIONS_EXTENSION),
-);
+export const DEFAULT_SUGGESTION_LIMITS: SuggestionLimits = {
+  excerptCharacters: SUGGESTION_EXCERPT_CHARACTERS,
+  timeoutMs: SUGGESTION_TIMEOUT_SECONDS * 1000,
+};
 
 const excerpt = (text: string, characters: number): string =>
   text.length <= characters ? text : `…${text.slice(-characters)}`;
@@ -89,7 +82,13 @@ export const suggestPrompt = async (
 ): Promise<string> => {
   if (user.trim() === "" || answer.trim() === "") return "";
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error("prompt suggestion timed out")), limits.timeoutMs);
+  // A late suggestion is simply not shown; the log names the limit (ADR-0049 §4).
+  const timer = setTimeout(() => {
+    console.log(
+      JSON.stringify({ t3flare: "prompt-suggestion-limit", limit: "SUGGESTION_TIMEOUT_SECONDS", ms: limits.timeoutMs }),
+    );
+    controller.abort(new Error(`prompt suggestion timed out after ${limits.timeoutMs} ms, its fixed time limit`));
+  }, limits.timeoutMs);
   try {
     const reply = await models.completeSimple(model, suggestionContext(user, answer, limits), {
       signal: controller.signal,

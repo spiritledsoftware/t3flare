@@ -5,30 +5,27 @@
 import type { ComputerFiles } from "@t3flare/computer-env";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 import { bool, num, obj, opt, str } from "@earendil-works/pi-schema";
-import { defaultSettings, type SettingValue } from "@t3flare/harness-registry";
+import { FIND_DEFAULT_LIMIT, GREP_DEFAULT_LIMIT, LS_DEFAULT_LIMIT } from "@t3flare/harness-registry";
 
 import { DEFAULT_TOOL_OUTPUT_LIMITS, type ToolOutputLimits } from "./toolOutput.ts";
 
 /** The file search of the Session's Workspace, or undefined when the Session has none. */
 export type FilesOf = () => ComputerFiles | undefined;
 
-/** The `files` extension's settings (SPI-1321): each tool's most results, and its default. */
-export interface FileLimits {
-  readonly lsLimit: number;
-  readonly findLimit: number;
-  readonly grepLimit: number;
-}
-
-/** The `files` extension's resolved settings as limits. */
-export const fileLimits = (values: Readonly<Record<string, SettingValue>>): FileLimits => ({
-  lsLimit: Number(values.lsLimit),
-  findLimit: Number(values.findLimit),
-  grepLimit: Number(values.grepLimit),
-});
-
 export const FILES_EXTENSION = "files";
 
-export const DEFAULT_FILE_LIMITS: FileLimits = fileLimits(defaultSettings(FILES_EXTENSION));
+/**
+ * A call's `limit`, as pi reads it: the call's own, else the tool's default (`LS_DEFAULT_LIMIT` and its siblings,
+ * SPI-1388), at least 1. No cap of t3flare's: the Tool output limit bounds what the model reads.
+ */
+const limitOf = (asked: number | undefined, fallback: number): number => Math.max(1, Math.floor(asked ?? fallback));
+
+/**
+ * The note a result ends with when it stopped at its limit, naming the limit, its value and how to see more, as pi's
+ * tools do ("500 entries limit reached. Use limit=1000 for more").
+ */
+export const limitReached = (limit: number, unit: string, asked: number | undefined, hint = ""): string =>
+  `[${limit.toLocaleString("en-US")} ${unit} limit reached${asked === undefined ? " (the default)" : ""}. Use limit=${(limit * 2).toLocaleString("en-US")} for more${hint}]`;
 
 const EXCLUDE = ["**/.git", "**/node_modules"];
 
@@ -54,20 +51,20 @@ const need = (files: FilesOf): ComputerFiles => {
   return found;
 };
 
-const lsTool = (files: FilesOf, max: number, output: ToolOutputLimits) =>
+const lsTool = (files: FilesOf, output: ToolOutputLimits) =>
   defineTool({
     name: "ls",
-    description: `List a directory's entries, directories with a trailing "/". Up to ${max} entries.`,
+    description: `List a directory's entries, directories with a trailing "/". Up to ${LS_DEFAULT_LIMIT} entries unless limit says how many.`,
     parameters: obj({
       path: opt(str({ description: "Directory to list (default: the working directory)" })),
-      limit: opt(num({ description: `Maximum number of entries (default ${max})` })),
+      limit: opt(num({ description: `Maximum number of entries (default ${LS_DEFAULT_LIMIT})` })),
     }),
     outputLimits: output,
     replay: "safe",
     async execute(args, api) {
       const directory = resolvePath(api.env?.cwd ?? "/workspace", args.path);
       const entries = await need(files).readdir(directory);
-      const limit = Math.min(args.limit ?? max, max);
+      const limit = limitOf(args.limit, LS_DEFAULT_LIMIT);
       const names = entries
         .map((entry) => `${entry.name}${entry.isDirectory ? "/" : ""}`)
         .toSorted((left, right) => left.localeCompare(right));
@@ -75,25 +72,25 @@ const lsTool = (files: FilesOf, max: number, output: ToolOutputLimits) =>
       return text(
         shown.length === 0
           ? "(empty directory)"
-          : `${shown.join("\n")}${names.length > limit ? `\n… ${names.length - limit} more` : ""}`,
+          : `${shown.join("\n")}${names.length > limit ? `\n… ${names.length - limit} more\n\n${limitReached(limit, "entries", args.limit)}` : ""}`,
       );
     },
   });
 
-const findTool = (files: FilesOf, max: number, output: ToolOutputLimits) =>
+const findTool = (files: FilesOf, output: ToolOutputLimits) =>
   defineTool({
     name: "find",
-    description: `Find files by glob pattern, such as '*.ts' or 'src/**/*.test.ts'. Paths relative to the directory searched. Up to ${max} results; .git and node_modules are skipped.`,
+    description: `Find files by glob pattern, such as '*.ts' or 'src/**/*.test.ts'. Paths relative to the directory searched. Up to ${FIND_DEFAULT_LIMIT.toLocaleString("en-US")} results unless limit says how many; .git and node_modules are skipped.`,
     parameters: obj({
       pattern: str({ description: "Glob pattern to match files" }),
       path: opt(str({ description: "Directory to search in (default: the working directory)" })),
-      limit: opt(num({ description: `Maximum number of results (default ${max})` })),
+      limit: opt(num({ description: `Maximum number of results (default ${FIND_DEFAULT_LIMIT})` })),
     }),
     outputLimits: output,
     replay: "safe",
     async execute(args, api) {
       const directory = resolvePath(api.env?.cwd ?? "/workspace", args.path);
-      const limit = Math.min(args.limit ?? max, max);
+      const limit = limitOf(args.limit, FIND_DEFAULT_LIMIT);
       const found = await need(files).find(directory, args.pattern, { limit: limit + 1, exclude: EXCLUDE });
       const paths = found
         .slice(0, limit)
@@ -101,7 +98,7 @@ const findTool = (files: FilesOf, max: number, output: ToolOutputLimits) =>
       return text(
         paths.length === 0
           ? "No files found."
-          : `${paths.join("\n")}${found.length > limit ? `\n… more results; narrow the pattern` : ""}`,
+          : `${paths.join("\n")}${found.length > limit ? `\n\n${limitReached(limit, "results", args.limit, ", or narrow the pattern")}` : ""}`,
       );
     },
   });
@@ -125,10 +122,10 @@ export const grepContext = (
   return Math.min(asked, Math.max(GREP_CONTEXT_FLOOR, share));
 };
 
-const grepTool = (files: FilesOf, max: number, output: ToolOutputLimits) =>
+const grepTool = (files: FilesOf, output: ToolOutputLimits) =>
   defineTool({
     name: "grep",
-    description: `Search file contents for a pattern. Returns matching lines as path:line: text. Up to ${max} matches; .git and node_modules are skipped.`,
+    description: `Search file contents for a pattern. Returns matching lines as path:line: text. Up to ${GREP_DEFAULT_LIMIT} matches unless limit says how many; .git and node_modules are skipped.`,
     parameters: obj({
       pattern: str({ description: "Search pattern (a regular expression unless literal is true)" }),
       path: opt(str({ description: "Directory or file to search (default: the working directory)" })),
@@ -140,13 +137,13 @@ const grepTool = (files: FilesOf, max: number, output: ToolOutputLimits) =>
           description: `Lines of context before and after each match (default 0); lowered, to no less than ${GREP_CONTEXT_FLOOR}, so every match's context fits the result's ${output.maxLines} lines`,
         }),
       ),
-      limit: opt(num({ description: `Maximum number of matches (default ${max})` })),
+      limit: opt(num({ description: `Maximum number of matches (default ${GREP_DEFAULT_LIMIT})` })),
     }),
     outputLimits: output,
     replay: "safe",
     async execute(args, api) {
       const directory = resolvePath(api.env?.cwd ?? "/workspace", args.path);
-      const limit = Math.min(args.limit ?? max, max);
+      const limit = limitOf(args.limit, GREP_DEFAULT_LIMIT);
       const matches = await need(files).grep(args.pattern, directory, {
         ignoreCase: args.ignoreCase === true,
         regex: args.literal !== true,
@@ -178,22 +175,19 @@ const grepTool = (files: FilesOf, max: number, output: ToolOutputLimits) =>
         }
         lines.push(...shown);
       }
-      const more = full || matches.length > limit ? "\n… more matches; narrow the search" : "";
+      // Cut at the result's lines, the Tool output limit's; else stopped at the match limit, which names itself.
+      const more = full
+        ? "\n… more matches; narrow the search"
+        : matches.length > limit
+          ? `\n\n${limitReached(limit, "matches", args.limit, ", or narrow the search")}`
+          : "";
       return text(lines.length === 0 ? "No matches found." : `${lines.join("\n")}${more}`);
     },
   });
 
-/** `ls`, `find` and `grep`, within `limits`, their results within `output` (the Tool output limit). */
-export const fileTools = (
-  files: FilesOf,
-  limits: FileLimits = DEFAULT_FILE_LIMITS,
-  output: ToolOutputLimits = DEFAULT_TOOL_OUTPUT_LIMITS,
-): Extension =>
+/** `ls`, `find` and `grep`, their results within `output` (the Tool output limit). */
+export const fileTools = (files: FilesOf, output: ToolOutputLimits = DEFAULT_TOOL_OUTPUT_LIMITS): Extension =>
   defineExtension({
     name: FILES_EXTENSION,
-    tools: [
-      lsTool(files, limits.lsLimit, output),
-      findTool(files, limits.findLimit, output),
-      grepTool(files, limits.grepLimit, output),
-    ],
+    tools: [lsTool(files, output), findTool(files, output), grepTool(files, output)],
   });

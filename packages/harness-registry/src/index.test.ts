@@ -7,9 +7,6 @@ import { describe, expect, it } from "vitest";
 import {
   applyChange,
   DO_VALUE_BYTES,
-  MAX_REDIRECTS,
-  MAX_TERMINAL_COLS,
-  MAX_TERMINAL_ROWS,
   CODEMODE_CPU_LIMIT_MS,
   CODEMODE_POLLS_PER_SECOND,
   MAX_CODEMODE_INTERRUPT_BUDGET,
@@ -19,12 +16,11 @@ import {
   mcpServersOf,
   EMPTY_HARNESS,
   extensionOf,
-  FETCH_MAX_KIB,
+  GUARDIAN_BATCH_ARGUMENT_CHARACTERS,
   GUARDIAN_EVIDENCE_CHARACTERS,
   MAX_TIMED_MINUTES,
   MAX_TOOL_OUTPUT_KIB,
   MIN_TOOL_OUTPUT_KIB,
-  MIN_TOOL_OUTPUT_LINES,
   EXTENSIONS,
   resolvedToolsOf,
   resolveHarness,
@@ -73,23 +69,12 @@ describe("resolveHarness", () => {
     });
   });
 
-  it("has Terminals on with bash's background jobs and a 120x40 viewport (SPI-1057): nothing starts a container until used", () => {
-    expect(resolveHarness(EMPTY_HARNESS).extensions.termctrl).toEqual({
-      enabled: true,
-      settings: {
-        backgroundBash: true,
-        cols: 120,
-        rows: 40,
-        startWaitMs: 2000,
-        inputWaitMs: 500,
-        pollWaitMs: 30_000,
-        scrollbackLines: 100,
-        scrollbackKiB: 16,
-        quietMs: 250,
-        stopGraceSeconds: 3,
-      },
+  it("has Terminals on with no settings of their own (SPI-1057, SPI-1388): nothing starts a container until used", () => {
+    expect(resolveHarness(EMPTY_HARNESS).extensions.termctrl).toEqual({ enabled: true, settings: {} });
+    expect(applyChange(EMPTY_HARNESS, { extension: "termctrl", settings: { cols: 200 } })).toEqual({
+      ok: false,
+      error: "termctrl.cols: no such setting",
     });
-    expect(applyChange(EMPTY_HARNESS, { extension: "termctrl", settings: { cols: 0 } })).toMatchObject({ ok: false });
   });
 
   it("has the Guardian off (each review is a model request), with the endpoints' small model (default), no thinking, and text rules (SPI-1058)", () => {
@@ -102,7 +87,6 @@ describe("resolveHarness", () => {
         commands: "",
         policy: "",
         reviewTimeoutSeconds: 60,
-        batchArgumentCharacters: 2000,
       },
     });
     const on = applyChange(EMPTY_HARNESS, {
@@ -138,12 +122,7 @@ describe("resolveHarness", () => {
         thinkingLevel: "high",
         correctiveTurns: 1,
         reviewTimeoutSeconds: 120,
-        maxFindings: 4,
-        maxNits: 3,
         maxToolRounds: 8,
-        concernCooldownTurns: 3,
-        catchUpBacklog: 3,
-        catchUpWaitSeconds: 30,
       },
     });
     expect(
@@ -165,12 +144,9 @@ describe("resolveHarness", () => {
     // SPI-1320: each review bound at its ends is kept, one past them refused.
     const bounds: Record<string, readonly [number, number]> = {
       reviewTimeoutSeconds: [1, MAX_TIMED_MINUTES * 60],
-      maxFindings: [1, 100],
-      maxNits: [0, 100],
       maxToolRounds: [0, 100],
-      concernCooldownTurns: [0, 1_000],
-      catchUpBacklog: [1, 1_000],
-      catchUpWaitSeconds: [0, MAX_TIMED_MINUTES * 60],
+      // SPI-1388: a sanity bound, as maxToolRounds' (it was 3).
+      correctiveTurns: [0, 100],
     };
     for (const [key, [low, high]] of Object.entries(bounds)) {
       for (const value of [low, high])
@@ -351,7 +327,7 @@ describe("applyChange", () => {
     });
     if (!tools.ok) throw new Error(tools.error);
     expect(tools.harness.global.t3).toBeDefined();
-    const changed = applyChange(tools.harness, { extension: "files", settings: { lsLimit: 5 } });
+    const changed = applyChange(tools.harness, { extension: "web", settings: { searchResults: 5 } });
     if (!changed.ok) throw new Error(changed.error);
     expect(changed.harness.global.tools).toEqual(tools.harness.global.tools);
     expect(changed.harness.global.t3).toEqual(tools.harness.global.t3);
@@ -379,60 +355,22 @@ describe("applyChange", () => {
     });
   });
 
-  it("lets the Project context's settings change but never its switch (SPI-1321)", () => {
+  it("has the Project context always on with no limit of its own (SPI-1321, SPI-1388)", () => {
     expect(EXTENSIONS.find((entry) => entry.id === "project-context")?.locked).toBeUndefined();
-    expect(resolveHarness(EMPTY_HARNESS).extensions["project-context"]).toEqual({
-      enabled: true,
-      settings: { maxFileCharacters: 16_000 },
-    });
-    const changed = applyChange(EMPTY_HARNESS, {
-      extension: "project-context",
-      settings: { maxFileCharacters: 50_000 },
-    });
-    if (!changed.ok) throw new Error(changed.error);
-    expect(resolveHarness(changed.harness).extensions["project-context"]).toEqual({
-      enabled: true,
-      settings: { maxFileCharacters: 50_000 },
-    });
+    expect(resolveHarness(EMPTY_HARNESS).extensions["project-context"]).toEqual({ enabled: true, settings: {} });
+    expect(
+      applyChange(EMPTY_HARNESS, { extension: "project-context", settings: { maxFileCharacters: 50_000 } }),
+    ).toEqual({ ok: false, error: "project-context.maxFileCharacters: no such setting" });
     expect(applyChange(EMPTY_HARNESS, { extension: "project-context", enabled: false })).toEqual({
       ok: false,
       error: "project-context: cannot be turned off",
     });
   });
 
-  it("bounds the web, file and Project context limits (SPI-1321, ADR-0048)", () => {
+  it("bounds the web and Tool output limits (SPI-1321, SPI-1362, ADR-0048)", () => {
     const bounds: Record<string, Record<string, readonly [number, number]>> = {
-      web: {
-        fetchTimeoutSeconds: [1, MAX_TIMED_MINUTES * 60],
-        fetchMaxTimeoutSeconds: [1, MAX_TIMED_MINUTES * 60],
-        fetchMaxKiB: [64, FETCH_MAX_KIB],
-        fetchRedirects: [0, MAX_REDIRECTS],
-        fetchTitleCharacters: [1, 10_000],
-        searchResults: [1, 100],
-        searchesPerCall: [1, 50],
-        searchSummaryTokens: [100, 64_000],
-        searchTimeoutSeconds: [1, MAX_TIMED_MINUTES * 60],
-        searchContextCharacters: [100, 1_000_000],
-      },
-      files: { lsLimit: [1, 100_000], findLimit: [1, 100_000], grepLimit: [1, 100_000] },
-      "project-context": { maxFileCharacters: [1, 1_000_000] },
-      // SPI-1362: what the model, the Guardian and the suggestion model are shown, and the Terminals' waits.
-      "tool-output": {
-        outputKiB: [MIN_TOOL_OUTPUT_KIB, MAX_TOOL_OUTPUT_KIB],
-        outputLines: [MIN_TOOL_OUTPUT_LINES, 100_000],
-      },
-      context: { previewCharacters: [12, 10_000] },
-      termctrl: {
-        startWaitMs: [0, MAX_TIMED_MINUTES * 60_000],
-        inputWaitMs: [0, MAX_TIMED_MINUTES * 60_000],
-        pollWaitMs: [0, MAX_TIMED_MINUTES * 60_000],
-        scrollbackLines: [2, 100_000],
-        scrollbackKiB: [1, MAX_TOOL_OUTPUT_KIB],
-        cols: [1, MAX_TERMINAL_COLS],
-        rows: [1, MAX_TERMINAL_ROWS],
-      },
-      guardian: { batchArgumentCharacters: [0, GUARDIAN_EVIDENCE_CHARACTERS] },
-      "prompt-suggestions": { excerptCharacters: [100, 1_000_000], timeoutSeconds: [1, MAX_TIMED_MINUTES * 60] },
+      web: { searchResults: [1, 100], searchesPerCall: [1, 50] },
+      "tool-output": { outputKiB: [MIN_TOOL_OUTPUT_KIB, MAX_TOOL_OUTPUT_KIB] },
     };
     for (const [extension, keys] of Object.entries(bounds))
       for (const [key, [low, high]] of Object.entries(keys)) {
@@ -453,41 +391,16 @@ describe("applyChange", () => {
       }
     expect(resolveHarness(EMPTY_HARNESS).extensions.web?.settings).toEqual({
       searchModel: "default",
-      fetchTimeoutSeconds: 30,
-      fetchMaxTimeoutSeconds: 120,
-      fetchMaxKiB: 5120,
-      fetchRedirects: 10,
-      fetchTitleCharacters: 200,
       searchResults: 8,
       searchesPerCall: 2,
-      searchSummaryTokens: 1500,
-      searchTimeoutSeconds: 90,
-      searchContextCharacters: 6000,
     });
-    expect(resolveHarness(EMPTY_HARNESS).extensions["tool-output"]?.settings).toEqual({
-      outputKiB: 50,
-      outputLines: 2000,
-    });
-    expect(resolveHarness(EMPTY_HARNESS).extensions["prompt-suggestions"]?.settings).toEqual({
-      excerptCharacters: 4000,
-      timeoutSeconds: 20,
-    });
-    expect(resolveHarness(EMPTY_HARNESS).extensions.files?.settings).toEqual({
-      lsLimit: 500,
-      findLimit: 1000,
-      grepLimit: 100,
-    });
+    expect(resolveHarness(EMPTY_HARNESS).extensions["tool-output"]?.settings).toEqual({ outputKiB: 50 });
+    expect(resolveHarness(EMPTY_HARNESS).extensions["prompt-suggestions"]?.settings).toEqual({});
+    expect(resolveHarness(EMPTY_HARNESS).extensions.files?.settings).toEqual({});
   });
 
   it("states each SPI-1362 setting's maximum in its description", () => {
-    const keys: Record<string, ReadonlyArray<string>> = {
-      "tool-output": ["outputKiB", "outputLines"],
-      web: ["searchContextCharacters"],
-      context: ["previewCharacters"],
-      termctrl: ["startWaitMs", "inputWaitMs", "pollWaitMs", "scrollbackLines", "scrollbackKiB"],
-      guardian: ["batchArgumentCharacters"],
-      "prompt-suggestions": ["excerptCharacters", "timeoutSeconds"],
-    };
+    const keys: Record<string, ReadonlyArray<string>> = { "tool-output": ["outputKiB"] };
     for (const [id, names] of Object.entries(keys))
       for (const name of names) {
         const setting = EXTENSIONS.find((entry) => entry.id === id)!.settings[name]!;
@@ -828,9 +741,80 @@ describe("code mode's compute budget and the Terminals' settle and stop waits (S
     expect(change(MAX_CODEMODE_INTERRUPT_BUDGET)).toMatchObject({ ok: true });
     expect(change(MAX_CODEMODE_INTERRUPT_BUDGET + 1)).toMatchObject({ ok: false });
   });
+});
 
-  it("termctrl's quiet and stop wait default to termctrl's 250 ms and 3 s", () => {
-    const termctrl = resolveHarness(EMPTY_HARNESS).extensions.termctrl!;
-    expect(termctrl.settings).toMatchObject({ quietMs: 250, stopGraceSeconds: 3 });
+describe("the Harness's fixed values (SPI-1388)", () => {
+  // Each row of SPI-1388's table: the setting it was, and where it went.
+  const REMOVED: Readonly<Record<string, ReadonlyArray<string>>> = {
+    "tool-output": ["outputLines"],
+    files: ["lsLimit", "findLimit", "grepLimit"],
+    web: [
+      "fetchTimeoutSeconds",
+      "fetchMaxTimeoutSeconds",
+      "fetchMaxKiB",
+      "fetchRedirects",
+      "fetchTitleCharacters",
+      "searchSummaryTokens",
+      "searchTimeoutSeconds",
+      "searchContextCharacters",
+    ],
+    context: ["previewCharacters"],
+    termctrl: [
+      "backgroundBash",
+      "cols",
+      "rows",
+      "startWaitMs",
+      "inputWaitMs",
+      "pollWaitMs",
+      "scrollbackLines",
+      "scrollbackKiB",
+      "quietMs",
+      "stopGraceSeconds",
+    ],
+    guardian: ["batchArgumentCharacters"],
+    advisor: ["maxFindings", "maxNits", "concernCooldownTurns", "catchUpBacklog", "catchUpWaitSeconds"],
+    "prompt-suggestions": ["excerptCharacters", "timeoutSeconds"],
+    "project-context": ["maxFileCharacters"],
+  };
+
+  it("are no settings: gone from the registry and refused by a change", () => {
+    for (const [id, keys] of Object.entries(REMOVED)) {
+      const entry = EXTENSIONS.find((candidate) => candidate.id === id)!;
+      for (const key of keys) {
+        expect(Object.keys(entry.settings), `${id}.${key}`).not.toContain(key);
+        expect(applyChange(EMPTY_HARNESS, { extension: id, settings: { [key]: 1 } })).toEqual({
+          ok: false,
+          error: `${id}.${key}: no such setting`,
+        });
+      }
+    }
+  });
+
+  it("drop a value stored for a removed setting on resolve, never refusing the store", () => {
+    const stored: StoredHarness = {
+      revision: 3,
+      overrides: {},
+      global: {
+        extensions: Object.fromEntries(
+          Object.entries(REMOVED).map(([id, keys]) => [
+            id,
+            { settings: Object.fromEntries(keys.map((key) => [key, key === "backgroundBash" ? false : 7])) },
+          ]),
+        ),
+      },
+    };
+    const resolved = resolveHarness(stored);
+    for (const [id, keys] of Object.entries(REMOVED))
+      for (const key of keys) {
+        expect(resolved.extensions[id]?.settings, `${id}.${key}`).not.toHaveProperty(key);
+        expect(extensionOf(resolved, id).settings, `${id}.${key}`).not.toHaveProperty(key);
+      }
+    // A change to what remains is still taken, the old keys riding along unread.
+    expect(applyChange(stored, { extension: "web", settings: { searchResults: 3 } })).toMatchObject({ ok: true });
+  });
+
+  it("keep the Owner's approved values, and the Guardian's batch well under its evidence", () => {
+    expect(GUARDIAN_BATCH_ARGUMENT_CHARACTERS).toBe(2000);
+    expect(GUARDIAN_BATCH_ARGUMENT_CHARACTERS).toBeLessThan(GUARDIAN_EVIDENCE_CHARACTERS / 4);
   });
 });

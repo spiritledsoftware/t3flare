@@ -21,14 +21,9 @@ import {
 } from "./mcp.ts";
 import {
   AGENT_EXITED_TERMINALS_KEPT,
-  AGENT_TERMINAL_HISTORY_BYTES,
   ENVIRONMENT_SETTINGS,
   type EnvironmentKey,
-  ISOLATE_MEMORY_MB,
-  MAX_STOP_GRACE_SECONDS,
-  MAX_TIMED_MINUTES,
   MAX_TIMED_SECONDS,
-  STOP_GRACE_SECONDS,
   SWEEP_SETTING_KEYS,
 } from "./environment.ts";
 import {
@@ -39,6 +34,7 @@ import {
   type SettingEntry,
   type SettingValue,
 } from "./fields.ts";
+import { FIND_DEFAULT_LIMIT, GREP_DEFAULT_LIMIT, LS_DEFAULT_LIMIT, TOOL_OUTPUT_LINES } from "./harnessConstants.ts";
 import { storedValueProblem } from "./storedValue.ts";
 import { EXPOSURES, legacyResolvedTools, type ResolvedTools, resolveTools, type ToolsLayer } from "./tools.ts";
 
@@ -46,6 +42,7 @@ export * from "./mcp.ts";
 export * from "./fields.ts";
 export * from "./environment.ts";
 export * from "./tools.ts";
+export * from "./harnessConstants.ts";
 
 // Settings are Global (the Cloud Environment) now; the stored shape has per-Project `overrides`, empty, resolved with
 // a merge (an Override's keyed settings merge over Global's key by key; lists are replaced whole) so a
@@ -92,14 +89,6 @@ const modelSetting = (
 });
 const THINKING_LEVELS = ["off", "low", "medium", "high"] as const;
 /**
- * The largest body web_fetch converts from HTML or JSON; a larger one is returned as it came. A named constraint: a
- * Worker isolate's 128 MB, which also holds the Session's own state. Conversion costs about 7 times the body: measured
- * in workerd (apps/agents/test/webFetchMemory.workerd.test.ts), 5 MiB of two-byte HTML takes 24 MB of heap to convert,
- * plus 10 MB of body buffers outside it, about 34 MB of the 128, which leaves the Session most of the isolate. 5 MiB was
- * also the size limit before it was a setting, so every page that converted then still does.
- */
-export const FETCH_CONVERT_MAX_KIB = 5120;
-/**
  * QuickJS interrupt polls per CPU second of a tight loop on Cloudflare Durable Objects, as pi-codemode measured them
  * (`runtime/inline.d.ts`, October 2026): about 10,000. The rate depends on the code, so it converts only roughly.
  */
@@ -121,17 +110,6 @@ export const CODEMODE_CPU_LIMIT_MS = 30_000;
  */
 export const MAX_CODEMODE_INTERRUPT_BUDGET = (CODEMODE_CPU_LIMIT_MS / 1000) * CODEMODE_POLLS_PER_SECOND;
 
-/** termctrl's settle constant (pi-termctrl's `terminal-tools.ts`): a Terminal's quiet before a wait answers, in ms. */
-export const DEFAULT_TERMINAL_QUIET_MS = 250;
-
-/**
- * The most `fetchMaxKiB` may be set to. A named constraint: a Worker isolate's 128 MB holds the body, its decoded text
- * and the lines web_fetch pages through, beside the Session itself, and an isolate out of memory resets the Session
- * mid-turn. Measured in workerd (apps/agents/test/webFetchMemory.workerd.test.ts): 16 MiB of two-byte HTML, returned
- * unconverted, takes 32 MB of heap plus 32 MB of body buffers outside it, about 64 MB, half the isolate. 32 MiB took
- * 64 MB of heap, about 128 MB in all.
- */
-export const FETCH_MAX_KIB = 16_384;
 /**
  * The most KiB of a tool's result the model may be shown (`outputKiB`). A named constraint: pi-durable keeps a tool
  * result as one Session row (`SESSION_ROW_BYTES` less its record), its text at up to `JSON_ESCAPE_MAX_BYTES` per byte;
@@ -142,56 +120,13 @@ export const MAX_TOOL_OUTPUT_KIB = Math.floor(
   (SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES) / 2 / JSON_ESCAPE_MAX_BYTES / 1024,
 );
 /**
- * The least KiB and lines of a tool's result the model may be shown. A named constraint, t3flare's own correctness: a
- * tool keeps room inside its output limit for its own notes (a Terminal's header and the scrolled-off lines, which take
- * at most half; web_fetch's continuation note; a History page's envelope), which needs a few KiB and lines.
+ * The least KiB of a tool's result the model may be shown. A named constraint, t3flare's own correctness: a tool keeps
+ * room inside its output limit for its own notes (a Terminal's header and the scrolled-off lines, which take at most
+ * half; web_fetch's continuation note; a History page's envelope), which needs a few KiB.
  */
 export const MIN_TOOL_OUTPUT_KIB = 4;
-export const MIN_TOOL_OUTPUT_LINES = 50;
-/** The Tool output limit's defaults: pi-durable's own (`DEFAULT_MAX_BYTES`, `DEFAULT_MAX_LINES`), today's values. */
+/** The Tool output limit's default: pi-durable's own `DEFAULT_MAX_BYTES`. Its lines are `TOOL_OUTPUT_LINES`. */
 export const DEFAULT_TOOL_OUTPUT_KIB = 50;
-export const DEFAULT_TOOL_OUTPUT_LINES = 2000;
-/** A sanity bound (ADR-0048) for a count of lines, entries or results: nothing in t3flare forces it. */
-const MAX_COUNT = 100_000;
-/** A sanity bound (ADR-0048) for a count of characters: nothing in t3flare forces it. */
-const MAX_CHARACTERS = 1_000_000;
-/** A sanity bound (ADR-0048) for one line's preview: nothing in t3flare forces it. */
-const MAX_PREVIEW_CHARACTERS = 10_000;
-/** How many redirects web_fetch follows by default (`fetchRedirects`): today's 10, half the Fetch standard's 20. */
-export const DEFAULT_REDIRECTS = 10;
-/**
- * The most redirects web_fetch may follow (`fetchRedirects`): a sanity bound (ADR-0048 §1), past any real chain of
- * redirects. Each hop takes up to three of the turn invocation's subrequests, whose Workers limit bounds it in fact.
- */
-export const MAX_REDIRECTS = 100;
-/** The longest wait a Terminal's wait settings take, in ms (ADR-0048 §2): the wait runs in Workspace slices toward one deadline. */
-const MAX_WAIT_MS = MAX_TIMED_MINUTES * 60_000;
-/** A Terminal wait setting: `default` ms when a call names no wait, `description` its own, its maximum stated. */
-const waitMsSetting = (title: string, description: string, fallback: number): SettingEntry => ({
-  title,
-  description: `${description} At most ${MAX_WAIT_MS.toLocaleString("en-US")} (a week).`,
-  // MAX_WAIT_MS: t3flare times the wait itself (ADR-0048 §2).
-  schema: { type: "integer", minimum: 0, maximum: MAX_WAIT_MS, default: fallback },
-  tier: "free",
-  disclosure: "advanced",
-});
-/** An agent Terminal's size by default (`termctrl.cols`, `termctrl.rows`). */
-export const DEFAULT_TERMINAL_COLS = 120;
-export const DEFAULT_TERMINAL_ROWS = 40;
-/**
- * The widest and tallest an agent Terminal may be set (`termctrl.cols`, `termctrl.rows`): a sanity bound (ADR-0048 §1),
- * provisional, for a live Terminal's headless xterm in the Workspace DO's 128 MB isolate. Nothing forces 320 or 1,777:
- * they are kept at the values the Owner has (SPI-1397). They were derived while an agent Terminal's 1,000 lines of scrollback lived in that xterm, one of 32
- * shares of the isolate at about 12 bytes a cell: 128,000,000 / 32 / 12 = 333,333 cells, so 320 columns beside the
- * default 40 rows and the 1,000 lines (320 × 1,040), and 1,777 rows beside them at the default 120 columns
- * (120 × 2,777). Since SPI-1397 the xterm keeps only its screen and `AGENT_TERMINAL_SPILL_LINES` above it, and an
- * exited Terminal none, so at both maxima a live one holds 320 × 1,841 cells, about 7 MB. Both within a PTY's 16-bit
- * size (Linux's `struct winsize`). The settings and their defaults stay until SPI-1388 makes them fixed constants.
- */
-export const MAX_TERMINAL_COLS = 320;
-export const MAX_TERMINAL_ROWS = 1_777;
-/** The Guardian's evidence budget, in characters of untrusted evidence a Review carries (about pi-guardian's 32,000-token ceiling). */
-export const GUARDIAN_EVIDENCE_CHARACTERS = 96_000;
 
 export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
   {
@@ -247,8 +182,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
   {
     id: "tool-output",
     title: "Tool output",
-    description:
-      "How much of each tool's result the model is shown, for every tool but code mode and todo, which keep their own: bash keeps the last part of its output, the others their first, and the result says what was left out. read pages through a file in at most 50 KiB or 2,000 lines per call, and never more than these.",
+    description: `How much of each tool's result the model is shown, for every tool but code mode and todo, which keep their own: bash keeps the last part of its output, the others their first, and the result says what was left out. A result is also cut at ${TOOL_OUTPUT_LINES.toLocaleString("en-US")} lines, pi's own. read pages through a file in at most 50 KiB or 2,000 lines per call, and never more than these.`,
     default: "always",
     settings: {
       outputKiB: {
@@ -264,54 +198,15 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         tier: "down-free",
         disclosure: "visible",
       },
-      outputLines: {
-        title: "Output lines shown to the model",
-        description: `The most lines of one tool result the model reads, whichever of the two limits comes first. At most ${MAX_COUNT.toLocaleString("en-US")}.`,
-        // MAX_COUNT: a sanity bound (ADR-0048), pi-durable's own code mode limit; the KiB limit bounds the row.
-        // MIN_TOOL_OUTPUT_LINES: a named constraint (a tool's own notes).
-        schema: {
-          type: "integer",
-          minimum: MIN_TOOL_OUTPUT_LINES,
-          maximum: MAX_COUNT,
-          default: DEFAULT_TOOL_OUTPUT_LINES,
-        },
-        tier: "down-free",
-        disclosure: "advanced",
-      },
     },
   },
   {
     id: "files",
     title: "File tools",
-    description: "ls, find and grep. Larger results use more of the model's context on every call.",
+    description: `ls, find and grep. A call that names no limit lists ${LS_DEFAULT_LIMIT} entries, finds ${FIND_DEFAULT_LIMIT.toLocaleString("en-US")} paths or ${GREP_DEFAULT_LIMIT} matches, pi's own defaults; a call may ask for more, and the Tool output limit still bounds what the model reads.`,
     default: "on",
     tools: ["ls", "find", "grep"],
-    settings: {
-      lsLimit: {
-        title: "Entries per ls call",
-        description: "The most entries one ls call lists; also what it lists when a call asks for no limit.",
-        // MAX_COUNT: a sanity bound, nothing in t3flare forces it (ADR-0048).
-        schema: { type: "integer", minimum: 1, maximum: MAX_COUNT, default: 500 },
-        tier: "down-free",
-        disclosure: "advanced",
-      },
-      findLimit: {
-        title: "Results per find call",
-        description: "The most paths one find call returns; also what it returns when a call asks for no limit.",
-        // MAX_COUNT: a sanity bound, nothing in t3flare forces it (ADR-0048).
-        schema: { type: "integer", minimum: 1, maximum: MAX_COUNT, default: 1000 },
-        tier: "down-free",
-        disclosure: "advanced",
-      },
-      grepLimit: {
-        title: "Matches per grep call",
-        description: "The most matches one grep call returns; also what it returns when a call asks for no limit.",
-        // MAX_COUNT: a sanity bound, nothing in t3flare forces it (ADR-0048).
-        schema: { type: "integer", minimum: 1, maximum: MAX_COUNT, default: 100 },
-        tier: "down-free",
-        disclosure: "advanced",
-      },
-    },
+    settings: {},
   },
   {
     id: "ask-user",
@@ -330,47 +225,6 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
     default: "on",
     tools: ["web_fetch", "web_search"],
     settings: {
-      fetchTimeoutSeconds: {
-        title: "Fetch time limit (seconds)",
-        description: "How long a web_fetch call that names no timeout of its own may take in all.",
-        // Timed by t3flare's own setTimeout (net.ts withDeadline): up to MAX_TIMED_SECONDS (ADR-0048 §2).
-        schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: 30 },
-        tier: "down-free",
-        disclosure: "advanced",
-      },
-      fetchMaxTimeoutSeconds: {
-        title: "Longest fetch time limit a call may set (seconds)",
-        description:
-          "The longest timeout a web_fetch call may set; the fetch time limit above is always allowed, even when longer.",
-        // Timed by t3flare's own setTimeout (net.ts withDeadline): up to MAX_TIMED_SECONDS (ADR-0048 §2).
-        schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: 120 },
-        tier: "down-free",
-        disclosure: "advanced",
-      },
-      fetchMaxKiB: {
-        title: "Fetch size limit (KiB)",
-        description: `The largest response body web_fetch reads; a larger one is refused. An HTML or JSON body over ${FETCH_CONVERT_MAX_KIB / 1024} MiB is returned as it came, without conversion to Markdown or text.`,
-        // A named constraint: FETCH_MAX_KIB.
-        schema: { type: "integer", minimum: 64, maximum: FETCH_MAX_KIB, default: 5120 },
-        tier: "down-free",
-        disclosure: "advanced",
-      },
-      fetchRedirects: {
-        title: "Redirects per fetch",
-        description: `How many redirects one web_fetch call follows; one more fails the call. Each redirect takes up to three of the turn's Workers subrequests (two address lookups and the request), so a redirect loop spends that many before it fails. At most ${MAX_REDIRECTS}.`,
-        // MAX_REDIRECTS: a sanity bound (ADR-0048); the invocation's subrequest limit bounds it in fact.
-        schema: { type: "integer", minimum: 0, maximum: MAX_REDIRECTS, default: DEFAULT_REDIRECTS },
-        tier: "down-free",
-        disclosure: "advanced",
-      },
-      fetchTitleCharacters: {
-        title: "Fetched page title (characters)",
-        description: `How many characters of a fetched page's first heading t3's web item shows as its title. The title is kept with the tool result, so a longer one takes more of the thread's stored history; the model never reads it. At most ${MAX_PREVIEW_CHARACTERS.toLocaleString("en-US")}.`,
-        // MAX_PREVIEW_CHARACTERS: a sanity bound (ADR-0048); the title rides in the result's `details`, within its row.
-        schema: { type: "integer", minimum: 1, maximum: MAX_PREVIEW_CHARACTERS, default: 200 },
-        tier: "down-free",
-        disclosure: "advanced",
-      },
       searchModel: modelSetting(
         "Search model",
         "The model that runs web_search's searches: an Anthropic Messages Model endpoint's model with an API key or no auth whose server takes Anthropic's web search tool, as <endpointId>/<modelId>, or default (the endpoints' small model).",
@@ -391,30 +245,6 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
           "The most searches the search model may run for one web_search call. Each web_search query is a model request on the search model's endpoint.",
         // 50: a sanity bound, nothing in t3flare forces it (ADR-0048).
         schema: { type: "integer", minimum: 1, maximum: 50, default: 2 },
-        tier: "down-free",
-        disclosure: "advanced",
-      },
-      searchSummaryTokens: {
-        title: "Search summary tokens",
-        description: "The most tokens the search model may write for one web_search call's summary.",
-        // 64,000: a sanity bound; the endpoint itself refuses a value past its model's own output limit (ADR-0048).
-        schema: { type: "integer", minimum: 100, maximum: 64_000, default: 1500 },
-        tier: "down-free",
-        disclosure: "advanced",
-      },
-      searchTimeoutSeconds: {
-        title: "Search time limit (seconds)",
-        description: "How long one web_search call may take in all, reading the search model's answer included.",
-        // Timed by t3flare's own setTimeout (net.ts withDeadline): up to MAX_TIMED_SECONDS (ADR-0048 §2).
-        schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: 90 },
-        tier: "down-free",
-        disclosure: "advanced",
-      },
-      searchContextCharacters: {
-        title: "Search result characters",
-        description: `The characters of result text one web_search call shares across its results when the call names no budget of its own; past it, results are shortened or lose their text, never their title and URL. More puts more of each page in front of the model, still within Tool output's limit. At most ${MAX_CHARACTERS.toLocaleString("en-US")}.`,
-        // MAX_CHARACTERS: a sanity bound (ADR-0048); the Tool output limit cuts what the model reads in any case.
-        schema: { type: "integer", minimum: 100, maximum: MAX_CHARACTERS, default: 6000 },
         tier: "down-free",
         disclosure: "advanced",
       },
@@ -445,14 +275,6 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         tier: "free",
         disclosure: "visible",
       },
-      previewCharacters: {
-        title: "History preview (characters)",
-        description: `How many characters each line of a context_history list shows, and each match of a context_history or context_notes search. Longer previews show more of each entry, and each page takes more of the model's context. At most ${MAX_PREVIEW_CHARACTERS.toLocaleString("en-US")}.`,
-        // MAX_PREVIEW_CHARACTERS: a sanity bound (ADR-0048); the Tool output limit cuts a page in any case.
-        schema: { type: "integer", minimum: 12, maximum: MAX_PREVIEW_CHARACTERS, default: 120 },
-        tier: "down-free",
-        disclosure: "advanced",
-      },
     },
   },
   {
@@ -461,92 +283,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
     description: `terminal_start, terminal_send, terminal_stop, terminal_list and terminal_wait: interactive programs (REPLs, TUIs, prompts) as PTYs in the Workspace's container, and bash's background: true. Approvals follow the thread's mode as bash's do; nothing starts a container until a Terminal or a job starts. Any number run at once; a Workspace keeps its last ${AGENT_EXITED_TERMINALS_KEPT} exited ones readable, and they end with its container (SPI-1057, SPI-1397).`,
     default: "on",
     tools: ["terminal_start", "terminal_send", "terminal_stop", "terminal_list", "terminal_wait"],
-    settings: {
-      backgroundBash: {
-        title: "Background jobs from bash",
-        description:
-          "Offer bash's background parameter: a command still running after the Start wait becomes a Background job.",
-        schema: { type: "boolean", default: true },
-        tier: "down-free",
-        disclosure: "advanced",
-      },
-      cols: {
-        title: "Columns",
-        description: `A Terminal's width in characters. A wider Terminal keeps more of its screen in the Workspace's memory, ${ISOLATE_MEMORY_MB} MB shared with its other Terminals and its files. At most ${MAX_TERMINAL_COLS}.`,
-        // A sanity bound, provisional (`MAX_TERMINAL_COLS`): a live Terminal's xterm in the Workspace DO's memory.
-        schema: { type: "integer", minimum: 1, maximum: MAX_TERMINAL_COLS, default: DEFAULT_TERMINAL_COLS },
-        tier: "free",
-        disclosure: "advanced",
-      },
-      rows: {
-        title: "Rows",
-        description: `A Terminal's height in lines. A taller Terminal keeps more of its screen in the Workspace's memory, ${ISOLATE_MEMORY_MB} MB shared with its other Terminals and its files. At most ${MAX_TERMINAL_ROWS.toLocaleString("en-US")}.`,
-        // A sanity bound, provisional (`MAX_TERMINAL_ROWS`): a live Terminal's xterm in the Workspace DO's memory.
-        schema: { type: "integer", minimum: 1, maximum: MAX_TERMINAL_ROWS, default: DEFAULT_TERMINAL_ROWS },
-        tier: "free",
-        disclosure: "advanced",
-      },
-      startWaitMs: waitMsSetting(
-        "Start wait (ms)",
-        "How long terminal_start waits for a new Terminal's screen to settle when the call names no wait, and how long bash with background: true runs before the command becomes a Background job (0: at once). Longer holds the agent's call that long; shorter can return a screen still drawing.",
-        2000,
-      ),
-      inputWaitMs: waitMsSetting(
-        "Input wait (ms)",
-        "How long terminal_send waits for the screen to settle after typing when the call names no wait. Shorter returns sooner, possibly before the program has answered.",
-        500,
-      ),
-      pollWaitMs: waitMsSetting(
-        "Poll wait (ms)",
-        "How long terminal_send with nothing to type waits for new output when the call names no wait. The agent's call is held up to this long while a program is quiet.",
-        30_000,
-      ),
-      scrollbackLines: {
-        title: "Scrollback lines shown",
-        description: `How many lines that scrolled off a Terminal since the agent last looked its next result shows; past this, the first and last are kept and the middle dropped. More shows the agent more of what it missed and leaves less room for the rest of the result. A Terminal keeps its last ${AGENT_TERMINAL_HISTORY_BYTES / 1024 / 1024} MiB of scrollback. At most ${MAX_COUNT.toLocaleString("en-US")}.`,
-        // MAX_COUNT: a sanity bound (ADR-0048); the lines shown take at most half the Tool output limit in any case.
-        schema: { type: "integer", minimum: 2, maximum: MAX_COUNT, default: 100 },
-        tier: "down-free",
-        disclosure: "advanced",
-      },
-      scrollbackKiB: {
-        title: "Scrollback KiB shown",
-        description: `The most KiB of those lines a result shows, whichever limit comes first. Never more than half of Tool output's Output shown to the model, so the current screen always fits beside them. At most ${MAX_TOOL_OUTPUT_KIB}.`,
-        // MAX_TOOL_OUTPUT_KIB: a sanity bound (ADR-0048). Above half the Tool output limit in effect, that half is used
-        // instead, so no value past the Tool output limit's own maximum can matter.
-        schema: { type: "integer", minimum: 1, maximum: MAX_TOOL_OUTPUT_KIB, default: 16 },
-        tier: "down-free",
-        disclosure: "advanced",
-      },
-      quietMs: {
-        title: "Quiet before a Terminal settles (ms)",
-        description: `A wait on a Terminal answers once its screen has had no new output for this long. Shorter answers sooner but may catch a program between bursts of output, so the agent reads a screen that is still changing. At most ${MAX_TIMED_MINUTES * 60_000} (a week). Applies at each thread's next turn.`,
-        // Compared with the clock between 50 ms polls (agentTerminals.ts), no timer: the shared sanity maximum applies
-        // (ADR-0048 §2), in ms.
-        schema: {
-          type: "integer",
-          minimum: 50,
-          maximum: MAX_TIMED_MINUTES * 60_000,
-          default: DEFAULT_TERMINAL_QUIET_MS,
-        },
-        tier: "free",
-        disclosure: "advanced",
-      },
-      stopGraceSeconds: {
-        title: "Stopped Terminal's wait (seconds)",
-        description: `How long terminal_stop waits for a Terminal or Background job to end after closing it, before it kills its processes again. A program that ignores the close keeps the stop waiting this long. At most ${MAX_STOP_GRACE_SECONDS}. Applies at each thread's next turn.`,
-        // A sanity bound (`MAX_STOP_GRACE_SECONDS`).
-        schema: {
-          type: "integer",
-          minimum: 1,
-          maximum: MAX_STOP_GRACE_SECONDS,
-          // The one stop grace (`STOP_GRACE_SECONDS`, SPI-1387), as termctrl's DEFAULT_STOP_GRACE_MS (`termctrl-registry.ts`).
-          default: STOP_GRACE_SECONDS,
-        },
-        tier: "free",
-        disclosure: "advanced",
-      },
-    },
+    settings: {},
   },
   {
     id: "guardian",
@@ -598,13 +335,6 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: 60 },
         disclosure: "advanced",
       },
-      batchArgumentCharacters: {
-        title: "Other calls in the batch (characters)",
-        description: `When the model makes several calls at once, how much of each other call the Guardian reads beside the one it reviews: its path and command whole, the rest of its arguments cut to this many characters (0: path and command only). More lets the Guardian judge the calls together, and each Review reads more tokens. At most ${GUARDIAN_EVIDENCE_CHARACTERS.toLocaleString("en-US")}, all the evidence a Review reads.`,
-        // GUARDIAN_EVIDENCE_CHARACTERS: a sanity bound (ADR-0048); past it, one batch call outweighs the evidence.
-        schema: { type: "integer", minimum: 0, maximum: GUARDIAN_EVIDENCE_CHARACTERS, default: 2000 },
-        disclosure: "advanced",
-      },
     },
   },
   {
@@ -638,7 +368,8 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         title: "Corrective continuations",
         description:
           "How often a blocker found as the agent answers continues the same turn to address it (0: never); later blockers wait for the next turn.",
-        schema: { type: "integer", minimum: 0, maximum: 3, default: 1 },
+        // 100: a sanity bound, nothing in t3flare forces it (ADR-0048).
+        schema: { type: "integer", minimum: 0, maximum: 100, default: 1 },
         tier: "down-free",
         disclosure: { contextual: { extensionOn: true } },
       },
@@ -651,22 +382,6 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         tier: "down-free",
         disclosure: "advanced",
       },
-      maxFindings: {
-        title: "Findings per Review",
-        description: "The most findings one Review delivers; the Advisor is asked for at most this many.",
-        // 100: a sanity bound, nothing in t3flare forces it (ADR-0048).
-        schema: { type: "integer", minimum: 1, maximum: 100, default: 4 },
-        tier: "down-free",
-        disclosure: "advanced",
-      },
-      maxNits: {
-        title: "Nits per request",
-        description: "The most Nits delivered while the agent answers one request (0: none).",
-        // 100: a sanity bound, nothing in t3flare forces it (ADR-0048).
-        schema: { type: "integer", minimum: 0, maximum: 100, default: 3 },
-        tier: "down-free",
-        disclosure: "advanced",
-      },
       maxToolRounds: {
         title: "Tool rounds per Review",
         description:
@@ -674,35 +389,6 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // 100: a sanity bound, nothing in t3flare forces it (ADR-0048).
         schema: { type: "integer", minimum: 0, maximum: 100, default: 8 },
         tier: "down-free",
-        disclosure: "advanced",
-      },
-      concernCooldownTurns: {
-        title: "Concern cooldown (turns)",
-        description:
-          "After a Concern, turns before another Concern steers the running agent; one found meanwhile waits for the next Review (0: no cooldown).",
-        // 1000: a sanity bound, nothing in t3flare forces it (ADR-0048).
-        schema: { type: "integer", minimum: 0, maximum: 1_000, default: 3 },
-        tier: "up-free",
-        disclosure: "advanced",
-      },
-      catchUpBacklog: {
-        title: "Catch-up backlog (turns)",
-        description:
-          "When this many turns wait unreviewed, the agent pauses for the Review under way, for up to the Catch-up wait.",
-        // 1000: a sanity bound, nothing in t3flare forces it (ADR-0048).
-        schema: { type: "integer", minimum: 1, maximum: 1_000, default: 3 },
-        // Free either way: neither key changes spend or what the agent sees. A lower backlog or a longer wait can hold
-        // the agent's turn, but never past the Review's own time limit.
-        tier: "free",
-        disclosure: "advanced",
-      },
-      catchUpWaitSeconds: {
-        title: "Catch-up wait (seconds)",
-        description: "How long the agent waits at the catch-up backlog (0: never waits).",
-        // Timed by t3flare's own setTimeout (advisor.ts): up to MAX_TIMED_SECONDS (ADR-0048 §2).
-        schema: { type: "integer", minimum: 0, maximum: MAX_TIMED_SECONDS, default: 30 },
-        // Free either way: see catchUpBacklog.
-        tier: "free",
         disclosure: "advanced",
       },
     },
@@ -721,24 +407,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
     description:
       "After a turn, the endpoints' small model suggests your next message from the turn's request and answer, while t3's prompt suggestions are on (its Labs setting).",
     default: "always",
-    settings: {
-      excerptCharacters: {
-        title: "Suggestion characters read",
-        description: `The most characters of the request and of the answer the small model reads, the last of each; more costs more tokens per suggestion. At most ${MAX_CHARACTERS.toLocaleString("en-US")}.`,
-        // MAX_CHARACTERS: a sanity bound (ADR-0048); the small model's own context refuses more in any case.
-        schema: { type: "integer", minimum: 100, maximum: MAX_CHARACTERS, default: 4000 },
-        tier: "down-free",
-        disclosure: "advanced",
-      },
-      timeoutSeconds: {
-        title: "Suggestion time limit (seconds)",
-        description: `How long a suggestion may take; a slower one is dropped, and no suggestion shows. At most ${MAX_TIMED_SECONDS.toLocaleString("en-US")} (a week).`,
-        // Timed by t3flare's own setTimeout (promptSuggestion.ts): up to MAX_TIMED_SECONDS (ADR-0048 §2).
-        schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: 20 },
-        tier: "free",
-        disclosure: "advanced",
-      },
-    },
+    settings: {},
   },
   {
     id: "permissions",
@@ -753,19 +422,10 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
   {
     id: "project-context",
     title: "Project context",
-    description: "The repo's AGENTS.md and CLAUDE.md in the prompt.",
+    description:
+      "The repo's AGENTS.md and CLAUDE.md in the prompt, each whole: a file that cannot be read is named in its place, never cut.",
     default: "always",
-    settings: {
-      maxFileCharacters: {
-        title: "Characters per file",
-        description:
-          "The most of one AGENTS.md or CLAUDE.md the prompt shows; a longer file is cut. A longer limit puts more of each AGENTS.md or CLAUDE.md in front of the model on every turn.",
-        // 1,000,000: a sanity bound, nothing in t3flare forces it (ADR-0048).
-        schema: { type: "integer", minimum: 1, maximum: 1_000_000, default: 16_000 },
-        tier: "down-free",
-        disclosure: "advanced",
-      },
-    },
+    settings: {},
   },
 ];
 

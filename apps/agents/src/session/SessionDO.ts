@@ -82,11 +82,11 @@ import {
 } from "../extensions/codemode.ts";
 import { mcpExtension, mcpNamespaces, type McpView } from "../extensions/mcp.ts";
 import { codingTools } from "../extensions/coding-tools.ts";
-import { FILES_EXTENSION, fileLimits, fileTools } from "../extensions/files.ts";
+import { fileTools } from "../extensions/files.ts";
 import { answerText, ASK_USER_EXTENSION, askUser, QuestionStore } from "../extensions/ask-user.ts";
 import { McpQuestions } from "../extensions/mcpQuestions.ts";
 import { ApprovalStore, interactionModeSection, permissions, toToolPath } from "../extensions/permissions.ts";
-import { PROJECT_CONTEXT_EXTENSION, projectContext, projectContextLimits } from "../extensions/project-context.ts";
+import { projectContext } from "../extensions/project-context.ts";
 import { proposePlan } from "../extensions/plan.ts";
 import { CONTEXT_EXTENSION, CONTEXT_NAMESPACE, contextExtension } from "../extensions/context.ts";
 import { ADVISOR_EXTENSION, AdvisorObserver, advisorExtension, advisorSettings } from "../extensions/advisor.ts";
@@ -97,13 +97,13 @@ import {
   TERMCTRL_NAMESPACE,
   type TermctrlHost,
   termctrlExtension,
-  type TermctrlLimits,
-  termctrlLimits,
-  type TermctrlView,
-  termctrlViewOf,
-  withTermctrlWaits,
 } from "../extensions/termctrl.ts";
-import { TOOL_OUTPUT_EXTENSION, toolOutputExtension, toolOutputLimits } from "../extensions/toolOutput.ts";
+import {
+  TOOL_OUTPUT_EXTENSION,
+  toolOutputExtension,
+  type ToolOutputLimits,
+  toolOutputLimits,
+} from "../extensions/toolOutput.ts";
 import { SKILLS_EXTENSION, skillsExtension } from "../extensions/skills.ts";
 import { TODO_EXTENSION, TodoDoc, todoExtension } from "../extensions/todo.ts";
 import { WEB_EXTENSION, WEB_NAMESPACE, webExtension, webLimits } from "../extensions/web.ts";
@@ -125,13 +125,7 @@ import { modelSettingSlug, perImageBase64Of } from "@t3flare/models/endpoints";
 import { SessionEndpoints } from "./endpoints.ts";
 import { readWithin } from "../readWithin.ts";
 import { noteTurnProvider, runsOn, TURN_PROVIDER_KEY } from "./signOut.ts";
-import {
-  newestMatch,
-  PROMPT_SUGGESTIONS_EXTENSION,
-  suggestionLimits,
-  suggestionModelOf,
-  suggestPrompt,
-} from "./promptSuggestion.ts";
+import { newestMatch, suggestionModelOf, suggestPrompt } from "./promptSuggestion.ts";
 import {
   armFault,
   compactionLimits,
@@ -536,11 +530,8 @@ export class SessionDO extends DurableObject<SessionEnv> {
     if (extensionOf(harness, SKILLS_EXTENSION).enabled) registry.install(skillsExtension());
     else registry.uninstall({ name: SKILLS_EXTENSION });
     const termctrl = extensionOf(harness, TERMCTRL_EXTENSION);
-    // The viewport, and the settle and stop waits each request carries (SPI-1364).
-    const view = termctrlViewOf(termctrl.settings);
-    const terminalLimits = termctrlLimits(termctrl.settings, output);
     if (termctrl.enabled) {
-      const host = this.#termctrlHost(view, terminalLimits);
+      const host = this.#termctrlHost(output);
       registry.install(
         termctrlExtension(() => this.#opening, {
           host,
@@ -551,20 +542,12 @@ export class SessionDO extends DurableObject<SessionEnv> {
     } else {
       registry.uninstall({ name: TERMCTRL_EXTENSION });
     }
-    // SPI-1321: the file tools' and the Project context's limits; installed again in place, as codingTools is below.
+    // The file tools within the Tool output limit; installed again in place, as codingTools is below.
+    registry.install(fileTools(() => this.#files(), output));
+    // `bash`'s `background` while Terminals are on (SPI-1388: always offered then); installed again in place, so the
+    // permissions' wraps stay outside it.
     registry.install(
-      fileTools(() => this.#files(), fileLimits(extensionOf(harness, FILES_EXTENSION).settings), output),
-    );
-    registry.install(
-      projectContext(REPO_ROOT, projectContextLimits(extensionOf(harness, PROJECT_CONTEXT_EXTENSION).settings)),
-    );
-    // `bash`'s `background` with Background jobs on; installed again in place, so the permissions' wraps stay outside it.
-    registry.install(
-      codingTools(
-        termctrl.enabled && termctrl.settings.backgroundBash !== false
-          ? { jobs: backgroundJobs(this.#termctrlHost(view, terminalLimits)), output }
-          : { output },
-      ),
+      codingTools(termctrl.enabled ? { jobs: backgroundJobs(this.#termctrlHost(output)), output } : { output }),
     );
     const guardian = extensionOf(harness, GUARDIAN_EXTENSION);
     if (guardian.enabled) {
@@ -599,7 +582,6 @@ export class SessionDO extends DurableObject<SessionEnv> {
       registry.install(
         contextExtension(() => this.#opening, {
           rolloverOnCompaction: contextManagement.settings.rolloverOnCompaction !== false,
-          previewCharacters: Number(contextManagement.settings.previewCharacters),
           output,
         }),
       );
@@ -667,13 +649,11 @@ export class SessionDO extends DurableObject<SessionEnv> {
   }
 
   /** The agent's Terminals in the thread's Workspace (SPI-1057), owned by this Session. */
-  #termctrlHost(view: TermctrlView, limits: TermctrlLimits): TermctrlHost {
+  #termctrlHost(output: ToolOutputLimits): TermctrlHost {
     const sessionName = this.ctx.id.name ?? this.ctx.id.toString();
-    const viewport = { cols: view.cols, rows: view.rows };
     return {
       owner: () => sessionName,
-      viewport: () => viewport,
-      limits: () => limits,
+      output: () => output,
       toToolPath: (text) => toToolPath(text, this.#meta()?.workspaceId ?? null),
       call: async <R extends AgentTerminalRequest>(request: R): Promise<AgentTerminalResult<R["op"]>> => {
         const id = this.#meta()?.workspaceId;
@@ -682,7 +662,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
         // SAFETY: the stub's RPC typing drops `agentTerminal`'s type parameter (its answer is the union of every op's);
         // the Workspace DO's own signature ties the answer to `request.op`.
         const answer = (await this.env.WORKSPACES.get(this.env.WORKSPACES.idFromName(id)).agentTerminal(
-          withTermctrlWaits(request, view),
+          request,
         )) as AgentTerminalResult<R["op"]>;
         if (request.op === "start" && answer.ok) this.ctx.storage.kv.put(TERMCTRL_USED_KEY, true);
         return answer;
@@ -1188,10 +1168,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
     const ref = suggestionModelOf(this.#endpoints.current());
     const model = ref === undefined ? undefined : models.getModel(ref.provider, ref.modelId);
     if (model === undefined) return { text: "" };
-    // The settings the Session last took (ADR-0026), as its last turn's install did.
-    const harness = this.ctx.storage.kv.get<ResolvedHarness>(HARNESS_KEY) ?? resolveHarness(EMPTY_HARNESS);
-    const limits = suggestionLimits(extensionOf(harness, PROMPT_SUGGESTIONS_EXTENSION).settings);
-    const text = await suggestPrompt(models, model, user.text, answer.text, limits);
+    const text = await suggestPrompt(models, model, user.text, answer.text);
     console.log(JSON.stringify({ t3flare: "prompt-suggestion", suggested: text !== "" }));
     return { text };
   }
