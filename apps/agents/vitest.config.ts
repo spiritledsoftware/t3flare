@@ -24,6 +24,8 @@ export default defineConfig({
               compatibilityDate: "2026-11-01",
               compatibilityFlags: ["nodejs_compat", "nodejs_compat_do_not_populate_process_env"],
               bindings: { T3FLARE_LEASE_MS: "300", T3FLARE_MAX_CONTAINERS: "2" },
+              // The Workspace DO's constructor binds its Worker Loader shell; no test here runs a command through it.
+              workerLoaders: { LOADER: {} },
               durableObjects: {
                 // The fake-clock subclass for lease timing; the real class (wall clock) for the one test of the default.
                 CONTAINER_BUDGET: { className: "FakeClockContainerBudget", useSQLite: true },
@@ -32,6 +34,8 @@ export default defineConfig({
                 VFS_PROBE: { className: "VfsProbe", useSQLite: true },
                 SKILL_SET_PROBE: { className: "SkillSetProbe", useSQLite: true },
                 ENDPOINTS_PROBE: { className: "EndpointsProbe", useSQLite: true },
+                // The real Workspace DO, for RPCs that never start its Container (SPI-1436: a purge, then a new folder).
+                WORKSPACE: { className: "WorkspaceDO", useSQLite: true },
               },
             },
           }),

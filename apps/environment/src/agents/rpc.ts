@@ -124,6 +124,8 @@ export interface WorkspaceRpc {
     path: string,
   ): Promise<{ readonly status: number; readonly contentType: string | null; readonly location: string | null } | null>;
   clone(input: CloneInput): Promise<GitAnswer>;
+  /** SPI-1436: makes the empty repo folder of a Workspace the Environment registered; provisioning, so a purged one is made again. */
+  makeEmpty(input: { readonly id: string }): Promise<FsAnswer<null>>;
   info(): Promise<ProvisionInfo>;
   exec(input: ExecInput): Promise<ExecResult>;
   /** The Container's state, with when it started and what it started with (ADR-0032), null while it never has. */
