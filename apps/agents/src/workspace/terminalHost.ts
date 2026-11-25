@@ -25,6 +25,7 @@ import type {
 
 import type { TerminalHold } from "./containerLaunch.ts";
 import { ContainerRefused } from "./containerStep.ts";
+import { type AppliedHold, stoppedPastHoldClause } from "./terminalHolds.ts";
 
 /** A terminal not heartbeaten for this long is killed (the adapter beats every 30 s). */
 export const HEARTBEAT_LAPSE_MS = 90_000;
@@ -139,10 +140,20 @@ export class TerminalHost {
    * `terminalPromptHoldMs`.
    */
   holdsContainer(hold: TerminalHold): boolean {
+    const applied = this.appliedHold(hold);
+    return applied !== undefined && this.#deps.now() - this.#lastInput < applied.ms;
+  }
+
+  /**
+   * The hold `holdsContainer` applies to the open Terminals now, with its value in `hold`: the busy one while one runs
+   * a command, else the prompt one (SPI-1431: what a stop past it names). None with no Terminal open.
+   */
+  appliedHold(hold: TerminalHold): AppliedHold | undefined {
     const open = [...this.#terminals.values()].filter((terminal) => !terminal.exited);
-    if (open.length === 0) return false;
-    const ms = open.some((terminal) => terminal.busy) ? hold.terminalBusyHoldMs : hold.terminalPromptHoldMs;
-    return this.#deps.now() - this.#lastInput < ms;
+    if (open.length === 0) return undefined;
+    return open.some((terminal) => terminal.busy)
+      ? { kind: "busy", ms: hold.terminalBusyHoldMs }
+      : { kind: "prompt", ms: hold.terminalPromptHoldMs };
   }
 
   /** Batches pushed to the Environment since this object started (cost audit F4's check). */
@@ -477,11 +488,15 @@ export class TerminalHost {
     return lapsed.length;
   }
 
-  /** The Container stops (idle stop, destroy): every shell ends with it. */
-  containerStopped(): void {
+  /**
+   * The Container stops (idle stop, reclaim, close, destroy): every shell ends with it. `applied`: the hold its open
+   * Terminals were past (an idle stop or a reclaim, SPI-1431), named in each.
+   */
+  containerStopped(applied?: AppliedHold | null): void {
+    const line = `The Workspace's Container stopped${stoppedPastHoldClause(applied)}.`;
     for (const terminal of this.#terminals.values()) {
       if (!terminal.exited) {
-        this.#frame(terminal, { data: "\r\n\x1b[2mThe Workspace's Container stopped.\x1b[0m\r\n" });
+        this.#frame(terminal, { data: `\r\n\x1b[2m${line}\x1b[0m\r\n` });
         this.#exited(terminal, 129);
       }
     }

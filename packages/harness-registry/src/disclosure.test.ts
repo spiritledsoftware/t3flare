@@ -11,6 +11,7 @@ import {
   type EnvironmentSettingEntry,
   EXTENSIONS,
   changeThemUnder,
+  holdHit,
   limitHit,
   limitValue,
   SETTINGS_SERVER_LIMITS,
@@ -241,6 +242,17 @@ describe("timeLimitHit and changeThemUnder", () => {
     // A limit is hit while its feature is in use, so the hit says nothing of turning it on.
     expect(timeLimitHit(30, "second", { extension: "guardian", key: "reviewTimeoutSeconds" })).toBe(
       "its 30-second time limit; change it under Extensions › Guardian › Advanced › Review time limit (seconds)",
+    );
+  });
+
+  it("names a hold with its value, its setting's title without the unit, and where to change it (SPI-1431)", () => {
+    expect(holdHit(30, "minute", { environment: "terminalBusyHoldMinutes" })).toBe(
+      "30-minute Terminal hold while a command runs; change it under Environment › Advanced › Terminal hold while a " +
+        "command runs (minutes)",
+    );
+    expect(holdHit(0.5, "minute", { environment: "terminalPromptHoldMinutes" })).toBe(
+      "0.5-minute Terminal hold at the prompt; change it under Environment › Advanced › Terminal hold at the prompt " +
+        "(minutes)",
     );
   });
 
