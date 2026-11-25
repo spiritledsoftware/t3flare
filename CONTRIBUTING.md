@@ -57,12 +57,14 @@ people up most:
 ## Checks
 
 `pnpm run check` runs the patch, workspace and lock checks, the `node:fs` coverage check (`check:fs`), the typechecks,
-lint and tests. It must pass before you open a pull request.
-When it fails, its last lines name the task that failed, with its error, and list the tasks vp stopped because of it
-as stopped, not failed. Errors labelled `[t3, not failing]` are t3's own, which the typecheck reports and passes.
+lint and tests: the full suite, which CI runs on every pull request and requires to merge. Run it locally when you want
+the full run; while you work, the targeted checks below are faster. When it fails, its last lines name the task that
+failed, with its error, and list the tasks vp stopped because of it as stopped, not failed. Errors labelled `[t3, not
+failing]` are t3's own, which the typecheck reports and passes.
 
-To typecheck one package while you work, run `pnpm --filter @t3flare/<pkg> run typecheck` (and `run lint` for oxlint)
-from the root; for the root `scripts/`, `vp run typecheck:scripts`. These run the Effect diagnostics and type-aware lint
+To check a change while you work, from the root: run the test files it touches, `pnpm --filter @t3flare/<pkg> run
+typecheck` for the package it changed (`vp run typecheck:scripts` for the root `scripts/`), and `vp fmt --check` and
+`oxlint --type-aware --deny-warnings` on the changed files. These run the Effect diagnostics and type-aware lint
 rules (`globalDate`, `unbound-method`) that vitest doesn't. A bare `tsc --noEmit` is not the same: it skips them, and
 fails on t3code's `schemaClassMissingBrand` suggestions.
 
