@@ -6,6 +6,7 @@ import type { Workspace } from "@cloudflare/computer";
 import { err, type ExecutionEnv, type FileInfo, type FileKind, LineScanner, ok } from "@earendil-works/pi-durable/env";
 import { type ContainerAccess, ContainerFiles, GREP_OUTPUT_BYTES, LISTING_BYTES } from "./container-files.ts";
 import { HARNESS_ROOT, isContainerOnly } from "./container-paths.ts";
+import { jsonTextBytes, jsonTextPrefix } from "@t3flare/workspace-client";
 import { HostFailure, posixCode, toWireError } from "./failure.ts";
 import { listFiles } from "./list-files.ts";
 import { ancestors, basename, dirname, resolve } from "./paths.ts";
@@ -116,18 +117,18 @@ const boundName = (bound: number): string => `the Workspace's fixed ${bound / 10
  * Container's scripts keep): an answer the Workspace DO can hold and send. A cut answer, or one whose search stopped at
  * `stoppedAt` items for the bound (`MOST_FOUND`, `MOST_MATCHES`), says so, naming the bound and its value. An item too
  * big for any answer of its own is given to `fit` with the room left, and kept as it returns it, ending the answer
- * (SPI-1394). `read` is a cut the search made before (the Container's, SPI-1394), said first.
+ * (SPI-1394). `readCut` is a cut the search itself made before the answer was built (the Container's read, SPI-1394),
+ * said first.
  */
 const withinBytes = <T>(
   items: readonly T[],
   bound: number,
   stoppedAt: number | undefined,
-  { fit, read }: { readonly fit?: (item: T, room: number) => T | undefined; readonly read?: string } = {},
+  { fit, readCut }: { readonly fit?: (item: T, room: number) => T | undefined; readonly readCut?: string } = {},
 ): Listed<T> => {
   const named = boundName(bound);
-  const notes = read === undefined ? [] : [read];
-  const listed = (kept: readonly T[]): Listed<T> =>
-    notes.length === 0 ? { items: kept } : { items: kept, cut: notes.join("; ") };
+  let kept: readonly T[] = items;
+  let fitted = false;
   let bytes = 2;
 
   for (const [index, item] of items.entries()) {
@@ -138,42 +139,29 @@ const withinBytes = <T>(
       continue;
     }
 
-    const fitted = fit !== undefined && 2 + size > bound ? fit(item, bound - bytes) : undefined;
-    const kept = fitted === undefined ? items.slice(0, index) : [...items.slice(0, index), fitted];
-    const past = items.length - kept.length;
+    const shrunk = fit !== undefined && 2 + size > bound ? fit(item, bound - bytes) : undefined;
 
-    if (fitted !== undefined) notes.push(`a match too long for ${named} was cut short`);
-    if (past > 0) notes.push(`${past} more found past ${named}`);
-
-    return listed(kept);
+    fitted = shrunk !== undefined;
+    kept = shrunk === undefined ? items.slice(0, index) : [...items.slice(0, index), shrunk];
+    break;
   }
 
-  if (stoppedAt !== undefined)
-    notes.push(`the search stopped at ${stoppedAt.toLocaleString("en-US")}, as many as ${named} can carry`);
+  const past = items.length - kept.length;
+  const stopped = past === 0 && !fitted && stoppedAt !== undefined;
 
-  return listed(items);
+  // Each cut, in the order it happened: the search's own, a match cut to fit, the matches left out, the search's stop.
+  const notes = [
+    ...(readCut === undefined ? [] : [readCut]),
+    ...(fitted ? [`a match too long for ${named} was cut short`] : []),
+    ...(past > 0 ? [`${past} more found past ${named}`] : []),
+    ...(stopped ? [`the search stopped at ${stoppedAt.toLocaleString("en-US")}, as many as ${named} can carry`] : []),
+  ];
+
+  return notes.length === 0 ? { items: kept } : { items: kept, cut: notes.join("; ") };
 };
 
-/** The bytes `text` takes inside a JSON string, without its quotes. */
-const jsonTextBytes = (text: string): number => encoder.encode(JSON.stringify(text)).byteLength - 2;
-
-/** `text`'s longest start that takes at most `room` bytes inside a JSON string, never splitting a character. */
-const jsonTextPrefix = (text: string, room: number): string => {
-  let target = room;
-
-  // UTF-8 first, then less by what JSON's escapes add, until it fits: each pass only shortens it.
-  while (target > 0) {
-    const { read } = encoder.encodeInto(text, new Uint8Array(target));
-    const prefix = text.slice(0, read);
-    const over = jsonTextBytes(prefix) - room;
-
-    if (over <= 0) return prefix;
-
-    target -= over;
-  }
-
-  return "";
-};
+/** `text`'s longest start that takes at most `room` bytes inside a JSON string (`jsonTextPrefix`). */
+const jsonTextHead = (text: string, room: number): string => text.slice(0, jsonTextPrefix(text, room));
 
 /**
  * A grep match too big for any answer (`withinBytes`' `fit`), its lines (the match's and its context's) cut to fit
@@ -213,7 +201,7 @@ const fitMatch =
 
       if (share < markerBytes) return undefined;
 
-      kept[at] = `${jsonTextPrefix(text, share - markerBytes)}${marker}`;
+      kept[at] = `${jsonTextHead(text, share - markerBytes)}${marker}`;
       left -= jsonTextBytes(kept[at]!);
     }
 
@@ -382,7 +370,7 @@ export class WorkspaceEnvHost {
 
           return withinBytes(read.items, GREP_OUTPUT_BYTES, undefined, {
             fit: fitMatch(GREP_OUTPUT_BYTES),
-            ...(read.cut === undefined ? {} : { read: read.cut }),
+            ...(read.cut === undefined ? {} : { readCut: read.cut }),
           });
         });
       default:

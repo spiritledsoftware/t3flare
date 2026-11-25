@@ -1117,7 +1117,7 @@ Extends the SPI-1366 refinement's "The Sweep at the platform's limit" and its Gi
   once a retry for that account; one account's relist no longer holds back another's, newly installed. `forget(account)`
   clears that account's gate.
 
-## Refinement (SPI-1394, 2026-11-24): grep answers are budgeted by line, and `web_search` stores a bounded query
+## Refinement (SPI-1394, 2026-11-25): grep answers are budgeted by line, and `web_search` stores a bounded query
 
 Extends the SPI-1388 refinement's "ls, find and grep as pi" item; nothing above is superseded.
 

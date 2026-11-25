@@ -333,6 +333,22 @@ describe("grep answers by bytes per line (SPI-1394)", () => {
     expect(value.cut).toBe("a match too long for the Workspace's fixed 4 MiB answer limit was cut short");
   });
 
+  it.each([
+    ["quotes", '"'],
+    ["tabs", "\t"],
+    ["control characters", "\u0001"],
+    ["two-byte characters", "é"],
+    ["emoji", "😀"],
+  ])("fills the answer to its last few bytes with a line of %s, cut exactly", async (_, unit) => {
+    const line = unit.repeat(5 * MiB);
+    const value = valueOf(await workspaceFinding([{ text: line }]).handle(grep("/workspace/repo", 0)));
+    const bytes = answerBytes(value.items);
+    expect(bytes).toBeLessThanOrEqual(GREP_OUTPUT_BYTES);
+    // An exact cut leaves less room than one more character takes, plus the item's own comma.
+    expect(GREP_OUTPUT_BYTES - bytes).toBeLessThan(8);
+    expect(value.items[0]?.text).toMatch(/ … \[line cut short at the Workspace's fixed 4 MiB answer limit\]$/);
+  });
+
   it("drops a match that would fit an answer of its own once the answer is full, as before", async () => {
     const line = "x".repeat(MiB);
     const value = valueOf(
