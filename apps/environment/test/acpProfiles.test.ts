@@ -120,6 +120,9 @@ describe("Claude Code's profile", () => {
       apiKeyHelper: "/opt/t3flare/bin/t3flare-claude-handle",
       allowedProviders: ["customEndpoint"],
       availableModels: ["comm/claude-sonnet-5-5", "comm/claude-haiku-5-5"],
+      // A session opens on the `opus` alias's model (here no Opus: the first listed), whatever `model` the Owner's own
+      // settings name; t3 then sets the thread's.
+      model: "comm/claude-sonnet-5-5",
       skipWebFetchPreflight: true,
       disableClaudeAiConnectors: true,
       permissions: { defaultMode: "default", disableBypassPermissionsMode: "disable", allow: [], ask: [], deny: [] },
@@ -248,6 +251,7 @@ describe("Claude Code on the Model endpoints through the model relay (SPI-1168)"
     // Claude Code's own aliases (its default model, its subagents') resolve to slugs, never to an id the relay refuses.
     expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe("comm2/claude-sonnet-5-5");
     expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe("comm2/claude-sonnet-5-5");
+    expect(json.model).toBe(env.ANTHROPIC_DEFAULT_OPUS_MODEL);
     expect(answer.env).toMatchObject({
       ANTHROPIC_DEFAULT_SONNET_MODEL: "comm2/claude-sonnet-5-5",
       ANTHROPIC_DEFAULT_OPUS_MODEL: "comm2/claude-sonnet-5-5",
