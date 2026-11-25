@@ -357,7 +357,13 @@ export class GitHubApp implements GitHubTokens {
       // Found before the mint's own wait, so a failure to list waits only on the list's.
       const held = this.#installations;
       const listed = await this.#installationIds();
-      const installation = listed.get(name) ?? (await this.#relisted(name, this.#installations !== held));
+      let installation = listed.get(name);
+
+      if (installation === undefined) {
+        // A list taken during this call is this account's relist; otherwise it may be listed again (SPI-1379).
+        if (this.#installations !== held) this.#missedAt.set(name, this.#options.now());
+        else installation = await this.#relisted(name);
+      }
 
       if (installation === undefined) throw new GitHubNotInstalled(name);
 
@@ -529,32 +535,6 @@ export class GitHubApp implements GitHubTokens {
    * is kept until an account is not in it (`fresh`), or a mint finds an installation gone; then it is listed again, at
    * once. The last list while a new one cannot be had.
    */
-  /**
-   * The installation on `name`, an account the held list misses: listed again, but at most once a GitHub retry
-   * (`retryMs`) for each account, so one the App is not installed on cannot have every page of installations asked for at
-   * each call, and one account's relist never holds back another's (SPI-1379). `listedNow`: the held list was taken
-   * during this call, and counts as its relist.
-   */
-  async #relisted(name: string, listedNow: boolean): Promise<number | undefined> {
-    const now = this.#options.now();
-    const retryMs = this.#options.retryMs?.() ?? RETRY_AFTER_MS;
-
-    for (const [account, at] of this.#missedAt) if (now - at >= retryMs) this.#missedAt.delete(account);
-
-    if (listedNow || this.#missedAt.has(name)) {
-      this.#missedAt.set(name, this.#missedAt.get(name) ?? now);
-
-      return undefined;
-    }
-
-    this.#missedAt.set(name, now);
-    const installation = (await this.#installationIds(true)).get(name);
-
-    if (installation !== undefined) this.#missedAt.delete(name);
-
-    return installation;
-  }
-
   async #installationIds(fresh = false): Promise<ReadonlyMap<string, number>> {
     const held = this.#installations;
 
@@ -591,6 +571,27 @@ export class GitHubApp implements GitHubTokens {
 
       throw cause;
     }
+  }
+
+  /**
+   * The installation on `name`, an account the held list misses: listed again, but at most once a GitHub retry
+   * (`retryMs`) for each account, so one the App is not installed on cannot have every page of installations asked for at
+   * each call, and one account's relist never holds back another's (SPI-1379).
+   */
+  async #relisted(name: string): Promise<number | undefined> {
+    const now = this.#options.now();
+    const retryMs = this.#options.retryMs?.() ?? RETRY_AFTER_MS;
+
+    for (const [account, at] of this.#missedAt) if (now - at >= retryMs) this.#missedAt.delete(account);
+
+    if (this.#missedAt.has(name)) return undefined;
+
+    this.#missedAt.set(name, now);
+    const installation = (await this.#installationIds(true)).get(name);
+
+    if (installation !== undefined) this.#missedAt.delete(name);
+
+    return installation;
   }
 
   /**

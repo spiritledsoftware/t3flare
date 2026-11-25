@@ -114,6 +114,24 @@ const fakeGitHub = (options: {
   return { fetch, seen };
 };
 
+/**
+ * An app at the fixed time `now` over a GitHub whose installations are `installations` (pushed to as the test goes),
+ * retrying after 10 s, and how many times it listed them.
+ */
+const appAt = (now: number, installations: Array<{ readonly id: number; readonly login: string }>) => {
+  const github = fakeGitHub({ now: () => now, installations });
+  const app = new GitHubApp({
+    appId: "1",
+    privateKey: KEYS.privateKey,
+    fetch: github.fetch,
+    now: () => now,
+    retryMs: () => 10_000,
+  });
+  const listed = () => github.seen.filter(({ url }) => url.includes("/app/installations?")).length;
+
+  return { app, listed };
+};
+
 describe("GitHubApp", () => {
   it("names its own bot account from the app's slug, asked once", async () => {
     const now = Date.UTC(2026, 0, 1, 12);
@@ -640,17 +658,8 @@ describe("GitHubApp", () => {
   });
 
   it("keeps the relist gate per account: one account's relist does not hold back another's (SPI-1379)", async () => {
-    const now = Date.UTC(2026, 0, 1, 12);
     const installations = [{ id: 42, login: "ian-pascoe" }];
-    const github = fakeGitHub({ now: () => now, installations });
-    const app = new GitHubApp({
-      appId: "1",
-      privateKey: KEYS.privateKey,
-      fetch: github.fetch,
-      now: () => now,
-      retryMs: () => 10_000,
-    });
-    const listed = () => github.seen.filter(({ url }) => url.includes("/app/installations?")).length;
+    const { app, listed } = appAt(Date.UTC(2026, 0, 1, 12), installations);
 
     expect(await app.token()).toBe("ghs_token1");
     // Owner A, not installed: listed again for A.
@@ -670,16 +679,7 @@ describe("GitHubApp", () => {
   });
 
   it("does not list twice in one call for an account the first list of the app already missed (SPI-1379)", async () => {
-    const now = Date.UTC(2026, 0, 1, 12);
-    const github = fakeGitHub({ now: () => now });
-    const app = new GitHubApp({
-      appId: "1",
-      privateKey: KEYS.privateKey,
-      fetch: github.fetch,
-      now: () => now,
-      retryMs: () => 10_000,
-    });
-    const listed = () => github.seen.filter(({ url }) => url.includes("/app/installations?")).length;
+    const { app, listed } = appAt(Date.UTC(2026, 0, 1, 12), [{ id: 42, login: "ian-pascoe" }]);
 
     await expect(app.token("owner-a")).rejects.toThrow(/not installed/);
     expect(listed()).toBe(1);

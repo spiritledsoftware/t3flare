@@ -71,7 +71,12 @@ const setup = (caller: AccessCaller = owner) => {
           rows.findIndex((row) => row.id === id),
           1,
         );
-        return { id, sessionsDestroyed: threads.map((thread) => thread.threadId), destroyed: true };
+        return {
+          id,
+          sessionsDestroyed: threads.map((thread) => thread.threadId),
+          sessions: threads.length,
+          destroyed: true,
+        };
       },
       restore: async (id) => {
         calls.push(`restore ${id}`);

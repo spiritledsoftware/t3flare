@@ -33,6 +33,7 @@ export const record = (overrides: Partial<WorkspaceRecord> & Pick<WorkspaceRecor
   deletedAt: null,
   purgeAfter: null,
   lastError: null,
+  sessionsPurged: 0,
   ...overrides,
 });
 

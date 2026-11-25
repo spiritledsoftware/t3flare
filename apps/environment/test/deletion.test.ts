@@ -119,6 +119,7 @@ const row = (overrides: Partial<WorkspaceRecord>): WorkspaceRecord => ({
   deletedAt: null,
   purgeAfter: null,
   lastError: null,
+  sessionsPurged: 0,
   ...overrides,
 });
 
@@ -412,6 +413,7 @@ describe("a removed worktree's carry (SPI-1324)", () => {
     bindEnvironmentServices({
       workspaces: {
         resolve: (id: string) => (id === worktree.id ? worktree : undefined),
+        get: (id: string) => (id === worktree.id ? worktree : undefined),
         setState: () => undefined,
         setLastError: () => undefined,
         remove: () => undefined,

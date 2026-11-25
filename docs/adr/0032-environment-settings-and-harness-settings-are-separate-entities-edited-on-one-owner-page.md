@@ -1098,12 +1098,18 @@ Owner's (2026-11-24).
 Extends the SPI-1366 refinement's "The Sweep at the platform's limit" and its GitHub App relist.
 
 - **The purges stop at the limit too.** The Sessions a Workspace purge destroyed are recorded even when the purge
-  fails; a failed purge has no `sweep.purge` entry, so they count in the run's Sessions. Before, they were recorded only
-  when the Workspace went, so a Workspace with more deleted threads than one invocation's subrequests destroyed the same
-  Sessions at every Sweep and was never purged. A purge that meets the limit ends the Sweep's purges, its Session pass
-  and its cost guard (no budget read past the limit); marks are still written, and the next Sweep comes a minute later.
-- **The documented message.** The limit is recognised by "Too many subrequests", the one message Cloudflare's docs give
-  for it. "Too many API requests by single worker invocation" appears only in community reports, so it is not matched.
+  fails, by the Sweep and by Purge now alike; a failed Sweep purge lists them in the run's Sessions. Before, they were
+  recorded only when the Workspace went, so a Workspace with more deleted threads than one invocation's subrequests
+  destroyed the same Sessions at every Sweep and was never purged. A purge that meets the limit ends the Sweep's purges,
+  its Session pass and its cost guard (no budget read past the limit); marks are still written, and the next Sweep
+  comes a minute later.
+- **The audit counts every Session.** The Workspace's `deleting` row keeps the count of the Sessions its failed purges
+  destroyed (`sessions_purged`), and the purge that finishes counts them with its own: its `sweep.purge` or
+  `workspace.purge` entry counts every Session destroyed for the Workspace (ADR-0044 §4).
+- **Both messages.** The limit is recognised by "Too many subrequests", the message Cloudflare documents, and by "Too
+  many API requests by single worker invocation", which is not on Cloudflare's pages; community reports give it for
+  binding and Durable Object calls, as the Sweep's destroys are. A false match costs only an early stop and a run a
+  minute later.
 - **Each probe fetch has its own deadline.** The admin probe's relay `/health` and its device authorization each get
   the Outside request time limit, with the caller's signal: a relay that never answers no longer leaves the device
   authorization no time.

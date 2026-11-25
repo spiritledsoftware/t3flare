@@ -73,4 +73,15 @@ describe("the Workspace registry", () => {
     registry.setState("a", "tombstoned", { deletedAt: 10, purgeAfter: 20, lastError: "dirty" });
     expect(registry.get("a")).toMatchObject({ deletedAt: 10, purgeAfter: 20, lastError: "dirty" });
   });
+
+  it("keeps the count of Sessions a failed purge destroyed on its row, none on a migrated one (SPI-1379)", () => {
+    const sql = nodeSqlStorage();
+    sql.exec(STEP_2A_TABLE);
+    sql.exec("INSERT INTO t3flare_workspaces VALUES ('old', NULL, NULL, NULL, NULL, 1, 'ready', 0)");
+    const registry = workspaceRegistry(sql);
+    expect(registry.get("old")?.sessionsPurged).toBe(0);
+    registry.setState("old", "deleting", { sessionsPurged: 9 });
+    registry.setState("old", "deleting", { deletedAt: 30 });
+    expect(registry.get("old")).toMatchObject({ state: "deleting", deletedAt: 30, sessionsPurged: 9 });
+  });
 });

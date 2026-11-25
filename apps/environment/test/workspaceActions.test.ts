@@ -24,12 +24,17 @@ const fixture = (
     purge: async (id, threads): Promise<PurgeReport> => {
       calls.push({ op: "purge", id, threads: threads.map((thread) => thread.threadId) });
       if (id === options.failPurge)
-        return { id, sessionsDestroyed: [], destroyed: false, error: "Workspace DO unreachable" };
+        return { id, sessionsDestroyed: [], sessions: 0, destroyed: false, error: "Workspace DO unreachable" };
       rows.splice(
         rows.findIndex((row) => row.id === id),
         1,
       );
-      return { id, sessionsDestroyed: threads.map((thread) => thread.threadId), destroyed: true };
+      return {
+        id,
+        sessionsDestroyed: threads.map((thread) => thread.threadId),
+        sessions: threads.length,
+        destroyed: true,
+      };
     },
     restore: async (id) => {
       calls.push({ op: "restore", id });
@@ -112,10 +117,10 @@ describe("Purge now (ADR-0044 §2–3)", () => {
     expect(audit).toMatchObject([{ after: { sessions: 1 } }]);
   });
 
-  it("leaves a failed purge's Sessions unrecorded, so its retry counts them", async () => {
+  it("records a failed purge's Sessions, so the Sweep's retry of its row does not destroy them again (SPI-1379)", async () => {
     const { sql, rows } = deletedProject();
     const swept = new Set<string>();
-    const { deps } = fixture(rows, { sql });
+    const { deps, audit } = fixture(rows, { sql });
     const failing: WorkspaceActionsDeps = {
       ...deps,
       sweptSessions: { has: (thread) => swept.has(thread), add: (thread) => void swept.add(thread) },
@@ -123,6 +128,7 @@ describe("Purge now (ADR-0044 §2–3)", () => {
       purge: async (id, threads) => ({
         id,
         sessionsDestroyed: threads.map((thread) => thread.threadId),
+        sessions: threads.length,
         destroyed: false,
         error: "Workspace DO unreachable",
       }),
@@ -131,7 +137,9 @@ describe("Purge now (ADR-0044 §2–3)", () => {
       ok: false,
       status: 502,
     });
-    expect([...swept]).toEqual([]);
+    expect([...swept]).toEqual(["t1"]);
+    // Nothing finished here: the Workspace's row carries t1's count to the entry of the purge that finishes it.
+    expect(audit).toMatchObject([{ after: { purged: [], sessions: 0 } }]);
   });
 
   it("purges a worktree row alone", async () => {

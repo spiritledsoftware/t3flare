@@ -32,6 +32,11 @@ export interface WorkspaceRecord {
   readonly deletedAt: number | null;
   readonly purgeAfter: number | null;
   readonly lastError: string | null;
+  /**
+   * The deleted threads' Sessions this Workspace's purges destroyed before one of them failed (SPI-1379): the purge that
+   * finishes counts them in its audit entry (ADR-0044 §4), beside its own.
+   */
+  readonly sessionsPurged: number;
 }
 
 const SCHEMA = `CREATE TABLE IF NOT EXISTS t3flare_workspaces (
@@ -54,6 +59,7 @@ const ADDED_COLUMNS: ReadonlyArray<readonly [string, string]> = [
   ["deleted_at", "INTEGER"],
   ["purge_after", "INTEGER"],
   ["last_error", "TEXT"],
+  ["sessions_purged", "INTEGER NOT NULL DEFAULT 0"],
 ];
 
 type Row = {
@@ -72,6 +78,7 @@ type Row = {
   deleted_at: number | null;
   purge_after: number | null;
   last_error: string | null;
+  sessions_purged: number;
 };
 
 const record = (row: Row): WorkspaceRecord => ({
@@ -90,6 +97,7 @@ const record = (row: Row): WorkspaceRecord => ({
   deletedAt: row.deleted_at,
   purgeAfter: row.purge_after,
   lastError: row.last_error,
+  sessionsPurged: row.sessions_purged,
 });
 
 /** Whether t3's paths resolve to the Workspace (plan section 3.5). */
@@ -215,6 +223,7 @@ export const workspaceRegistry = (sql: SqlStorage) => {
         readonly deletedAt?: number | null;
         readonly purgeAfter?: number | null;
         readonly lastError?: string | null;
+        readonly sessionsPurged?: number;
       } = {},
     ): void {
       ensure();
@@ -225,6 +234,8 @@ export const workspaceRegistry = (sql: SqlStorage) => {
         sql.exec("UPDATE t3flare_workspaces SET purge_after = ? WHERE id = ?", fields.purgeAfter, id);
       if (fields.lastError !== undefined)
         sql.exec("UPDATE t3flare_workspaces SET last_error = ? WHERE id = ?", fields.lastError, id);
+      if (fields.sessionsPurged !== undefined)
+        sql.exec("UPDATE t3flare_workspaces SET sessions_purged = ? WHERE id = ?", fields.sessionsPurged, id);
     },
     setBranch(id: string, branch: string | null): void {
       ensure();

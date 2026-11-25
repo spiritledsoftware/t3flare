@@ -315,7 +315,8 @@ const limitedServices = (rows: Array<WorkspaceRecord>, limit: number) => {
   const marks: Array<string> = [];
   let budgetReads = 0;
   const call = async <T>(run: () => T): Promise<T> => {
-    if (calls >= limit) throw new Error("Error: Too many subrequests.");
+    // The message community reports give for Durable Object calls past the limit (SPI-1379).
+    if (calls >= limit) throw new Error("Error: Too many API requests by single worker invocation.");
     calls += 1;
     return run();
   };
@@ -323,9 +324,13 @@ const limitedServices = (rows: Array<WorkspaceRecord>, limit: number) => {
     workspaces: {
       list: () => rows,
       get: (id: string) => rows.find((row) => row.id === id),
-      setState: (id: string, state: WorkspaceRecord["state"]) => {
+      setState: (id: string, state: WorkspaceRecord["state"], fields: { readonly sessionsPurged?: number } = {}) => {
         const at = rows.findIndex((row) => row.id === id);
-        rows[at] = { ...rows[at]!, state };
+        rows[at] = {
+          ...rows[at]!,
+          state,
+          ...(fields.sessionsPurged === undefined ? {} : { sessionsPurged: fields.sessionsPurged }),
+        };
       },
       setLastError: () => undefined,
       setUnreferencedSince: (id: string, at: number | null) => void (at === null || marks.push(id)),
@@ -414,9 +419,17 @@ describe("the Sweep's purge loop at Workers' subrequest limit (SPI-1379)", () =>
     const services = limitedServices(rows, 10);
     const swept = new Set<string>();
     const progress: Array<number> = [];
+    const entries: Array<PurgeReport> = [];
     for (let run = 0; run < 5 && rows.length > 0; run++) {
       services.invocation();
-      await sweep(sql, SWEEP_ON, NOW + run * 60_000, sweptIn(swept), { get: () => NOW - DAY, set: () => undefined });
+      await sweep(
+        sql,
+        SWEEP_ON,
+        NOW + run * 60_000,
+        sweptIn(swept),
+        { get: () => NOW - DAY, set: () => undefined },
+        (purged) => void entries.push(purged),
+      );
       progress.push(swept.size);
     }
     expect(rows).toEqual([]);
@@ -424,12 +437,15 @@ describe("the Sweep's purge loop at Workers' subrequest limit (SPI-1379)", () =>
     expect(progress).toEqual([9, 19, 25]);
     expect(services.destroyedSessions).toHaveLength(25);
     expect(new Set(services.destroyedSessions).size).toBe(25);
+    // One `sweep.purge` entry, counting every Session destroyed for the Workspace, the earlier Sweeps' too (ADR-0044 §4).
+    expect(entries.map((entry) => [entry.id, entry.sessions])).toEqual([["app", 25]]);
   });
 });
 
 describe("isSubrequestLimit", () => {
-  it("matches the error Cloudflare documents for the per-invocation subrequest limit", () => {
+  it("matches the documented message, and the one reported for binding and Durable Object calls", () => {
     expect(isSubrequestLimit(new Error("Error: Too many subrequests."))).toBe(true);
+    expect(isSubrequestLimit(new Error("Error: Too many API requests by single worker invocation."))).toBe(true);
     expect(isSubrequestLimit("Workspace DO unreachable")).toBe(false);
   });
 });
