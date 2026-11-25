@@ -45,7 +45,7 @@ import type {
 import { DEFAULT_TOOL_OUTPUT_LIMITS, jobTailOf } from "../extensions/toolOutput.ts";
 import type { Scrollback, ScrollbackStore } from "./agentScrollback.ts";
 import { agentTerminalDropped } from "./agentTerminalDropped.ts";
-import { type HoldLapse, holdLapsed } from "./terminalHost.ts";
+import { type AppliedHold, stoppedPastHoldClause } from "./terminalHolds.ts";
 
 export { agentTerminalDropped } from "./agentTerminalDropped.ts";
 
@@ -782,10 +782,14 @@ export class AgentTerminals {
 
   /**
    * The Container stopped or this object ends: every running entry ended with it (the host's exit frames say so too).
-   * `lapse`: the Terminal hold that let it stop, named in each exit's note (SPI-1431).
+   * `applied`: the hold the agent's open Terminals were past (an idle stop or a reclaim, SPI-1431), named in each exit's
+   * note.
    */
-  containerStopped(lapse?: HoldLapse | null): void {
-    const exit: AgentExit = { ...CONTAINER_STOPPED, note: `${CONTAINER_STOPPED.note}${holdLapsed(lapse)}` };
+  containerStopped(applied?: AppliedHold | null): void {
+    const exit: AgentExit = {
+      ...CONTAINER_STOPPED,
+      note: `${CONTAINER_STOPPED.note}${stoppedPastHoldClause(applied)}`,
+    };
     for (const entry of this.#entries.values()) if (entry.exit === null) this.#ended(entry, exit);
     this.#bound();
   }

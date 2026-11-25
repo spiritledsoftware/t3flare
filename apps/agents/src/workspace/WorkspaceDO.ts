@@ -184,7 +184,8 @@ import { mountWithFallback, skillSetMount, skillSetStore } from "./skillSet.ts";
 import { keepPriorSkills } from "./skillSetWait.ts";
 import { awaitContainerCopy, type TakeAnswer, takeSkillSet } from "./skillSetTake.ts";
 import { ContainerGate } from "./containerGate.ts";
-import { type HoldLapse, TerminalHost } from "./terminalHost.ts";
+import { endTerminalsPastHolds, type AppliedHolds } from "./terminalHolds.ts";
+import { TerminalHost } from "./terminalHost.ts";
 import { TerminalSync } from "./terminalSync.ts";
 import {
   carryInScript,
@@ -221,15 +222,6 @@ export interface WorkspaceEnv {
   readonly T3FLARE_TERMINAL_IDLE_MS?: string;
   /** Test stages only: the stage-only probes and faults answer. */
   readonly T3FLARE_FAULTS?: string;
-}
-
-/**
- * The Terminal holds that let the Container stop under open Terminals (SPI-1431): t3's and the agent's, each null with
- * none open.
- */
-interface HoldLapses {
-  readonly terminalHold: HoldLapse | null;
-  readonly agentTerminalHold: HoldLapse | null;
 }
 
 export interface ExecInput {
@@ -2733,17 +2725,17 @@ export class WorkspaceDO extends ContainerHost {
     const why = await this.#notReclaimable();
     if (why !== undefined) return { released: false, reason: why };
     const reclaimable = this.#processes.reclaimable();
-    const lapsed = this.#lapsedHolds();
+    const applied = this.#endTerminalsPastHolds();
     console.log(
       JSON.stringify({
         t3flare: "container-released-for-budget",
         workspace: this.#workspaceId() ?? null,
         processes: reclaimable.length,
-        ...lapsed,
+        ...applied,
         ...(await this.#usage()),
       }),
     );
-    await this.#stopContainer(lapsed);
+    await this.stopContainer();
     return { released: true, reason: "idle" };
   }
 
@@ -2828,15 +2820,14 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   /**
-   * The holds t3's and the agent's open Terminals got, as `#terminalHold` applies them, when they no longer hold the
-   * Container (SPI-1431): what an idle stop or a reclaim names in them and logs. Each is null with none open.
+   * An idle stop or a reclaim, once decided: t3's and the agent's open Terminals end first, each naming the hold it was
+   * past, as `#terminalHold` applies it (SPI-1431, `endTerminalsPastHolds`). The holds go to the stop's log.
    */
-  #lapsedHolds(): HoldLapses {
-    const hold = this.#terminalHold();
-    return {
-      terminalHold: this.#terminals.appliedHold(hold) ?? null,
-      agentTerminalHold: this.#agentHost.appliedHold(hold) ?? null,
-    };
+  #endTerminalsPastHolds(): AppliedHolds {
+    return endTerminalsPastHolds(
+      { terminals: this.#terminals, agentHost: this.#agentHost, agentTerminals: this.#agentTerminals },
+      this.#terminalHold(),
+    );
   }
 
   /** The Terminals' holds the running Container started with (SPI-1317); the defaults before one started. */
@@ -2904,11 +2895,6 @@ export class WorkspaceDO extends ContainerHost {
 
   /** Stops the Container now and releases its lease. */
   async stopContainer(): Promise<void> {
-    await this.#stopContainer();
-  }
-
-  /** `stopContainer`, naming in the open Terminals the holds that let it stop (`lapsed`, SPI-1431). */
-  async #stopContainer(lapsed?: HoldLapses): Promise<void> {
     if (this.ctx.container?.running === true) {
       // CLI processes end first (they flush their session files), then the writes not yet pulled come into the DO.
       const stopped = await this.#processes.stopAll().catch(() => 0);
@@ -2924,9 +2910,9 @@ export class WorkspaceDO extends ContainerHost {
         );
       await this.ctx.container.destroy();
     }
-    this.#terminals.containerStopped(lapsed?.terminalHold);
-    this.#agentHost.containerStopped(lapsed?.agentTerminalHold);
-    this.#agentTerminals.containerStopped(lapsed?.agentTerminalHold);
+    this.#terminals.containerStopped();
+    this.#agentHost.containerStopped();
+    this.#agentTerminals.containerStopped();
     this.#processes.containerStopped();
     this.#sandbox = undefined;
     await this.#release();
@@ -2982,16 +2968,16 @@ export class WorkspaceDO extends ContainerHost {
     // Terminals hold the Container until their last input is older than the hold (review F10: output is not use).
     const held = this.#terminalsHold() || this.#processes.holdsContainer() || this.#previewHold();
     if (this.#running === 0 && !held && Date.now() - lastUse >= this.#idleMs()) {
-      const lapsed = this.#lapsedHolds();
+      const applied = this.#endTerminalsPastHolds();
       console.log(
         JSON.stringify({
           t3flare: "container-idle-stop",
           workspace: this.ctx.id.toString(),
-          ...lapsed,
+          ...applied,
           ...(await this.#usage()),
         }),
       );
-      await this.#stopContainer(lapsed);
+      await this.stopContainer();
       return;
     }
     // A step whose exec failed, or that never ran (only passive reads connected), runs here, not awaited, whoever

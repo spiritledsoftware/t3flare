@@ -467,7 +467,7 @@ describe("TerminalHost", () => {
     expect(h.frames.at(-1)).toMatchObject({ exit: { code: 129 } });
   });
 
-  describe("a stop the Terminal hold let happen names the hold (SPI-1431)", () => {
+  describe("a stop past a Terminal hold names the hold (SPI-1431)", () => {
     const hold = terminalHoldOf(terminalHoldsOf(undefined), NO_OVERRIDES);
     const atPrompt = async () => {
       const h = harness();
@@ -482,14 +482,13 @@ describe("TerminalHost", () => {
       await h.host.input("term-a1", "npm run dev\r");
       h.shells[0]!.print(`${MARK_BUSY}listening\r\n`);
       await tick();
-      const lapse = h.host.appliedHold(hold);
-      expect(lapse).toEqual({ hold: "busy", minutes: 30 });
-      h.host.containerStopped(lapse);
+      const applied = h.host.appliedHold(hold);
+      expect(applied).toEqual({ kind: "busy", ms: 30 * 60_000 });
+      h.host.containerStopped(applied);
       await h.host.settled();
       expect(h.text("term-a1")).toContain(
-        "The Workspace's Container stopped: its Terminals had no input for 30 minutes while a command ran, the Terminal " +
-          "hold while a command runs; change it under Environment › Advanced › Terminal hold while a command runs " +
-          "(minutes).",
+        "The Workspace's Container stopped after its Terminals had no input past their 30-minute Terminal hold while a " +
+          "command runs; change it under Environment › Advanced › Terminal hold while a command runs (minutes).",
       );
       expect(h.frames.at(-1)).toMatchObject({ exit: { code: 129 } });
     });
@@ -497,13 +496,13 @@ describe("TerminalHost", () => {
     it("names the prompt hold at the prompt, with the value applied", async () => {
       const h = await atPrompt();
       const overridden = terminalHoldOf(hold, { busyHoldMs: undefined, promptHoldMs: "300000" });
-      const lapse = h.host.appliedHold(overridden);
-      expect(lapse).toEqual({ hold: "prompt", minutes: 5 });
-      h.host.containerStopped(lapse);
+      const applied = h.host.appliedHold(overridden);
+      expect(applied).toEqual({ kind: "prompt", ms: 5 * 60_000 });
+      h.host.containerStopped(applied);
       await h.host.settled();
       expect(h.text("term-a1")).toContain(
-        "The Workspace's Container stopped: its Terminals had no input for 5 minutes at the prompt, the Terminal hold " +
-          "at the prompt; change it under Environment › Advanced › Terminal hold at the prompt (minutes).",
+        "The Workspace's Container stopped after its Terminals had no input past their 5-minute Terminal hold at the " +
+          "prompt; change it under Environment › Advanced › Terminal hold at the prompt (minutes).",
       );
     });
 
@@ -514,6 +513,19 @@ describe("TerminalHost", () => {
       await h.host.settled();
       expect(h.text("term-a1")).toContain("The Workspace's Container stopped.\x1b[0m");
       expect(h.text("term-a1")).not.toContain("hold");
+    });
+
+    it("keeps the hold's line when the shell exits after the stop named it", async () => {
+      const h = await atPrompt();
+      h.host.containerStopped(h.host.appliedHold(hold));
+      // The Container's destroy, after the Terminals ended, takes the shell: its exit changes nothing.
+      h.shells[0]!.exit(137);
+      await tick();
+      await h.host.settled();
+      expect(h.text("term-a1")).toContain("past their 10-minute Terminal hold at the prompt");
+      expect(h.frames.filter((frame) => frame.exit !== undefined)).toEqual([
+        expect.objectContaining({ exit: { code: 129 } }),
+      ]);
     });
   });
 });

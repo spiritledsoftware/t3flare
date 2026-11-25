@@ -585,23 +585,22 @@ describe("an agent Terminal's scrollback in storage, and the Workspace's exited 
     }
   });
 
-  it("notes the Terminal hold that let the Container stop on each running entry's exit, else the plain stop (SPI-1431)", async () => {
-    const exitAfter = async (lapse?: { readonly hold: "busy" | "prompt"; readonly minutes: number }) => {
+  it("notes the hold its Terminals were past on each running entry's exit, else the plain stop (SPI-1431)", async () => {
+    const exitAfter = async (applied?: { readonly kind: "busy" | "prompt"; readonly ms: number }) => {
       const { terminals } = fakeHost(repl);
       const id = await startFor(terminals, owner, "terminal");
-      terminals.containerStopped(lapse);
+      terminals.containerStopped(applied);
       const listed = await terminals.handle({ op: "list", owner });
       if (!listed.ok) throw new Error(listed.error);
       return listed.value.entries.find((entry) => entry.id === id)!.exit;
     };
-    expect((await exitAfter({ hold: "busy", minutes: 30 }))?.note).toBe(
-      "the Workspace's Container stopped: its Terminals had no input for 30 minutes while a command ran, the " +
-        "Terminal hold while a command runs; change it under Environment › Advanced › Terminal hold while a command " +
-        "runs (minutes)",
+    expect((await exitAfter({ kind: "busy", ms: 30 * 60_000 }))?.note).toBe(
+      "the Workspace's Container stopped after its Terminals had no input past their 30-minute Terminal hold while a " +
+        "command runs; change it under Environment › Advanced › Terminal hold while a command runs (minutes)",
     );
-    expect((await exitAfter({ hold: "prompt", minutes: 10 }))?.note).toBe(
-      "the Workspace's Container stopped: its Terminals had no input for 10 minutes at the prompt, the Terminal hold " +
-        "at the prompt; change it under Environment › Advanced › Terminal hold at the prompt (minutes)",
+    expect((await exitAfter({ kind: "prompt", ms: 10 * 60_000 }))?.note).toBe(
+      "the Workspace's Container stopped after its Terminals had no input past their 10-minute Terminal hold at the " +
+        "prompt; change it under Environment › Advanced › Terminal hold at the prompt (minutes)",
     );
     expect((await exitAfter())?.note).toBe("the Workspace's Container stopped");
   });
