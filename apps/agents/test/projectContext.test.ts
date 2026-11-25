@@ -1,9 +1,12 @@
 // The `project_context` section (SPI-1321, SPI-1388) over a fake environment: each AGENTS.md or CLAUDE.md from the repo
-// root down to the working directory, each whole; a file that exists but cannot be read is named in its place.
+// root down to the working directory, each whole; a file that cannot be read, or would not fit the prompt's Session row,
+// is named in its place, and the search goes on to CLAUDE.md as pi's does.
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { describe, expect, it } from "vitest";
 
-import { projectContext, unreadable } from "../src/extensions/project-context.ts";
+import { jsonTextBytes } from "@t3flare/session-protocol";
+
+import { leftOut, PROJECT_CONTEXT_BYTES, projectContext, tooLarge } from "../src/extensions/project-context.ts";
 
 const ROOT = "/workspace/repo";
 
@@ -47,18 +50,41 @@ describe("project_context (SPI-1321, SPI-1388)", () => {
     expect(out).toContain(`## ${ROOT}/pkg/CLAUDE.md\n\nnested`);
   });
 
-  it("names a file it cannot read in its place, never leaving it out silently", async () => {
+  it("names a file it cannot read in its place, and goes on to CLAUDE.md, as pi does", async () => {
     const out = await render({ [`${ROOT}/CLAUDE.md`]: "fallback" }, `${ROOT}/pkg`, {
       [`${ROOT}/AGENTS.md`]: { code: "unknown", message: "the read is larger than 32 MiB" },
       [`${ROOT}/pkg/AGENTS.md`]: new Error("RPC failed"),
     });
-    expect(out).toContain(unreadable(`${ROOT}/AGENTS.md`, "the read is larger than 32 MiB"));
     expect(out).toContain(
-      `## ${ROOT}/AGENTS.md\n\n[t3flare could not read this file (the read is larger than 32 MiB), so its instructions are missing from this prompt. Tell the owner.]`,
+      `## ${ROOT}/AGENTS.md\n\n[t3flare could not put this file in the prompt (the read is larger than 32 MiB), so its instructions are missing from it. Tell the owner.]`,
     );
-    // An unreadable AGENTS.md is the directory's file: its CLAUDE.md does not stand in for it.
-    expect(out).not.toContain("fallback");
-    expect(out).toContain(unreadable(`${ROOT}/pkg/AGENTS.md`, "Error: RPC failed"));
+    expect(out).toContain(`## ${ROOT}/CLAUDE.md\n\nfallback`);
+    expect(out).toContain(leftOut(`${ROOT}/pkg/AGENTS.md`, "Error: RPC failed"));
+  });
+
+  it("takes a file that fits the project files' share of the prompt's Session row, and names one that does not", async () => {
+    expect(PROJECT_CONTEXT_BYTES).toBe((8_000_000 - 64 * 1024) / 2);
+    // Each file's stored size is its part's JSON bytes: its heading, and its text with JSON's escapes.
+    const sized = (path: string, bytes: number, character: string) => {
+      const head = jsonTextBytes(`## ${path}\n\n`);
+      return character.repeat(Math.floor((bytes - head) / jsonTextBytes(character)));
+    };
+    const path = `${ROOT}/AGENTS.md`;
+    // Just under: 7-byte escapes (a control character takes six), so fewer characters fill it.
+    const under = sized(path, PROJECT_CONTEXT_BYTES, "\u0001");
+    expect(jsonTextBytes(`## ${path}\n\n${under}`)).toBeLessThanOrEqual(PROJECT_CONTEXT_BYTES);
+    expect(await render({ [path]: `${under}` }, ROOT)).toContain(`## ${path}\n\n${under}`);
+    // Just over, by one plain character: named in its place with its size, and CLAUDE.md read instead.
+    const over = `${sized(path, PROJECT_CONTEXT_BYTES, "a")}aa`;
+    const bytes = jsonTextBytes(`## ${path}\n\n${over}`);
+    expect(bytes).toBeGreaterThan(PROJECT_CONTEXT_BYTES);
+    const out = await render({ [path]: over, [`${ROOT}/CLAUDE.md`]: "small" }, ROOT);
+    expect(out).toContain(leftOut(path, tooLarge(bytes, PROJECT_CONTEXT_BYTES)));
+    expect(out).toContain(
+      "past the 3,967,232 left of the 3,967,232 the project files may take of the prompt's one Session row, which Cloudflare refuses past 8 MB",
+    );
+    expect(out).not.toContain(over);
+    expect(out).toContain(`## ${ROOT}/CLAUDE.md\n\nsmall`);
   });
 
   it("skips a name that is absent or a directory, as before", async () => {

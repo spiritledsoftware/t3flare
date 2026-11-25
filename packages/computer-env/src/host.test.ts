@@ -4,7 +4,7 @@ import type { Workspace } from "@cloudflare/computer";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { getOrThrow } from "@earendil-works/pi-durable/env";
 import { describe, expect, it } from "vitest";
-import type { ContainerAccess } from "./container-files.ts";
+import { type ContainerAccess, GREP_OUTPUT_BYTES, LISTING_BYTES } from "./container-files.ts";
 import { DEFAULT_STALE_TEMP_MS, TEMP_DIR, WorkspaceEnvHost } from "./host.ts";
 import type { EnvRequest } from "./wire.ts";
 
@@ -123,10 +123,12 @@ describe("WorkspaceEnvHost on Container-only paths", () => {
       await running.host.handle(request({ op: "readdir", args: ["/workspace/repo"], reachContainer: true })),
     ).toEqual({
       ok: true,
-      value: [
-        { name: "README.md", isDirectory: false, isSymbolicLink: false },
-        { name: "node_modules", isDirectory: true, isSymbolicLink: false, containerOnly: true },
-      ],
+      value: {
+        items: [
+          { name: "README.md", isDirectory: false, isSymbolicLink: false },
+          { name: "node_modules", isDirectory: true, isSymbolicLink: false, containerOnly: true },
+        ],
+      },
     });
 
     const stopped = routedHost({ running: false, stdout: listing });
@@ -135,7 +137,7 @@ describe("WorkspaceEnvHost on Container-only paths", () => {
       await stopped.host.handle(request({ op: "readdir", args: ["/workspace/repo"], reachContainer: true })),
     ).toEqual({
       ok: true,
-      value: [{ name: "README.md", isDirectory: false, isSymbolicLink: false }],
+      value: { items: [{ name: "README.md", isDirectory: false, isSymbolicLink: false }] },
     });
     expect(stopped.scripts).toEqual([]);
   });
@@ -174,6 +176,86 @@ describe("WorkspaceEnvHost on Container-only paths", () => {
         }),
       ),
     ).toEqual({ ok: true, value: [true, true, false] });
+  });
+});
+
+describe("WorkspaceEnvHost's searches on the Workspace (SPI-1388)", () => {
+  /** A Workspace with `count` of everything, each line `width` characters, recording the limit each search asked. */
+  const searching = (count: number, width: number) => {
+    const asked: number[] = [];
+    // SAFETY: `readdir`, `find` and `grep` use only the same-named `fs` methods, which the fake answers.
+    const workspace = {
+      fs: {
+        readdir: async () =>
+          Array.from({ length: count }, (_, at) => ({ name: `${at}`.padEnd(width, "x"), isDirectory: false })),
+        find: async (_directory: string, _pattern: string, options: { limit: number }) => {
+          asked.push(options.limit);
+          return Array.from({ length: Math.min(count, options.limit) }, (_, at) => ({
+            path: `/${at}`.padEnd(width, "x"),
+            type: "file",
+          }));
+        },
+        grep: async (_pattern: string, _path: string, options: { limit: number }) => {
+          asked.push(options.limit);
+          return Array.from({ length: Math.min(count, options.limit) }, (_, at) => ({
+            path: "/a",
+            line: at,
+            text: "x".repeat(width),
+          }));
+        },
+      },
+    } as unknown as Workspace;
+    return { host: new WorkspaceEnvHost(workspace), asked };
+  };
+  const answerBytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  const grep = (limit: number) =>
+    request({
+      op: "grep",
+      args: [
+        "x",
+        "/workspace/repo",
+        { ignoreCase: false, regex: true, context: 0, limit, include: undefined, exclude: [] },
+      ],
+    });
+
+  it("answers what fits in full, with no cut", async () => {
+    const { host } = searching(10, 10);
+    const answer = await host.handle(grep(100));
+    expect(answer.ok && answer.value).toEqual({ items: expect.any(Array) });
+    expect(answer.ok && (answer.value as { items: unknown[] }).items).toHaveLength(10);
+  });
+
+  it("cuts a grep at GREP_OUTPUT_BYTES, naming the limit, however many a call asks for", async () => {
+    const { host, asked } = searching(10_000, 1_000);
+    const answer = await host.handle(grep(10_000_000));
+    if (!answer.ok) throw new Error("refused");
+    const value = answer.value as { items: unknown[]; cut?: string };
+    expect(answerBytes(value.items)).toBeLessThanOrEqual(GREP_OUTPUT_BYTES);
+    expect(value.cut).toMatch(/^\d+ more found past the Workspace's fixed 4 MiB answer limit$/);
+    // The Workspace asks for no more matches than the bound could carry at their smallest.
+    expect(asked[0]).toBeLessThan(GREP_OUTPUT_BYTES / 30);
+    expect(asked[0]).toBeGreaterThan(GREP_OUTPUT_BYTES / 40);
+  });
+
+  it("says a search stopped at as many as the bound carries, even when what came fits", async () => {
+    const { host, asked } = searching(10_000_000, 1);
+    const answer = await host.handle(
+      request({ op: "find", args: ["/workspace/repo", "*", { limit: 10_000_000, exclude: [] }] }),
+    );
+    if (!answer.ok) throw new Error("refused");
+    const value = answer.value as { items: unknown[]; cut?: string };
+    expect(value.items.length).toBeLessThanOrEqual(asked[0]!);
+    expect(answerBytes(value.items)).toBeLessThanOrEqual(LISTING_BYTES);
+    expect(value.cut).toMatch(/the Workspace's fixed 1 MiB answer limit/);
+  });
+
+  it("cuts a directory listing at LISTING_BYTES", async () => {
+    const { host } = searching(5_000, 1_000);
+    const answer = await host.handle(request({ op: "readdir", args: ["/workspace/repo"] }));
+    if (!answer.ok) throw new Error("refused");
+    const value = answer.value as { items: unknown[]; cut?: string };
+    expect(answerBytes(value.items)).toBeLessThanOrEqual(LISTING_BYTES);
+    expect(value.cut).toMatch(/more found past the Workspace's fixed 1 MiB answer limit$/);
   });
 });
 

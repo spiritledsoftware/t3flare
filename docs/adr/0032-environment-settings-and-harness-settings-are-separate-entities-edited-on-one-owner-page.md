@@ -1062,23 +1062,31 @@ Owner's (2026-11-24).
 - **ls, find and grep as pi.** Their 500 entries, 1,000 paths and 100 matches are pi's own `DEFAULT_LIMIT`s (checked
   against pi-coding-agent 1.5.2), and, as in pi, a call's own `limit` may be larger: no cap of t3flare's remains, and
   the Tool output limit bounds what the model reads. A result stopped at its limit says so, with the value and how to
-  ask for more, as pi's does.
+  ask for more, as pi's does. A `limit` is a whole number from 1 up to a safe integer; any other is refused. On the
+  Workspace DO, a search asks `@cloudflare/computer` for no more items than its answer's byte bound could carry, and
+  the answer stays within the bound the Container's scripts keep (`LISTING_BYTES`, 1 MiB; `GREP_OUTPUT_BYTES`, 4 MiB),
+  saying so when it stopped short.
 - **Derived:** the scrolled-off lines' bytes are half the Tool output limit's KiB (25 at its default 50).
-- **Removed:** `web_fetch`'s longest call timeout (the turn limit bounds a call's own; t3flare's week, ADR-0048 §2,
-  keeps its timer from overflowing), and the Project context's characters per file: each AGENTS.md or CLAUDE.md reaches
-  the prompt whole. A file that exists but cannot be read (one past the Workspace's 32 MiB RPC message, or any other
-  failure) is named in its place with why, never left out silently; a prompt larger than the model's context is the
-  endpoint's to refuse, and the turn fails with its error. A web_fetch body is never returned unconverted: every body
-  within the size limit converts.
+- **Removed:** `web_fetch`'s longest call timeout (a call's own may run to t3flare's week, ADR-0048 §2, which keeps its
+  timer from overflowing; with the turn limit off by default, one fetch can hold a turn that long, as locally, and
+  interrupting the turn aborts it), and the Project context's characters per file: each AGENTS.md or CLAUDE.md reaches
+  the prompt whole. pi-durable keeps the prompt's sections and tool declarations as one `pi.system` Session row, which
+  Cloudflare refuses past 8 MB, so the files take at most half of it (`PROJECT_CONTEXT_BYTES`, stored with JSON's
+  escapes), as a tool result's text takes half its row. A file that cannot be read (one past the Workspace's 32 MiB RPC
+  message, or any other failure), or that would take the files past that half, is named in its place with why and its
+  size, never cut or left out silently, and the search goes on to CLAUDE.md, as pi's does. A web_fetch body is never
+  returned unconverted: every body within the size limit converts.
 - **A stored value** for any of these keys is dropped on resolve, never refused, and a change beside it is taken; a
   change that sets one is refused as an unknown setting. The agent Terminal requests no longer carry a quiet or a
   grace: the Workspace uses the constants.
-- **Every limit names itself when hit**, with its value: `web_fetch`'s size limit, redirects and default time limit,
+- **Every limit names itself when hit**, with its value: a result cut at the Tool output limit (after pi-durable's own
+  "Output truncated", a note naming the fixed 2,000 lines and the KiB setting and where to change it),
+  `web_fetch`'s size limit, redirects and default time limit,
   `web_search`'s time limit, answer limit and summary tokens, a cut of the scrolled-off lines, a stop that outlived
   the grace (on its exit), a cut of a batch call's arguments and the evidence budget (in the Guardian's Review), the
-  Advisor's tool result and seed budgets (in its Review), and, in the log, the Advisor's findings and Nit caps, its
-  catch-up wait and Session size, a late prompt suggestion and a skills take that ran out (`SKILLS_TAKE_MS`). A title
-  cut at 200 characters ends with "…".
+  Advisor's tool result and seed budgets (in its Review), and, in the log, the Advisor's findings and Nit caps, a
+  Concern held back by its cooldown, its catch-up wait and Session size, a prompt suggestion's excerpt cut or late
+  answer, and a skills take that ran out (`SKILLS_TAKE_MS`). A title cut at 200 characters ends with "…".
 - **Sanity bound:** `advisor.correctiveTurns` stays a setting, shown while the Advisor is on; its maximum rises from 3
   to 100, the sanity bound `maxToolRounds` has (ADR-0048).
 - The Settings page loses those rows: Tool output's and every listed extension's Advanced fields, termctrl's ten

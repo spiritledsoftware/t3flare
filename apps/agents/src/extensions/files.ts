@@ -4,7 +4,7 @@
 // relative paths resolved against it.
 import type { ComputerFiles } from "@t3flare/computer-env";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
-import { bool, num, obj, opt, str } from "@earendil-works/pi-schema";
+import { bool, int, num, obj, opt, str } from "@earendil-works/pi-schema";
 import { FIND_DEFAULT_LIMIT, GREP_DEFAULT_LIMIT, LS_DEFAULT_LIMIT } from "@t3flare/harness-registry";
 
 import { DEFAULT_TOOL_OUTPUT_LIMITS, type ToolOutputLimits } from "./toolOutput.ts";
@@ -15,10 +15,21 @@ export type FilesOf = () => ComputerFiles | undefined;
 export const FILES_EXTENSION = "files";
 
 /**
- * A call's `limit`, as pi reads it: the call's own, else the tool's default (`LS_DEFAULT_LIMIT` and its siblings,
- * SPI-1388), at least 1. No cap of t3flare's: the Tool output limit bounds what the model reads.
+ * A call's `limit`: a whole number from 1, as pi takes it with no cap of t3flare's (the Tool output limit bounds what
+ * the model reads, and the Workspace its answer's bytes). A safe integer, since past 2^53 a count is no longer exact; a
+ * malformed one is refused by the schema.
  */
-const limitOf = (asked: number | undefined, fallback: number): number => Math.max(1, Math.floor(asked ?? fallback));
+const limitParameter = (what: string, fallback: number) =>
+  opt(
+    int({
+      minimum: 1,
+      maximum: Number.MAX_SAFE_INTEGER,
+      description: `Maximum number of ${what} (default ${fallback})`,
+    }),
+  );
+
+/** A Workspace answer cut at its byte bound, as the result's last line: the note it carries (`Listed.cut`). */
+const cutNote = (cut: string, hint: string): string => `[Stopped short: ${cut}; ${hint}]`;
 
 /**
  * The note a result ends with when it stopped at its limit, naming the limit, its value and how to see more, as pi's
@@ -57,14 +68,15 @@ const lsTool = (files: FilesOf, output: ToolOutputLimits) =>
     description: `List a directory's entries, directories with a trailing "/". Up to ${LS_DEFAULT_LIMIT} entries unless limit says how many.`,
     parameters: obj({
       path: opt(str({ description: "Directory to list (default: the working directory)" })),
-      limit: opt(num({ description: `Maximum number of entries (default ${LS_DEFAULT_LIMIT})` })),
+      limit: limitParameter("entries", LS_DEFAULT_LIMIT),
     }),
     outputLimits: output,
     replay: "safe",
     async execute(args, api) {
       const directory = resolvePath(api.env?.cwd ?? "/workspace", args.path);
-      const entries = await need(files).readdir(directory);
-      const limit = limitOf(args.limit, LS_DEFAULT_LIMIT);
+      const listed = await need(files).readdir(directory);
+      const entries = listed.items;
+      const limit = args.limit ?? LS_DEFAULT_LIMIT;
       const names = entries
         .map((entry) => `${entry.name}${entry.isDirectory ? "/" : ""}`)
         .toSorted((left, right) => left.localeCompare(right));
@@ -72,7 +84,7 @@ const lsTool = (files: FilesOf, output: ToolOutputLimits) =>
       return text(
         shown.length === 0
           ? "(empty directory)"
-          : `${shown.join("\n")}${names.length > limit ? `\n… ${names.length - limit} more\n\n${limitReached(limit, "entries", args.limit)}` : ""}`,
+          : `${shown.join("\n")}${names.length > limit ? `\n… ${names.length - limit} more\n\n${limitReached(limit, "entries", args.limit)}` : ""}${listed.cut === undefined ? "" : `\n\n${cutNote(listed.cut, "list a narrower directory")}`}`,
       );
     },
   });
@@ -84,21 +96,28 @@ const findTool = (files: FilesOf, output: ToolOutputLimits) =>
     parameters: obj({
       pattern: str({ description: "Glob pattern to match files" }),
       path: opt(str({ description: "Directory to search in (default: the working directory)" })),
-      limit: opt(num({ description: `Maximum number of results (default ${FIND_DEFAULT_LIMIT})` })),
+      limit: limitParameter("results", FIND_DEFAULT_LIMIT),
     }),
     outputLimits: output,
     replay: "safe",
     async execute(args, api) {
       const directory = resolvePath(api.env?.cwd ?? "/workspace", args.path);
-      const limit = limitOf(args.limit, FIND_DEFAULT_LIMIT);
-      const found = await need(files).find(directory, args.pattern, { limit: limit + 1, exclude: EXCLUDE });
+      const limit = args.limit ?? FIND_DEFAULT_LIMIT;
+      const listed = await need(files).find(directory, args.pattern, { limit: limit + 1, exclude: EXCLUDE });
+      const found = listed.items;
       const paths = found
         .slice(0, limit)
         .map((entry) => `${relativeTo(directory, entry.path)}${entry.type === "dir" ? "/" : ""}`);
       return text(
         paths.length === 0
           ? "No files found."
-          : `${paths.join("\n")}${found.length > limit ? `\n\n${limitReached(limit, "results", args.limit, ", or narrow the pattern")}` : ""}`,
+          : `${paths.join("\n")}${
+              listed.cut !== undefined
+                ? `\n\n${cutNote(listed.cut, "narrow the pattern")}`
+                : found.length > limit
+                  ? `\n\n${limitReached(limit, "results", args.limit, ", or narrow the pattern")}`
+                  : ""
+            }`,
       );
     },
   });
@@ -137,14 +156,14 @@ const grepTool = (files: FilesOf, output: ToolOutputLimits) =>
           description: `Lines of context before and after each match (default 0); lowered, to no less than ${GREP_CONTEXT_FLOOR}, so every match's context fits the result's ${output.maxLines} lines`,
         }),
       ),
-      limit: opt(num({ description: `Maximum number of matches (default ${GREP_DEFAULT_LIMIT})` })),
+      limit: limitParameter("matches", GREP_DEFAULT_LIMIT),
     }),
     outputLimits: output,
     replay: "safe",
     async execute(args, api) {
       const directory = resolvePath(api.env?.cwd ?? "/workspace", args.path);
-      const limit = limitOf(args.limit, GREP_DEFAULT_LIMIT);
-      const matches = await need(files).grep(args.pattern, directory, {
+      const limit = args.limit ?? GREP_DEFAULT_LIMIT;
+      const listed = await need(files).grep(args.pattern, directory, {
         ignoreCase: args.ignoreCase === true,
         regex: args.literal !== true,
         context: grepContext(args.context ?? 0, limit + 1, output.maxLines),
@@ -152,6 +171,7 @@ const grepTool = (files: FilesOf, output: ToolOutputLimits) =>
         include: args.glob,
         exclude: EXCLUDE,
       });
+      const matches = listed.items;
       const base = api.env?.cwd ?? directory;
       // Built only as far as the result's lines, less one for the note after them.
       const room = output.maxLines - 1;
@@ -178,9 +198,11 @@ const grepTool = (files: FilesOf, output: ToolOutputLimits) =>
       // Cut at the result's lines, the Tool output limit's; else stopped at the match limit, which names itself.
       const more = full
         ? "\n… more matches; narrow the search"
-        : matches.length > limit
-          ? `\n\n${limitReached(limit, "matches", args.limit, ", or narrow the search")}`
-          : "";
+        : listed.cut !== undefined
+          ? `\n\n${cutNote(listed.cut, "narrow the search")}`
+          : matches.length > limit
+            ? `\n\n${limitReached(limit, "matches", args.limit, ", or narrow the search")}`
+            : "";
       return text(lines.length === 0 ? "No matches found." : `${lines.join("\n")}${more}`);
     },
   });

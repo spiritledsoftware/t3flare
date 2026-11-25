@@ -13,21 +13,27 @@ import { DEFAULT_TOOL_OUTPUT_LIMITS } from "../src/extensions/toolOutput.ts";
 const workspace = (count: number) => {
   const asked: Array<number> = [];
   const files = {
-    readdir: async () => Array.from({ length: count }, (_, at) => ({ name: `f${at}`, isDirectory: false })),
+    readdir: async () => ({
+      items: Array.from({ length: count }, (_, at) => ({ name: `f${at}`, isDirectory: false })),
+    }),
     find: async (directory: string, _pattern: string, options: { limit: number }) => {
       asked.push(options.limit);
-      return Array.from({ length: Math.min(count, options.limit) }, (_, at) => ({
-        path: `${directory}/f${at}.ts`,
-        type: "file",
-      }));
+      return {
+        items: Array.from({ length: Math.min(count, options.limit) }, (_, at) => ({
+          path: `${directory}/f${at}.ts`,
+          type: "file",
+        })),
+      };
     },
     grep: async (_pattern: string, path: string, options: { limit: number }) => {
       asked.push(options.limit);
-      return Array.from({ length: Math.min(count, options.limit) }, (_, at) => ({
-        path: `${path}/a.ts`,
-        line: at + 1,
-        text: `match ${at}`,
-      }));
+      return {
+        items: Array.from({ length: Math.min(count, options.limit) }, (_, at) => ({
+          path: `${path}/a.ts`,
+          line: at + 1,
+          text: `match ${at}`,
+        })),
+      };
     },
   };
   // SAFETY: the file tools call only readdir, find and grep, which the fake answers.
@@ -82,7 +88,7 @@ describe("file tools' limits (SPI-1321, SPI-1388)", () => {
     const files = {
       grep: async (_pattern: string, _path: string, options: { context: number }) => (
         contexts.push(options.context),
-        []
+        { items: [] }
       ),
     } as unknown as ComputerFiles;
     const grep = (fileTools(() => files).tools ?? []).find((tool) => tool.name === "grep")!;
@@ -121,7 +127,7 @@ describe("file tools' limits (SPI-1321, SPI-1388)", () => {
           };
         });
         answered = new TextEncoder().encode(JSON.stringify(matches)).length;
-        return matches;
+        return { items: matches };
       },
     } as unknown as ComputerFiles;
     const grep = (fileTools(() => files).tools ?? []).find((tool) => tool.name === "grep")!;
@@ -174,5 +180,33 @@ describe("file tools' output (SPI-1362)", () => {
     expect(out.split("\n").length).toBeLessThanOrEqual(output.maxLines);
     expect(out.endsWith("… more matches; narrow the search")).toBe(true);
     expect(grepContext(1_000, 1, output.maxLines)).toBe(Math.floor((output.maxLines - 2) / 2));
+  });
+});
+
+describe("file tools' calls and the Workspace's answer bound (SPI-1388)", () => {
+  it("take a limit only as a whole number from 1 up to a safe integer", () => {
+    for (const tool of fileTools(() => undefined).tools ?? [])
+      expect((tool.parameters as { properties: Record<string, unknown> }).properties.limit).toMatchObject({
+        type: "integer",
+        minimum: 1,
+        maximum: Number.MAX_SAFE_INTEGER,
+      });
+  });
+
+  it("say when the Workspace cut its answer at its byte bound, naming it", async () => {
+    const cut = "123 more found past the Workspace's fixed 4 MiB answer limit";
+    const files = {
+      readdir: async () => ({ items: [{ name: "a", isDirectory: false }], cut }),
+      find: async () => ({ items: [{ path: "/workspace/repo/a.ts", type: "file" }], cut }),
+      grep: async () => ({ items: [{ path: "/workspace/repo/a.ts", line: 1, text: "x" }], cut }),
+    } as unknown as ComputerFiles;
+    const byName = new Map((fileTools(() => files).tools ?? []).map((tool) => [tool.name, tool]));
+    expect(await run(byName.get("ls")!, {})).toBe(`a\n\n[Stopped short: ${cut}; list a narrower directory]`);
+    expect(await run(byName.get("find")!, { pattern: "*" })).toBe(
+      `a.ts\n\n[Stopped short: ${cut}; narrow the pattern]`,
+    );
+    expect(await run(byName.get("grep")!, { pattern: "x", limit: 10_000_000 })).toBe(
+      `a.ts:1: x\n\n[Stopped short: ${cut}; narrow the search]`,
+    );
   });
 });

@@ -555,6 +555,7 @@ export class AdvisorObserver {
       const key = normalized(finding.message);
       if ((stored?.delivered[key] ?? 0) >= RANK[finding.severity]) continue;
       if (finding.severity === "concern" && coolingDown && mode === "running") {
+        limitHitLog("ADVISOR_CONCERN_COOLDOWN_TURNS", concernCooldownTurns, "held a Concern back for the next Review");
         this.#deferred.push(finding);
         continue;
       }

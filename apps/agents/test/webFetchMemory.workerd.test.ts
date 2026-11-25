@@ -2,9 +2,9 @@
 // the largest body web_fetch reads, every one of which it converts (`FETCH_MAX_KIB`), and the largest search answer
 // read (`ANSWER_MAX_BYTES`), each of two-byte text, the costlier kind (a JS string of it takes 2 bytes a character).
 //
-// workerd reports no heap figures, so this is also the measurement behind those two maximums: run it alone with
-// `MINIFLARE_WORKERD_V8_FLAGS=--max-old-space-size=<MB>` and find the smallest heap that passes, against the same run of
-// an empty test (the measured figures are in `FETCH_MAX_KIB`'s comment).
+// workerd reports no heap figures, so this is also the measurement behind `FETCH_MAX_KIB` and `ANSWER_MAX_BYTES`: run it
+// alone with `MINIFLARE_WORKERD_V8_FLAGS=--max-old-space-size=<MB>` and find the smallest heap that passes, against the
+// same run of an empty test (the measured figures are in their comments).
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { FETCH_MAX_KIB } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";

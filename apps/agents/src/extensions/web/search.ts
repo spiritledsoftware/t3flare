@@ -35,7 +35,7 @@ import { detailsRoomBytes, fitOutput, STRUCTURED_MAX_BYTES } from "./output.ts";
 import { limitSearchText, providerTextSanitizer, type Sanitize } from "./shaping.ts";
 
 /**
- * The most of the search model's answer read, whatever the settings. A named constraint: a Worker isolate's 128 MB,
+ * The most of the search model's answer read, a fixed bound. A named constraint: a Worker isolate's 128 MB,
  * which also holds the Session; the answer is decoded and parsed whole. It takes web_fetch's body bound
  * (`FETCH_MAX_KIB`). Measured in workerd (apps/agents/test/webFetchMemory.workerd.test.ts), an answer of 5 MiB
  * (2,476 results with two-byte titles) needs 2 MB more heap than an empty run, plus about 10 MB of body buffers outside

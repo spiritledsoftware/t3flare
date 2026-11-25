@@ -3,7 +3,10 @@
 // it is hit (the tool's result, the Review's record, the log). The values are the Owner's (2026-11-24).
 import { STOP_GRACE_SECONDS } from "./environment.ts";
 
-/** The Guardian's evidence budget, in characters of untrusted evidence a Review carries (about pi-guardian's 32,000-token ceiling). */
+/**
+ * The Guardian's evidence budget, in characters of evidence a Review carries: pi-guardian's 32,000-token ceiling at
+ * about 3 characters a token (no token count here: t3flare measures evidence in characters).
+ */
 export const GUARDIAN_EVIDENCE_CHARACTERS = 96_000;
 
 /**

@@ -53,8 +53,19 @@ export const DEFAULT_SUGGESTION_LIMITS: SuggestionLimits = {
   timeoutMs: SUGGESTION_TIMEOUT_SECONDS * 1000,
 };
 
-const excerpt = (text: string, characters: number): string =>
-  text.length <= characters ? text : `…${text.slice(-characters)}`;
+/** The last `characters` of `text`; a cut one is marked, and the log names the limit (ADR-0049 §4). */
+const excerpt = (text: string, characters: number): string => {
+  if (text.length <= characters) return text;
+  console.log(
+    JSON.stringify({
+      t3flare: "prompt-suggestion-limit",
+      limit: "SUGGESTION_EXCERPT_CHARACTERS",
+      characters,
+      dropped: text.length - characters,
+    }),
+  );
+  return `…${text.slice(-characters)}`;
+};
 
 /** The request the model answers: the turn's user message and the agent's answer, then t3's prompt. */
 export const suggestionContext = (

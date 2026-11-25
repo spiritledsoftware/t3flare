@@ -339,8 +339,9 @@ describe("the Advisor", () => {
     [3, ["concern"]],
     [0, ["concern", "concern"]],
   ] as const)(
-    "with concernCooldownTurns %i delivers %j while the agent runs (SPI-1320)",
+    "with concernCooldownTurns %i delivers %j while the agent runs, and names a held Concern (SPI-1320, SPI-1388)",
     async (cooldown, expected) => {
+      const logged = vi.spyOn(console, "log");
       const first = latch();
       const second = latch();
       const { entries } = await run(
@@ -368,6 +369,14 @@ describe("the Advisor", () => {
         ],
       );
       expect(severities(entries)).toEqual(expected);
+      const held = JSON.stringify({
+        t3flare: "advisor-limit",
+        limit: "ADVISOR_CONCERN_COOLDOWN_TURNS",
+        value: cooldown,
+        did: "held a Concern back for the next Review",
+      });
+      expect(logged.mock.calls.map((call) => String(call[0])).includes(held)).toBe(cooldown > 0);
+      logged.mockRestore();
     },
   );
 
