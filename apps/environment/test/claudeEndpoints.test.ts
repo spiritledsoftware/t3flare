@@ -5,7 +5,7 @@
 import type { ModelEndpoints } from "@t3flare/models/endpoints";
 import { describe, expect, it } from "vitest";
 
-import { claudeModelId, claudeModelsOf, claudeRelayOf } from "../src/provider/cli/claudeEndpoints.ts";
+import { claudeModelId, claudeModelsOf, claudeRelayOf, familyVersion } from "../src/provider/cli/claudeEndpoints.ts";
 
 const model = (id: string, extra: { reasoning?: boolean; known?: boolean; output?: number } = {}) => ({
   id,
@@ -139,6 +139,57 @@ describe("Claude Code's Model endpoints", () => {
       ],
     };
     expect(claudeRelayOf(unknown, undefined)).toMatchObject({ sonnetModel: "comm/claude-sonnet-x" });
+  });
+
+  it("points the aliases at the family's newest model, whatever pi-ai knows: the dated ones listed first are refused", () => {
+    // Commissary's list as its /v1/models gives it: dated models first, which its credentials refuse (404/400), so a
+    // session opened on an imported `"model": "opus"` failed before its first turn.
+    const listed: ModelEndpoints = {
+      revision: 1,
+      endpoints: [
+        {
+          ...endpoints.endpoints[1]!,
+          models: [
+            model("claude-3-5-haiku-20241022"),
+            model("claude-3-7-sonnet-20250219"),
+            model("claude-opus-4-1-20250805"),
+            model("claude-opus-4-20250514"),
+            model("claude-opus-4-5-20251101"),
+            model("claude-opus-4-5"),
+            model("claude-opus-5-5"),
+            model("claude-opus-4-6-thinking"),
+            model("claude-sonnet-4-5"),
+            model("claude-sonnet-5-5"),
+          ],
+        },
+      ],
+    };
+    expect(claudeRelayOf(listed, undefined)).toMatchObject({
+      opusModel: "comm/claude-opus-5-5",
+      sonnetModel: "comm/claude-sonnet-5-5",
+    });
+    // One version listed twice: the one pi-ai knows, else the owner's first.
+    const twice = (known: boolean): ModelEndpoints => ({
+      revision: 1,
+      endpoints: [
+        {
+          ...endpoints.endpoints[1]!,
+          models: [model("claude-opus-4-5-20251101"), model("claude-opus-4-5", { known })],
+        },
+      ],
+    });
+    expect(claudeRelayOf(twice(true), undefined)?.opusModel).toBe("comm/claude-opus-4-5");
+    expect(claudeRelayOf(twice(false), undefined)?.opusModel).toBe("comm/claude-opus-4-5-20251101");
+  });
+
+  it("reads a model's version in its family: the numbers after the family's word, else before it, never a date", () => {
+    expect(familyVersion("claude-opus-4-1-20250805", "opus")).toEqual([4, 1]);
+    expect(familyVersion("claude-opus-4-20250514", "opus")).toEqual([4]);
+    expect(familyVersion("claude-opus-5-5", "opus")).toEqual([5, 5]);
+    expect(familyVersion("anthropic/claude-opus-4.5", "opus")).toEqual([4, 5]);
+    expect(familyVersion("claude-3-7-sonnet-20250219", "sonnet")).toEqual([3, 7]);
+    expect(familyVersion("claude-sonnet-x", "sonnet")).toEqual([]);
+    expect(familyVersion("my-sonnetish", "sonnet")).toBeUndefined();
   });
 
   it("lists the endpoints' models by slug, grouped by endpoint, with the effort picker on reasoning models; none without an endpoint", () => {

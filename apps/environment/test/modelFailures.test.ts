@@ -373,9 +373,34 @@ describe("classifyModelFailure: by auth, and what it leaves alone", () => {
         google,
       ),
     ).toMatchObject({ code: "key_refused" });
-    expect(classifyModelFailure({ status: 503, headers: {}, body: "", at: AT }, google)).toMatchObject({
+    // Gemini's overload is a 503 whose error says so.
+    const geminiOverloaded =
+      '{"error":{"code":503,"message":"The model is overloaded. Please try again later.","status":"UNAVAILABLE"}}';
+    expect(classifyModelFailure({ status: 503, headers: {}, body: geminiOverloaded, at: AT }, google)).toMatchObject({
       code: "overloaded",
     });
+    expect(classifyModelFailure({ status: 503, headers: {}, body: "", at: AT }, google)).toMatchObject({
+      code: "unavailable",
+    });
+  });
+
+  it("a 503 that names no overload is unavailable, not overloaded: Commissary's answer when no credential can serve the model", () => {
+    const commissary = { id: "commissary-messages", api: "anthropic-messages" as const, auth: "api-key" as const };
+    const noAuth = '{"error":{"message":"no auth available","type":"server_error","code":"auth_unavailable"}}';
+    const failure = classifyModelFailure({ status: 503, headers: {}, body: noAuth, at: AT }, commissary);
+    expect(failure).toMatchObject({ class: "provider_error", code: "unavailable", retryable: true, stop: false });
+    expect(modelFailureMessage(failure!, commissary, 503)).toBe(
+      'The Model endpoint "commissary-messages" is temporarily unavailable (HTTP 503).',
+    );
+    // An Anthropic overload is a 529, or a 503 whose error is `overloaded_error`.
+    const overloaded = '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}';
+    for (const status of [529, 503])
+      expect(
+        classifyModelFailure({ status, headers: {}, body: overloaded, at: AT }, commissary),
+        String(status),
+      ).toMatchObject({
+        code: "overloaded",
+      });
   });
 
   it("every transient 5xx is retried; 501 Not Implemented is not", () => {

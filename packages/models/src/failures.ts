@@ -86,7 +86,7 @@ interface Read {
   readonly type: string | undefined;
   readonly code: string | undefined;
   readonly detailCode: string | undefined;
-  /** The error's message: read by one row only, Anthropic's owner-set spend limit, whose docs name its opening words. */
+  /** The error's message: read only for Anthropic's owner-set spend limit (its docs name its opening words) and a 503's "overloaded". */
   readonly message: string;
   /** The error object's fields (ChatGPT's `resets_at`). */
   readonly error: Readonly<Record<string, unknown>>;
@@ -358,7 +358,14 @@ const ROWS: ReadonlyArray<Row> = [
   { families: "any", auths: ["none"], when: (r) => status(r, 401, 403), code: "credential_needed" },
   // 501 Not Implemented: the endpoint does not do what was asked; no retry changes that.
   { families: "any", when: (r) => status(r, 501), code: "unsupported_request" },
-  { families: "any", when: (r) => status(r, 503, 529), code: "overloaded" },
+  // A 503 is an overload only where its error says so (Gemini's "The model is overloaded"): a proxy such as Commissary
+  // answers 503 when none of its credentials can serve the model, which "overloaded" would misname.
+  {
+    families: "any",
+    when: (r) => status(r, 529) || (status(r, 503) && /overload/i.test(r.message)),
+    code: "overloaded",
+  },
+  { families: "any", when: (r) => status(r, 503), code: "unavailable" },
   { families: "any", when: (r) => r.status !== undefined && r.status >= 500, code: "server_error" },
 ];
 
