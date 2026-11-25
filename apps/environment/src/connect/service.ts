@@ -10,7 +10,7 @@
 //   t3's mint and health answers and its relay delivery proofs verify nothing;
 // - on prod the account token is discarded after the link (owner decision D2; review finding 5): the relay accepts it
 //   for the whole client group, so only the publish credential stays.
-import { OUTSIDE_REQUEST_SECONDS } from "@t3flare/harness-registry";
+import { isTimeout, OUTSIDE_REQUEST_SECONDS, outsideRequestTimedOut } from "@t3flare/harness-registry";
 import * as ServerSecretStore from "t3/src/auth/ServerSecretStore.ts";
 import { readCliDesiredCloudLink, readCliDesiredLinkMode, setCliDesiredCloudLink } from "t3/src/cloud/CliState.ts";
 import * as CliTokenManager from "t3/src/cloud/CliTokenManager.ts";
@@ -53,6 +53,13 @@ export const LINK_ORIGIN = "http://127.0.0.1:443";
 
 /** The idle hold the sign-in's poll takes while its code is valid. */
 export const SIGN_IN_HOLD = Idle.CONNECT_SIGN_IN_HOLD;
+
+/**
+ * Why a request to the relay that waited up to `ms` got no answer (SPI-1434): the outside request time limit, named
+ * with its value, when that is what ended it; else what failed.
+ */
+export const relayUnanswered = (cause: unknown, ms: number): string =>
+  isTimeout(cause) ? `the relay ${outsideRequestTimedOut(ms)}` : `the relay request failed: ${redact(String(cause))}`;
 
 /** `ms` since the epoch as an ISO timestamp, as `Date#toISOString` writes it. */
 const isoAt = (ms: number): string => DateTime.formatIso(DateTime.makeUnsafe(ms));
@@ -275,8 +282,7 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
       return yield* Deferred.await(prompt).pipe(
         Effect.timeoutOrElse({
           duration: waitMs,
-          orElse: () =>
-            Effect.fail(fail("no-device-code", `T3 Connect's sign-in did not answer in ${waitMs / 1000} s`)),
+          orElse: () => Effect.fail(fail("no-device-code", `T3 Connect's sign-in ${outsideRequestTimedOut(waitMs)}`)),
         }),
       );
     });
@@ -288,7 +294,8 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
       const url = yield* relayUrl;
       if (url === null) return { skipped: "no relay URL" } as const;
       const environmentId = yield* environment.getEnvironmentId;
-      const response = yield* Effect.tryPromise({
+      const waitMs = requestMs();
+      return yield* Effect.tryPromise({
         try: () =>
           // @effect-diagnostics-next-line globalFetchInEffect:off -- the Worker's global fetch, as before: connectLink.test.ts stubs it, and the HttpClient service in scope is t3's sign-in client
           fetch(`${url}/v1/client/environment-links/${encodeURIComponent(environmentId)}`, {
@@ -296,13 +303,13 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
             headers: { authorization: `Bearer ${token.value.accessToken}` },
             // Bounded (it runs under the Connect lock, which relink, unlink and sign-in wait on): the Outside request
             // time limit (SPI-1366).
-            signal: AbortSignal.timeout(requestMs()),
+            signal: AbortSignal.timeout(waitMs),
           }),
-        catch: () => fail("relay-unreachable"),
-      }).pipe(Effect.option);
-      return Option.isSome(response)
-        ? ({ status: response.value.status } as const)
-        : ({ skipped: "the relay did not answer" } as const);
+        catch: (cause) => fail("relay-unreachable", relayUnanswered(cause, waitMs)),
+      }).pipe(
+        Effect.map((response): UnlinkOutcome["relay"] => ({ status: response.status })),
+        Effect.catch((error) => Effect.succeed({ skipped: error.detail ?? error.reason })),
+      );
     });
 
     const unlinkNow = (clearToken: boolean) =>
@@ -326,6 +333,8 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
         const token = yield* tokens.getExisting.pipe(Effect.option, Effect.map(Option.flatten));
         const url = yield* relayUrl;
         if (Option.isNone(token) || url === null) return { skipped: "no account token held" };
+        // The admin call's deadline is the same time limit (`adminDeadline`), read again here to name it.
+        const waitMs = requestMs();
         const get = (path: string) =>
           Effect.tryPromise({
             try: async () => {
@@ -333,15 +342,18 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
               const response = await fetch(`${url}${path}`, {
                 headers: { authorization: `Bearer ${token.value.accessToken}` },
                 // Never unbounded: a caller with no deadline of its own gets the Outside request time limit.
-                signal: signal ?? AbortSignal.timeout(requestMs()),
+                signal: signal ?? AbortSignal.timeout(waitMs),
               });
               return {
                 status: response.status,
                 body: response.ok ? ((await response.json()) as Record<string, unknown>) : null,
               };
             },
-            catch: () => fail("relay-unreachable"),
-          }).pipe(Effect.orElseSucceed(() => ({ status: 0, body: null })));
+            catch: (cause) => fail("relay-unreachable", relayUnanswered(cause, waitMs)),
+          }).pipe(
+            Effect.map((answer): { status: number; body: Record<string, unknown> | null; error?: string } => answer),
+            Effect.catch((error) => Effect.succeed({ status: 0, body: null, error: error.detail ?? error.reason })),
+          );
         const [environments, devices] = yield* Effect.all([get("/v1/environments"), get("/v2/client/devices")], {
           concurrency: 2,
         });
@@ -350,6 +362,7 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
         return {
           environments: {
             status: environments.status,
+            ...(environments.error === undefined ? {} : { error: environments.error }),
             items: list(environments.body, "environments").map((e) => ({
               environmentId: e.environmentId,
               label: e.label,
@@ -359,6 +372,7 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
           },
           devices: {
             status: devices.status,
+            ...(devices.error === undefined ? {} : { error: devices.error }),
             items: list(devices.body, "devices").map((d) => ({
               platform: d.platform,
               appVersion: d.appVersion,

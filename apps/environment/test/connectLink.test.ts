@@ -28,6 +28,7 @@ import * as ServerSettings from "t3/src/serverSettings.ts";
 import * as ServerEnvironment from "t3/src/environment/ServerEnvironment.ts";
 import * as ManagedPolicy from "t3/src/policy/ManagedPolicy.ts";
 import * as AgentAwarenessRelay from "t3/src/relay/AgentAwarenessRelay.ts";
+import * as Result from "effect/Result";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { adminDeadline, probe } from "../src/connect/admin.ts";
@@ -53,6 +54,8 @@ interface Harness {
   token: CliTokenManager.PersistedToken | undefined;
   /** What the fake relay's link answers as `endpointRuntime`. */
   endpointRuntime: unknown;
+  /** Whether the fake relay never answers a request to `path`. */
+  hangs?: (path: string) => boolean;
 }
 
 const harness = (): Harness => ({
@@ -79,6 +82,8 @@ const run = <A, E>(
   const relay = HttpClient.make(
     Effect.fn("relay")(function* (request) {
       const url = new URL(request.url);
+      // Before its body is read: a hung sign-in posts a form, not JSON.
+      if (h.hangs?.(url.pathname) === true) return yield* Effect.never;
       const body =
         request.body._tag === "Uint8Array"
           ? yield* decodeJsonObject(new TextDecoder().decode(request.body.body)).pipe(Effect.orDie)
@@ -179,6 +184,9 @@ const run = <A, E>(
   return Effect.runPromise(Effect.flatMap(ConnectService.Connect, use).pipe(Effect.provide(layer), Effect.scoped));
 };
 
+/** The outside request time limit, hit, as a test's 20 ms one names itself (SPI-1434). */
+const NAMED_20MS = "did not answer in 0.02 s, t3flare's fixed outside request time limit";
+
 const STAGE = { keepAccountToken: true };
 const PROD = { keepAccountToken: false };
 
@@ -276,9 +284,46 @@ describe("the publish-only link step against a fake relay", () => {
     );
     const unlinked = await run(h, { ...STAGE, requestMs: () => 20 }, (connect) => connect.unlink);
     expect(unlinked).toEqual({
-      relay: { skipped: "the relay did not answer" },
+      relay: { skipped: `the relay ${NAMED_20MS}` },
       local: true,
       accountTokenCleared: false,
+    });
+  });
+
+  it("says what failed when an unlink's relay call fails otherwise, without claiming the time limit (SPI-1434)", async () => {
+    const h = harness();
+    await run(h, STAGE, (connect) => connect.importToken(TOKEN));
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
+    const unlinked = await run(h, { ...STAGE, requestMs: () => 20 }, (connect) => connect.unlink);
+    expect(unlinked.relay).toEqual({ skipped: "the relay request failed: TypeError: fetch failed" });
+  });
+
+  it("names the time limit next to status 0 in the relay view when the relay runs out of it (SPI-1434)", async () => {
+    const h = harness();
+    // An expiry the status can write as a date.
+    await run(h, STAGE, (connect) => connect.importToken({ ...TOKEN, expiresAtEpochMs: Date.UTC(2099, 0, 1) }));
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) =>
+      init?.signal?.aborted === true
+        ? Promise.reject(init.signal.reason)
+        : new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))),
+    );
+    const request = new Request("https://env.example/_t3flare/connect/status?relay=1");
+    const status = await run(h, { ...STAGE, requestMs: () => 20 }, (connect) =>
+      connect.status({ relay: true, signal: adminDeadline(request, 20) }),
+    );
+    expect(status.relay).toEqual({
+      environments: { status: 0, error: `the relay ${NAMED_20MS}`, items: [] },
+      devices: { status: 0, error: `the relay ${NAMED_20MS}`, items: [] },
+    });
+  });
+
+  it("names the time limit when T3 Connect's sign-in gives no device code within it (SPI-1434)", async () => {
+    const h = harness();
+    h.hangs = (path) => path.includes("device");
+    const signedIn = await run(h, { ...STAGE, requestMs: () => 20 }, (connect) => Effect.result(connect.signIn));
+    expect(Result.isFailure(signedIn) && signedIn.failure).toMatchObject({
+      reason: "no-device-code",
+      detail: `T3 Connect's sign-in ${NAMED_20MS}`,
     });
   });
 
@@ -291,9 +336,12 @@ describe("the publish-only link step against a fake relay", () => {
     );
     // A Request whose signal never aborts: as workerd hands one without `enable_request_signal`.
     const request = new Request("https://env.example/_t3flare/connect/probe", { method: "POST" });
-    const answer = await Effect.runPromise(probe(() => adminDeadline(request, 20)));
+    const answer = await Effect.runPromise(probe(() => adminDeadline(request, 20), 20));
     expect(answer.relay.status).toBe(0);
     expect(answer.deviceAuthorization.status).toBe(0);
+    // SPI-1434: each names the time limit it ran out of.
+    expect(answer.relay.body).toBe(`the relay ${NAMED_20MS}`);
+    expect(answer.deviceAuthorization.error).toBe(`the device authorization ${NAMED_20MS}`);
   });
 
   it("gives the probe's device authorization its own deadline: a relay that never answers leaves it tried (SPI-1379)", async () => {
@@ -307,9 +355,13 @@ describe("the publish-only link step against a fake relay", () => {
       return Promise.resolve(Response.json({ device_code: "d", user_code: "u" }));
     });
     const request = new Request("https://env.example/_t3flare/connect/probe", { method: "POST" });
-    const answer = await Effect.runPromise(probe(() => adminDeadline(request, 20)));
+    const answer = await Effect.runPromise(probe(() => adminDeadline(request, 20), 20));
     expect(answer.relay.status).toBe(0);
-    expect(answer.deviceAuthorization).toMatchObject({ status: 200, fields: ["device_code", "user_code"] });
+    expect(answer.deviceAuthorization).toMatchObject({
+      status: 200,
+      fields: ["device_code", "user_code"],
+      error: null,
+    });
   });
 
   it("signs out: the relay's link, ours and the token go", async () => {
