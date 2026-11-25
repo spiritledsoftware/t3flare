@@ -1694,11 +1694,17 @@ export class WorkspaceDO extends ContainerHost {
     };
   }
 
-  /** Patch 0011's secret files past their day, removed; a failure is logged and tried again at the next sweep. */
+  /**
+   * Patch 0011's secret files past their day, removed, and gone from a running Container too (a CLI agent's own
+   * commands start no push); a failure is logged and tried again at the next sweep.
+   */
   async #sweepSecretFiles(): Promise<void> {
-    await sweepSecretFiles(this.#secretFileDeps()).catch((error: unknown) =>
-      console.warn(JSON.stringify({ t3flare: "secret-files-sweep-failed", reason: String(error) })),
-    );
+    const deps = this.#secretFileDeps();
+    await sweepSecretFiles(deps)
+      .then((removed) => (removed > 0 ? deps.push() : undefined))
+      .catch((error: unknown) =>
+        console.warn(JSON.stringify({ t3flare: "secret-files-sweep-failed", reason: String(error) })),
+      );
   }
 
   // -------------------------------------------------------------------------------------------------------------------

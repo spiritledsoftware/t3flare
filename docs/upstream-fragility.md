@@ -2006,7 +2006,8 @@ Moved from U58 when its Commissary readers went (SPI-1176).
   `/workspace/.t3flare/secrets/` (`apps/agents/src/workspace/secretFiles.ts`, `WorkspaceDO.placeSecretFile`): the harness's
   directory, synced to the Container and never in the repo, pushed to a running Container at once. A file is removed a
   day after it was written, as t3 removes its own: at the Workspace DO's first file operation after each wake, before any
-  command, and at each alarm while its Container runs (`sweepSecretFiles`). Our store is DO storage with no `directory`, so unpatched t3 refused every one
+  command, and at each alarm while its Container runs (`sweepSecretFiles`), pushed so the Container's copy goes too. t3's
+  one-use lock (`consumeLock`) is held across the Workspace RPC, so every secret ref's use waits while one file is placed. Our store is DO storage with no `directory`, so unpatched t3 refused every one
   ("Could not store the secret.") after the card said it was saved.
 - **Breaks when**: t3 changes how `saveToFile` or `savePasted` reach their file (the Patch stops applying), stops reading
   the stored copy through `readRef` or removing it after the write, or renames the store's service.
