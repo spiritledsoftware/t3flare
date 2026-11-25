@@ -426,14 +426,16 @@ for (const list of document.querySelectorAll('[data-kind="variables"]')) {
     changed();
   });
 }
-// A ports field (SPI-1364) is checked where it is typed, as the API checks it, so a bad list is shown at the field.
+// A ports field (SPI-1364) is checked where it is typed, as the API checks it, so a bad list is shown at the field. An
+// opt-in one (SPI-1390, \`data-off\`) may be empty: no list at all.
 const portsProblem = (input) => {
   const words = input.value.split(/[\\s,]+/).filter((word) => word !== "");
-  if (words.length === 0) return "List at least one port.";
-  const reserved = (input.dataset.reserved ?? "").split(" ");
+  if (words.length === 0) return input.dataset.off === "1" ? "" : "List at least one port.";
+  const reserved = JSON.parse(input.dataset.reserved ?? "{}");
   for (const word of words) {
     if (!/^\\d+$/.test(word) || Number(word) < 1 || Number(word) > 65535) return word + " is not a port from 1 to 65535.";
-    if (reserved.includes(String(Number(word)))) return word + " is t3flare's own port; choose another.";
+    const use = reserved[String(Number(word))];
+    if (use !== undefined) return "Port " + Number(word) + " is reserved by t3flare for " + use + ".";
   }
   const count = new Set(words.map(Number)).size;
   const most = Number(input.dataset.maxCount);

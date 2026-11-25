@@ -826,14 +826,33 @@ describe("the Environment section's dotfiles", () => {
     expect(group?.attrs["aria-describedby"]).toBe("environment-advanced-history-desc");
   });
 
-  it("draws the preview ports as text, the stored list comma-separated (SPI-1364)", () => {
-    const section = sectionOf(renderPage(fixturePage()));
-    const ports = tagsOf(section).find((tag) => tag.attrs["data-setting"] === "previewPorts");
-    expect(ports?.attrs).toMatchObject({
+  it("draws the preview ports as text, empty for any port by default, the Owner's list comma-separated (SPI-1364, SPI-1390)", () => {
+    const portsOf = (html: string) =>
+      tagsOf(sectionOf(html)).find((tag) => tag.attrs["data-setting"] === "previewPorts")?.attrs;
+    const off = portsOf(renderPage(fixturePage()));
+    expect(off).toMatchObject({
       type: "text",
       "data-kind": "ports",
-      value: "3000, 3001, 4173, 4321, 5173, 5174, 8000, 8787",
+      "data-off": "1",
+      placeholder: "any port",
+      value: "",
     });
+    expect(off).not.toHaveProperty("required");
+    const unescaped = (off?.["data-reserved"] ?? "{}")
+      .replaceAll("&quot;", '"')
+      .replaceAll("&#39;", "'")
+      .replaceAll("&amp;", "&");
+    expect(JSON.parse(unescaped)).toEqual({
+      8080: "computerd, its server that runs the Container's commands and serves its files",
+      17781: "the MCP bridge, its server for stdio MCP servers",
+    });
+    const listed = portsOf(
+      renderPage({
+        ...fixturePage(),
+        environment: { ...resolveEnvironment(EMPTY_ENVIRONMENT), previewPorts: [3000, 5173] },
+      }),
+    );
+    expect(listed).toMatchObject({ value: "3000, 5173" });
   });
 
   it("draws Park after after the Turn limit in the Agents row, default 10, off allowed; Open changes name no wait (SPI-1389)", () => {

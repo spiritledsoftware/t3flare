@@ -9,7 +9,10 @@ import {
   COMMAND_SETTING_KEYS,
   CONTAINER_PREVIEW_SETTING_KEYS,
   MAX_PREVIEW_PORTS,
+  RESERVED_CONTAINER_PORT_USES,
   RESERVED_CONTAINER_PORTS,
+  reservedPortMessage,
+  reservedPortSentence,
   BASE_BUILD_SETTING_KEYS,
   builderInstance,
   containerInstance,
@@ -57,7 +60,7 @@ import {
   STOP_GRACE_SECONDS,
   TERMINAL_HISTORY_KIB,
 } from "./environment.ts";
-import type { EnvironmentSettingEntry } from "./fields.ts";
+import { type EnvironmentSettingEntry, fitPorts, isPort } from "./fields.ts";
 import { DO_VALUE_BYTES, storedBytes } from "./storedValue.ts";
 import { cliToolTimeoutSec } from "./mcp.ts";
 
@@ -98,7 +101,7 @@ const TUNABLE_DEFAULTS = {
   mcpListSeconds: 120,
   commandMinutes: 0,
   containerConnectSeconds: 120,
-  previewPorts: [3000, 3001, 4173, 4321, 5173, 5174, 8000, 8787],
+  previewPorts: [],
 } as const;
 
 describe("resolveEnvironment", () => {
@@ -914,24 +917,72 @@ describe("the Workspace's command limits, Terminals, previews and what it keeps 
     }
   });
 
-  it("the preview ports are a list of at most MAX_PREVIEW_PORTS (Browser Run's eight hosts), never t3flare's own", () => {
+  it("the preview ports are off by default (any port), an opt-in list of at most MAX_PREVIEW_PORTS, never t3flare's own (SPI-1390)", () => {
     expect(MAX_PREVIEW_PORTS).toBe(8);
     expect(RESERVED_CONTAINER_PORTS).toEqual([8080, 17_781]);
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT).previewPorts).toEqual([]);
+    expect(ENVIRONMENT_SETTINGS.previewPorts.schema).toMatchObject({ off: true, offLabel: "any port", default: [] });
     const stored = (value: unknown) => {
       const answer = set({ previewPorts: value });
       return answer.ok ? answer.environment.settings.previewPorts : answer.error;
     };
-    // Typed as text on the page: read as numbers, sorted, each once.
+    // The opt-in list still works. Typed as text on the page: read as numbers, sorted, each once.
     expect(stored("5173, 3000 3002,3000")).toEqual([3000, 3002, 5173]);
     expect(stored([4200])).toEqual([4200]);
-    expect(stored("3000, 8080")).toBe("previewPorts: not 8080, which t3flare uses itself");
-    expect(stored("17781")).toBe("previewPorts: not 17781, which t3flare uses itself");
+    expect(resolveEnvironment({ revision: 1, settings: { previewPorts: [4200, 9999] } }).previewPorts).toEqual([
+      4200, 9999,
+    ]);
+    // Emptied: off again, any port.
+    expect(
+      applyEnvironmentChange({ revision: 1, settings: { previewPorts: [4200] } }, { settings: { previewPorts: "" } }),
+    ).toEqual({
+      ok: true,
+      environment: { revision: 2, settings: { previewPorts: [] } },
+      changed: ["previewPorts"],
+    });
+    // Each reserved port refused by name, with what t3flare uses it for.
+    expect(stored("3000, 8080")).toBe(
+      "previewPorts: port 8080 is reserved by t3flare for computerd, its server that runs the Container's commands and serves its files",
+    );
+    expect(stored("17781")).toBe(
+      "previewPorts: port 17781 is reserved by t3flare for the MCP bridge, its server for stdio MCP servers",
+    );
+    expect(reservedPortMessage(5173)).toBeUndefined();
     expect(stored("1 2 3 4 5 6 7 8 9")).toBe("previewPorts: at most 8 ports");
-    expect(stored("")).toBe("previewPorts: a list of at least one port");
     expect(stored("3000, http")).toBe("previewPorts: ports from 1 to 65535, not http");
     expect(stored("70000")).toBe("previewPorts: ports from 1 to 65535, not 70000");
-    expect(resolveEnvironment({ revision: 1, settings: { previewPorts: [8080] } }).previewPorts).toEqual([
-      3000, 3001, 4173, 4321, 5173, 5174, 8000, 8787,
+    expect(stored(5173)).toBe("previewPorts: a list of ports, or none");
+    // A stored list that no longer fits keeps what still does: the Owner's narrowing holds (SPI-1390).
+    expect(resolveEnvironment({ revision: 1, settings: { previewPorts: [4200, 8080, 0, "x"] } }).previewPorts).toEqual([
+      4200,
+    ]);
+    const nine = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+    expect(resolveEnvironment({ revision: 1, settings: { previewPorts: nine } }).previewPorts).toEqual(
+      nine.slice(0, 8),
+    );
+    expect(fitPorts([4200, 8080, 4200, 17_781], MAX_PREVIEW_PORTS, RESERVED_CONTAINER_PORT_USES)).toEqual({
+      ports: [4200],
+      dropped: [8080, 17_781],
+    });
+    expect(fitPorts([3000, 4200], MAX_PREVIEW_PORTS, RESERVED_CONTAINER_PORT_USES)).toEqual({
+      ports: [3000, 4200],
+      dropped: [],
+    });
+    // One with nothing left reads as none, any port; the Environment logs what it dropped.
+    expect(resolveEnvironment({ revision: 1, settings: { previewPorts: [8080] } }).previewPorts).toEqual([]);
+    expect(reservedPortSentence(8080)).toBe(
+      "Port 8080 is reserved by t3flare for computerd, its server that runs the Container's commands and serves its files.",
+    );
+    expect(reservedPortSentence(5173)).toBeUndefined();
+    expect([0, 1, 65_535, 65_536, 1.5, -1, "80", Number.NaN].map(isPort)).toEqual([
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
     ]);
   });
 
@@ -943,7 +994,12 @@ describe("the Workspace's command limits, Terminals, previews and what it keeps 
     expect(ENVIRONMENT_SETTINGS.commandMinutes.description).toContain(
       "A command that runs longer than this is ended and fails; while it runs it holds the Container.",
     );
-    expect(ENVIRONMENT_SETTINGS.previewPorts.description).toContain("At most 8, and never 8080 or 17781");
+    expect(ENVIRONMENT_SETTINGS.previewPorts.description).toContain(
+      "Empty: a preview browser can open a dev server on any Container port except 8080 and 17781, which t3flare uses itself, as a browser on your own machine opens any localhost port. A page open in that browser can then also reach every other server listening on 0.0.0.0 in the Workspace's Container.",
+    );
+    expect(ENVIRONMENT_SETTINGS.previewPorts.description).toContain(
+      "at most 8, the most one preview browser can route on Cloudflare",
+    );
   });
 });
 

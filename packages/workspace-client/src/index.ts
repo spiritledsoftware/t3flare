@@ -698,8 +698,8 @@ export type AgentTerminalResult<Op extends AgentTerminalRequest["op"]> =
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Container previews (G11, ADR-0031): Browser Run routes at most eight hosts, HTTP on port 80, each to the Workspace the
-// browser was acquired for. Which ports is the Owner's Environment setting `previewPorts` (SPI-1364); t3flare's own
-// (`RESERVED_CONTAINER_PORTS`, @t3flare/harness-registry) are never one of them.
+// browser was acquired for. Which ports is any but t3flare's own (`RESERVED_CONTAINER_PORTS`, @t3flare/harness-registry),
+// or the Owner's opt-in list `previewPorts` (SPI-1364, SPI-1390).
 export const CONTAINER_PREVIEW_DOMAIN = "t3flare.internal";
 export const containerPreviewHost = (port: number): string => `${port}.${CONTAINER_PREVIEW_DOMAIN}`;
 /** Where the carried sockets' endpoints are on every Container preview host, and the header their requests carry. */

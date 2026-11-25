@@ -98,10 +98,16 @@ const fieldJson = (schema: EnvironmentFieldSchema): Record<string, unknown> => {
     case "ports":
       return {
         type: "array",
-        minItems: 1,
+        minItems: schema.off === true ? 0 : 1,
         maxItems: schema.maxCount,
         uniqueItems: true,
-        items: { type: "integer", minimum: 1, maximum: 65_535, not: { enum: [...schema.reserved] } },
+        items: {
+          type: "integer",
+          minimum: 1,
+          maximum: 65_535,
+          not: { enum: Object.keys(schema.reserved).map(Number) },
+        },
+        ...(schema.off === true ? { description: `None: ${schema.offLabel ?? "off"}.` } : {}),
       };
     case "variables":
       return {

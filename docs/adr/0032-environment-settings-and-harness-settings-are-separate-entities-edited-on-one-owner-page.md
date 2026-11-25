@@ -665,7 +665,8 @@ New Environment settings, each with today's value as its default and its consequ
   `down-free`, with stock t3's 8 MiB and 128 as sanity maxima; the 128 MB isolate bounds their product, which their
   descriptions state. They apply when the Environment next restarts: t3 takes them when its layer is built.
 - In the Previews row, first, before SPI-1366's preview browser cadences: `previewPorts`, the Container ports a preview
-  browser routes (default the eight of ADR-0031), a new `ports` field type, at most `MAX_PREVIEW_PORTS` (8, Browser
+  browser routes (default the eight of ADR-0031; superseded by ADR-0031's SPI-1390 refinement: an opt-in list, off by
+  default, when a browser opens any port but the reserved ones), a new `ports` field type, at most `MAX_PREVIEW_PORTS` (8, Browser
   Run's hosts) and never `RESERVED_CONTAINER_PORTS` (computerd's 8080, the MCP bridge's 17781), asked either way;
   `portProbeMs` (1000), a port check's wait, `free`. `previewPorts` and `routerTraceEntries` apply at their next use
   (`NEXT_USE_SETTING_KEYS`), and `terminalHistoryKiB` and `exitedTerminalsKept` at the Environment's next restart

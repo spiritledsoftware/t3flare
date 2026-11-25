@@ -12,9 +12,8 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { BROWSER_PROFILE_SAVE_SECONDS } from "@t3flare/harness-registry";
+import { BROWSER_PROFILE_SAVE_SECONDS, MAX_PREVIEW_PORTS } from "@t3flare/harness-registry";
 
-import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
 import { containerPreviewPortOf } from "../src/preview/browserRun.ts";
 import { acquireOptions } from "../src/preview/cdpSocket.ts";
 import {
@@ -26,6 +25,13 @@ import {
   toBrowser,
 } from "../src/preview/htmlBrowser.ts";
 import { type Lookups, normalizeConfiguredUrls, serversOf, threadWorkspaceFrom } from "../src/preview/portDiscovery.ts";
+import {
+  type PreviewNavigation,
+  previewNavigation,
+  previewRoutes,
+  reachablePorts,
+  relaunchMessage,
+} from "../src/preview/previewRoutes.ts";
 import { closeLeftoverSessions } from "../src/preview/sessions.ts";
 import { previewStore, profileChunks } from "../src/preview/store.ts";
 import { nodeSocketShim } from "../src/platform/httpServer.ts";
@@ -33,17 +39,160 @@ import * as Shadow from "../src/shadows/serverBrowserContexts.ts";
 import * as Stock from "t3/src/preview/ServerBrowserContexts.ts";
 import { nodeSqlStorage } from "./nodeSqlStorage.ts";
 
-describe("the Container preview ports are the Owner's (SPI-1364)", () => {
-  afterEach(() => bindEnvironmentServices(undefined as unknown as EnvironmentServices));
+describe("a preview browser opens any Container port but t3flare's own (SPI-1390)", () => {
+  const browser = (routed: ReadonlyArray<number>, allowlist: ReadonlyArray<number> = []) => ({
+    workspace: true,
+    routed,
+    allowlist,
+  });
+  const pageOf = (navigation: PreviewNavigation) => {
+    if (navigation.kind !== "page") throw new Error(`not a page: ${navigation.kind}`);
+    expect(navigation.url.startsWith("data:text/html")).toBe(true);
+    return decodeURIComponent(navigation.url);
+  };
 
-  it("routes the ports the setting names now, and names them for any other", () => {
-    bindEnvironmentServices({ previewPorts: () => [4200, 8081] } as unknown as EnvironmentServices);
-    expect(Shadow.translatePreviewUrl("http://localhost:4200/x")).toBe("http://4200.t3flare.internal/x");
-    const page = decodeURIComponent(Shadow.translatePreviewUrl("http://localhost:5173/"));
+  it("goes to a routed port's Container preview host, path and query kept, for each loopback name", () => {
+    const routed = browser([3000, 4173, 5173, 8787, 9999]);
+    expect(previewNavigation("http://localhost:5173/app?x=1#h", routed)).toEqual({
+      kind: "go",
+      url: "http://5173.t3flare.internal/app?x=1#h",
+    });
+    expect(previewNavigation("http://127.0.0.1:3000/", routed)).toEqual({
+      kind: "go",
+      url: "http://3000.t3flare.internal/",
+    });
+    expect(previewNavigation("https://[::1]:8787/api", routed)).toEqual({
+      kind: "go",
+      url: "http://8787.t3flare.internal/api",
+    });
+    expect(previewNavigation("http://0.0.0.0:4173", routed)).toEqual({
+      kind: "go",
+      url: "http://4173.t3flare.internal/",
+    });
+    // A dev server on an arbitrary port previews by default.
+    expect(previewNavigation("http://localhost:9999/", routed)).toEqual({
+      kind: "go",
+      url: "http://9999.t3flare.internal/",
+    });
+  });
+
+  it("restarts the browser with a port it does not route yet: any port is allowed", () => {
+    expect(previewNavigation("http://localhost:9999/", browser([3000, 5173]))).toEqual({
+      kind: "relaunch",
+      port: 9999,
+    });
+    expect(previewNavigation("http://localhost:41234/x", browser([]))).toEqual({ kind: "relaunch", port: 41_234 });
+    expect(previewNavigation("http://localhost/", browser([3000]))).toEqual({ kind: "relaunch", port: 80 });
+    expect(relaunchMessage(9999)).toBe(
+      "Port 9999 was not one of this Workspace's preview browser's ports: Browser Run fixes a browser's ports when it starts, at most 8. The preview browser restarted with port 9999 added, and its tabs closed. Open http://localhost:9999/ again.",
+    );
+  });
+
+  it("refuses each of t3flare's reserved ports with a page that names it and what it is for, routed or not", () => {
+    for (const routed of [[], [8080, 17_781]]) {
+      expect(pageOf(previewNavigation("http://localhost:8080/", browser(routed)))).toContain(
+        "Port 8080 is reserved by t3flare for computerd, its server that runs the Container's commands and serves its files.",
+      );
+      expect(pageOf(previewNavigation("http://127.0.0.1:17781/mcp", browser(routed)))).toContain(
+        "Port 17781 is reserved by t3flare for the MCP bridge, its server for stdio MCP servers.",
+      );
+    }
+  });
+
+  it("keeps the Owner's opt-in list: a port off it gets a page naming the list and where it is set", () => {
+    const listed = browser([4200, 8081], [4200, 8081]);
+    expect(previewNavigation("http://localhost:4200/x", listed)).toEqual({
+      kind: "go",
+      url: "http://4200.t3flare.internal/x",
+    });
     // ADR-0049 §4: and where on the Settings page the setting is.
-    expect(page).toContain(
+    expect(pageOf(previewNavigation("http://localhost:5173/", listed))).toContain(
       "on ports 4200, 8081 (the Environment setting Container preview ports, under Environment › Advanced › Container preview ports)",
     );
+    // A port the Owner added since the browser started: the browser restarts to route it.
+    expect(previewNavigation("http://localhost:5173/", browser([4200], [4200, 5173]))).toEqual({
+      kind: "relaunch",
+      port: 5173,
+    });
+  });
+
+  it("never restarts for a port that is none: port 0 gets a page naming it", () => {
+    const page = previewNavigation("http://localhost:0/", browser([3000]));
+    expect(page.kind).toBe("page");
+    if (page.kind === "page")
+      expect(decodeURIComponent(page.url)).toContain(
+        "0 is not a port from 1 to 65535, so no dev server can listen on it.",
+      );
+  });
+
+  it("gives localhost in the route-less browser a page saying where previews open", () => {
+    const page = previewNavigation("http://localhost:5173/", { workspace: false, routed: [], allowlist: [] });
+    expect(page.kind).toBe("page");
+    if (page.kind === "page")
+      expect(decodeURIComponent(page.url)).toContain("localhost previews open from a thread's preview browser");
+    expect(previewNavigation("https://example.com/", { workspace: false, routed: [], allowlist: [] })).toEqual({
+      kind: "go",
+      url: "https://example.com/",
+    });
+  });
+
+  it("names how a port that needed a restart went: added, past the restart's eight, or its browser already replaced", () => {
+    expect(relaunchMessage(9999, "added")).toBe(relaunchMessage(9999));
+    expect(relaunchMessage(9999, "full")).toContain(
+      "The preview browser is restarting with 8 other ports pages asked for, so port 9999 is not among them",
+    );
+    expect(relaunchMessage(9999, "stale")).toContain("This tab's preview browser had already restarted");
+  });
+
+  it("leaves every other URL as it is", () => {
+    for (const url of ["https://example.com/", "http://5173.t3flare.internal/", "not a url", "file:///etc/hosts"])
+      expect(previewNavigation(url, browser([5173]))).toEqual({ kind: "go", url });
+  });
+
+  it("routes, at most Browser Run's eight: the Owner's list alone, else the wanted port, the listeners, the last routes, then the usual ones", () => {
+    expect(MAX_PREVIEW_PORTS).toBe(8);
+    expect(previewRoutes({ allowlist: [4200, 8081], wanted: [9999], listening: [9998], previous: [] })).toEqual([
+      4200, 8081,
+    ]);
+    expect(previewRoutes({ allowlist: [], wanted: [], listening: [], previous: [] })).toEqual([
+      3000, 3001, 4173, 4321, 5173, 5174, 8000, 8787,
+    ]);
+    expect(previewRoutes({ allowlist: [], wanted: [9999], listening: [9998, 3000], previous: [41_000] })).toEqual([
+      9999, 9998, 3000, 41_000, 3001, 4173, 4321, 5173,
+    ]);
+    // Never a reserved port, and never past eight however many listen.
+    const many = Array.from({ length: 12 }, (_, index) => 10_000 + index);
+    expect(previewRoutes({ allowlist: [], wanted: [8080], listening: [17_781, ...many], previous: [] })).toEqual(
+      many.slice(0, 8),
+    );
+  });
+
+  it("takes from a Container's scan the ports a preview can reach: not loopback-only, not t3flare's own", () => {
+    const listener = (port: number, host: string, pid = 100) => ({
+      port,
+      host,
+      pid,
+      pgid: pid,
+      comm: "node",
+      exec: null,
+      thread: null,
+    });
+    const scan: PortScan = {
+      computerd: 7,
+      listeners: [
+        listener(5173, "0.0.0.0"),
+        listener(9999, "0:0:0:0:0:0:0:0"),
+        listener(9998, "127.0.0.1"),
+        listener(9997, "0:0:0:0:0:0:0:1"),
+        listener(9996, "0:0:0:0:0:ffff:7f00:1"),
+        listener(8080, "0.0.0.0", 7),
+        listener(17_781, "0.0.0.0"),
+        listener(5173, "0:0:0:0:0:0:0:0"),
+        listener(3000, "10.0.0.2"),
+      ],
+      table: [],
+    };
+    expect(reachablePorts(scan)).toEqual([3000, 5173, 9999]);
   });
 
   it("the preview entrypoint takes any port but t3flare's own: the browser's routes decide which it reaches", () => {
@@ -52,28 +201,6 @@ describe("the Container preview ports are the Owner's (SPI-1364)", () => {
     expect(containerPreviewPortOf(new URL("http://17781.t3flare.internal/"))).toBeUndefined();
     expect(containerPreviewPortOf(new URL("http://99999.t3flare.internal/"))).toBeUndefined();
     expect(containerPreviewPortOf(new URL("https://4200.t3flare.internal/"))).toBeUndefined();
-  });
-});
-
-describe("a navigation to localhost in Browser Run (R1, review L6)", () => {
-  it("goes to the port's Container preview host, path and query kept, for each loopback name", () => {
-    expect(Shadow.translatePreviewUrl("http://localhost:5173/app?x=1#h")).toBe(
-      "http://5173.t3flare.internal/app?x=1#h",
-    );
-    expect(Shadow.translatePreviewUrl("http://127.0.0.1:3000/")).toBe("http://3000.t3flare.internal/");
-    expect(Shadow.translatePreviewUrl("https://[::1]:8787/api")).toBe("http://8787.t3flare.internal/api");
-    expect(Shadow.translatePreviewUrl("http://0.0.0.0:4173")).toBe("http://4173.t3flare.internal/");
-  });
-
-  it("names the default eight ports for any other port, computerd's included, and leaves other URLs alone", () => {
-    for (const url of ["http://localhost:8080/", "http://localhost:9999/", "http://localhost/"]) {
-      const page = decodeURIComponent(Shadow.translatePreviewUrl(url));
-      expect(page.startsWith("data:text/html")).toBe(true);
-      expect(page).toContain("3000, 3001, 4173, 4321, 5173, 5174, 8000, 8787");
-    }
-    expect(Shadow.translatePreviewUrl("https://example.com/")).toBe("https://example.com/");
-    expect(Shadow.translatePreviewUrl("http://5173.t3flare.internal/")).toBe("http://5173.t3flare.internal/");
-    expect(Shadow.translatePreviewUrl("not a url")).toBe("not a url");
   });
 });
 

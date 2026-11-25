@@ -6,12 +6,16 @@
 // `close`), with stock's `Options`.
 //
 // - **One browser per Workspace.** `contextFor` takes the tab's thread (Patch 0005); a thread's tabs open in its
-//   Workspace's browser, acquired with Browser Run's `outboundByHost` routing the eight Container preview hosts
+//   Workspace's browser, acquired with Browser Run's `outboundByHost` routing at most eight Container preview hosts
 //   (`http://<port>.t3flare.internal/`) to `ContainerPreviews` made for that Workspace alone (its props are the browser's
-//   identity, M0 question 2). A context with no thread, and `scratchPage`, use one route-less browser.
+//   identity, M0 question 2). Which ports is `previewRoutes` (SPI-1390): the Owner's list, else the ports listening in the
+//   Container when the browser starts, then the usual ones. A context with no thread, and `scratchPage`, use one
+//   route-less browser.
 // - **`localhost`.** Browser Run refuses loopback before any route runs (M0, R1), so every page's `goto` translates
-//   `localhost:<port>` (and `127.0.0.1`, `[::1]`, `0.0.0.0`) to the port's preview host (review L6); a port outside the
-//   eight gets a page that names them.
+//   `localhost:<port>` (and `127.0.0.1`, `[::1]`, `0.0.0.0`) to the port's preview host (review L6). t3flare's own ports,
+//   and a port off the Owner's list, get a page naming why. Any other port the browser does not route restarts it with
+//   that port added (Browser Run fixes the routes at acquire): its contexts are saved and closed, so t3 drops their tabs,
+//   and the `goto` fails naming the restart.
 // - **Profiles** have no user-data directory: each is `storageState({ indexedDB: true })`, kept in the Environment DO's
 //   own table (`preview/store.ts`, review L4), loaded into `newContext`, saved before a close and, while open, at most
 //   every `BROWSER_PROFILE_SAVE_SECONDS` (60, SPI-1366, SPI-1387) and only after a change (`profileSaver`, SPI-1123). A
@@ -28,7 +32,7 @@
 //   it as a buffer; a path in another Workspace is refused.
 // - Never `recording`, never a Live View URL, and no URL or cookie is logged (review L5).
 import { INCOGNITO_BROWSER_PROFILE_ID } from "@t3tools/contracts";
-import { BROWSER_PROFILE_SAVE_SECONDS, settingPlace } from "@t3flare/harness-registry";
+import { BROWSER_PROFILE_SAVE_SECONDS, MAX_PREVIEW_PORTS } from "@t3flare/harness-registry";
 import { containerPreviewHost, toWorkspace } from "@t3flare/workspace-client";
 import * as NodeOS from "node:os";
 import type { Browser, BrowserContext, CDPSession, Download, Page } from "playwright-core";
@@ -37,6 +41,7 @@ import { environmentServices, previewPortsNow } from "../agents/bindings.ts";
 import { workspaceRpc } from "../agents/workspaceClient.ts";
 import { BROWSER_KEEP_ALIVE_MS } from "../preview/browserRun.ts";
 import { threadWorkspaceFrom } from "../preview/portDiscovery.ts";
+import { previewNavigation, previewRoutes, reachablePorts, relaunchMessage } from "../preview/previewRoutes.ts";
 import * as StateFs from "../shims/node-fs-promises.ts";
 
 interface Options {
@@ -100,30 +105,6 @@ export const presentAsChrome = async (
 export const PROFILE_SAVE_MS = BROWSER_PROFILE_SAVE_SECONDS * 1000;
 /** The most a download or an uploaded file may be here: the isolate has 128 MB. */
 export const TRANSFER_MAX_BYTES = 16 * 1024 * 1024;
-
-const LOOPBACK = /^(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0|[a-z0-9-]+\.localhost)$/i;
-
-/**
- * Where a navigation to `url` goes in Browser Run: a loopback URL on one of the eight preview ports goes to that port's
- * preview host (`http`, as Browser Run routes only HTTP); one on another port to a page naming the eight; any other URL
- * as it is.
- */
-export const translatePreviewUrl = (url: string): string => {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return url;
-  }
-  if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || !LOOPBACK.test(parsed.hostname)) return url;
-  const port = parsed.port === "" ? (parsed.protocol === "http:" ? 80 : 443) : Number(parsed.port);
-  const previewPorts = previewPortsNow();
-  if (previewPorts.includes(port))
-    return `http://${containerPreviewHost(port)}${parsed.pathname}${parsed.search}${parsed.hash}`;
-  const ports = previewPorts.join(", ");
-  const page = `<!doctype html><meta charset="utf-8"><title>Port ${port} has no preview</title><body style="font-family:system-ui,sans-serif;max-width:40rem;margin:4rem auto;line-height:1.5"><h1 style="font-size:1.25rem">Port ${port} has no preview</h1><p>The Cloud Environment previews a Workspace's dev server on ports ${ports} (the Environment setting Container preview ports, under ${settingPlace({ environment: "previewPorts" })}). Start it on one of them, listening on 0.0.0.0, or add its port to the setting, then open it again.</p></body>`;
-  return `data:text/html;charset=utf-8,${encodeURIComponent(page)}`;
-};
 
 /**
  * Keeps a profile context's state saved without keeping its browser alive (SPI-1123). Browser Run's keep-alive counts
@@ -278,10 +259,41 @@ const patchUploads = (target: object, method: string, workspaceFor: (self: objec
   };
 };
 
+/**
+ * The Container ports each Workspace browser routes, by browser (SPI-1390). Browser Run fixes `outboundByHost` when the
+ * browser is acquired, so this is set once, at launch, from `previewRoutes`, and read by each page's `goto` to tell a
+ * routed port from one that needs a restart. A route-less browser has none. Weak: a closed browser takes its entry.
+ */
+const routedOf = new WeakMap<object, ReadonlyArray<number>>();
+
+/**
+ * What a Workspace's next browser starts routing after a restart (SPI-1390): the ports pages asked for while it
+ * restarted (`wanted`, in the order asked, at most `MAX_PREVIEW_PORTS`), then the routes of the browser it replaces.
+ */
+interface CarriedRoutes {
+  readonly wanted: Array<number>;
+  previous: ReadonlyArray<number>;
+}
+
+/** How a page's ask for an unrouted port went: `added` to the restart, `full` (the restart routes its most already), or `stale` (its browser was already replaced). */
+type RelaunchOutcome = "added" | "full" | "stale";
+
+/** The ports listening in `workspace`'s Container that a preview can reach; none when it is stopped or cannot be asked. */
+const listeningIn = async (workspace: string): Promise<ReadonlyArray<number>> => {
+  try {
+    const { scan } = await workspaceRpc(workspace).listeners();
+    return scan === null ? [] : reachablePorts(scan);
+  } catch {
+    return [];
+  }
+};
+
 interface WorkspaceBrowser {
   readonly key: string;
   readonly workspace: string | undefined;
   readonly launched: Promise<Browser & { sessionId(): string }>;
+  /** The browser once launched: set before any context of it exists. */
+  browser: (Browser & { sessionId(): string }) | undefined;
   idleTimer: ReturnType<typeof setTimeout> | undefined;
   pending: number;
 }
@@ -291,6 +303,10 @@ export class ServerBrowserContexts {
   private readonly contexts = new Map<string, Promise<BrowserContext>>();
   private readonly clearing = new Map<string, Promise<void>>();
   private readonly browsers = new Map<string, WorkspaceBrowser>();
+  /** By Workspace: a restart's routes for the browser that replaces the closed one, until that one launches (SPI-1390). */
+  private readonly carried = new Map<string, CarriedRoutes>();
+  /** By Workspace: the restart under way, which its next browser waits for before it launches. */
+  private readonly relaunching = new Map<string, Promise<void>>();
   private closing: Promise<void> | undefined;
 
   constructor(options: Options) {
@@ -309,17 +325,31 @@ export class ServerBrowserContexts {
       const binding = environmentServices().browserRun;
       if (binding === undefined) throw new Error("Browser Run is not bound in this Environment.");
       const playwright = await loadPlaywright();
-      const routes =
+      // A restart's next browser launches once the old one is closed, with every port asked for meanwhile.
+      await this.relaunching.get(key);
+      const carried = this.carried.get(key);
+      this.carried.delete(key);
+      const ports =
         workspace === undefined
+          ? undefined
+          : previewRoutes({
+              allowlist: previewPortsNow(),
+              wanted: carried?.wanted ?? [],
+              listening: await listeningIn(workspace),
+              previous: carried?.previous ?? [],
+            });
+      const routes =
+        workspace === undefined || ports === undefined
           ? undefined
           : (() => {
               const entry = environmentServices().containerPreviews(workspace);
-              return Object.fromEntries(previewPortsNow().map((port) => [containerPreviewHost(port), entry]));
+              return Object.fromEntries(ports.map((port) => [containerPreviewHost(port), entry]));
             })();
       const browser = await playwright.launch(binding, {
         keep_alive: BROWSER_KEEP_ALIVE_MS,
         ...(routes === undefined ? {} : { outboundByHost: routes }),
       });
+      routedOf.set(browser, ports ?? []);
       const sessionId = browser.sessionId();
       this.store.sessionOpened({
         id: sessionId,
@@ -345,11 +375,16 @@ export class ServerBrowserContexts {
       });
       return browser;
     })();
-    const entry: WorkspaceBrowser = { key, workspace, launched, idleTimer: undefined, pending: 0 };
+    const entry: WorkspaceBrowser = { key, workspace, launched, browser: undefined, idleTimer: undefined, pending: 0 };
     this.browsers.set(key, entry);
-    void launched.catch(() => {
-      if (this.browsers.get(key) === entry) this.browsers.delete(key);
-    });
+    void launched.then(
+      (browser) => {
+        entry.browser = browser;
+      },
+      () => {
+        if (this.browsers.get(key) === entry) this.browsers.delete(key);
+      },
+    );
     return entry;
   }
 
@@ -383,8 +418,21 @@ export class ServerBrowserContexts {
     const prepare = (page: Page) => {
       workspaceOf.set(page, workspace);
       const goto = page.goto.bind(page);
-      page.goto = ((url: string, options?: Parameters<Page["goto"]>[1]) =>
-        goto(translatePreviewUrl(url), options)) as Page["goto"];
+      page.goto = (async (url: string, options?: Parameters<Page["goto"]>[1]) => {
+        const browser = context.browser();
+        const navigation = previewNavigation(url, {
+          // The route-less browser has no Container: a loopback URL gets a page saying where previews open.
+          workspace: workspace !== undefined,
+          routed: (browser === null ? undefined : routedOf.get(browser)) ?? [],
+          allowlist: previewPortsNow(),
+        });
+        if (navigation.kind !== "relaunch" || workspace === undefined) {
+          return goto(navigation.kind === "relaunch" ? url : navigation.url, options);
+        }
+        const { outcome, done } = this.relaunch(workspace, browser, navigation.port);
+        await done;
+        throw new Error(relaunchMessage(navigation.port, outcome));
+      }) as Page["goto"];
       page.on("download", (download: Download) => {
         const target = download.url();
         (download as { saveAs: (path: string) => Promise<void> }).saveAs = async (path: string) => {
@@ -401,6 +449,56 @@ export class ServerBrowserContexts {
     };
     for (const page of context.pages()) prepare(page);
     context.on("page", prepare);
+  }
+
+  /**
+   * Restarts `workspace`'s browser so it routes `port` (SPI-1390): Browser Run fixes a browser's routes when it is
+   * acquired. The Workspace's contexts leave the cache at once, so `contextFor` never hands out one that is closing,
+   * then are closed, which saves a profile's state and tells t3 to drop their tabs. Pages asking while it restarts join
+   * it: each port is `added` to the next browser's routes, up to `MAX_PREVIEW_PORTS`, after which a port is `full`. A
+   * page of a browser already replaced is `stale`, and restarts nothing. The next browser launches at the next
+   * context, once the old one is closed.
+   */
+  private relaunch(
+    workspace: string,
+    browser: Browser | null,
+    port: number,
+  ): { readonly outcome: RelaunchOutcome; readonly done: Promise<void> } {
+    const joining = this.carried.get(workspace);
+    if (joining !== undefined) {
+      const added = joining.wanted.includes(port) || joining.wanted.length < MAX_PREVIEW_PORTS;
+      if (added && !joining.wanted.includes(port)) joining.wanted.push(port);
+      return { outcome: added ? "added" : "full", done: this.relaunching.get(workspace) ?? Promise.resolve() };
+    }
+    const entry = this.browsers.get(workspace);
+    // The asking page's browser is already gone: nothing of this Workspace's newer browser is closed.
+    if (entry === undefined || entry.browser === undefined || (browser !== null && entry.browser !== browser))
+      return { outcome: "stale", done: Promise.resolve() };
+    const current = entry.browser;
+    const carried: CarriedRoutes = { wanted: [port], previous: [] };
+    this.carried.set(workspace, carried);
+    this.browsers.delete(workspace);
+    clearTimeout(entry.idleTimer);
+    const closing: Array<Promise<BrowserContext>> = [];
+    for (const [contextKey, pending] of this.contexts) {
+      if ((JSON.parse(contextKey) as [string, string | null, string | null])[2] !== workspace) continue;
+      this.contexts.delete(contextKey);
+      closing.push(pending);
+    }
+    carried.previous = routedOf.get(current) ?? [];
+    const done = (async () => {
+      // The port alone, never a URL (review L5).
+      console.log(JSON.stringify({ t3flare: "preview-browser-relaunched", port }));
+      for (const pending of closing) {
+        const context = await pending.catch(() => undefined);
+        await context?.close().catch(() => undefined);
+      }
+      await this.closeBrowser(current);
+    })().finally(() => {
+      if (this.relaunching.get(workspace) === done) this.relaunching.delete(workspace);
+    });
+    this.relaunching.set(workspace, done);
+    return { outcome: "added", done };
   }
 
   /** A profile context saves its state after a change (`profileSaver`), and is saved and closed after `idleBrowserMs` with no page. */
