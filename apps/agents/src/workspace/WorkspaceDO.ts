@@ -2132,6 +2132,18 @@ export class WorkspaceDO extends ContainerHost {
     }
   }
 
+  /**
+   * Makes the Workspace's empty repo folder (t3's new project folder, before a clone or `git init`). Provisioning, like
+   * `clone`: it makes a purged Workspace again (SPI-1436). Only the Environment calls it, once it has registered `id`
+   * itself; every other RPC on a purged Workspace is still refused (review F4).
+   */
+  async makeEmpty(input: { readonly id: string }): Promise<FsAnswer<null>> {
+    this.#revive();
+    this.#rememberId(input.id);
+    await this.#ready();
+    return fileOps(this.#workspace).mkdir(REPO_ROOT, true);
+  }
+
   // -------------------------------------------------------------------------------------------------------------------
   // Worktree Workspaces (step 2b, plan section 3.2): a full clone of the project's remote, seeded with the commits only
   // the project has by a git bundle, read straight from the project's object.

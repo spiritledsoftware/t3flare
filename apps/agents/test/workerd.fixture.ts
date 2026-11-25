@@ -16,6 +16,7 @@ import { readCache, readKey } from "../src/workspace/readCache.ts";
 import { mountWithFallback, skillSetMount, skillSetStore } from "../src/workspace/skillSet.ts";
 
 export { ContainerBudget };
+export { WorkspaceDO } from "../src/workspace/WorkspaceDO.ts";
 
 /** A ContainerBudget on a clock that only `advance` moves, so lease timing never depends on how loaded the machine is. */
 export class FakeClockContainerBudget extends ContainerBudget {
