@@ -38,7 +38,8 @@ import {
 } from "@t3flare/harness-registry";
 
 import { bindEnvironmentServices, environmentServices } from "./agents/bindings.ts";
-import { type ParkedCall, parkedCards } from "./provider/cli/parked.ts";
+import { type ParkedCall, type ParkedCards, parkedCards } from "./provider/cli/parked.ts";
+import { noteChangeClosed } from "./provider/cli/parkedChanges.ts";
 import { graceMoved, ownerSweep, SweepWake } from "./agents/sweepWake.ts";
 import { GitHubTokens } from "./agents/github.ts";
 import { deliverPush } from "./agents/sessionSink.ts";
@@ -73,6 +74,7 @@ import type { EndpointCredential, EndpointCredentialRequest, ModelEndpoints } fr
 import { type ModelRelayTarget, relayTargetOf } from "@t3flare/models/relay";
 import type { SkillsApiDeps } from "./skills/api.ts";
 import type { OwnerClients } from "./settings/clients.ts";
+import type { ChangeState } from "./settings/changes.ts";
 import type { SettingsServerDeps } from "./settings/server.ts";
 import { githubReader, readAccessFor } from "./skills/contents.ts";
 import { type SkillStore, skillStore } from "./skills/store.ts";
@@ -197,6 +199,10 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
   readonly #processes: ProcessChannel;
   /** The Owner clients' table (settings/clients.ts), one per instance so its DDL runs once, not per request. */
   #ownerClients: OwnerClients | undefined;
+  /** SPI-1389: CLI agents' parked cards, in this object's SQLite. */
+  readonly #parked: ParkedCards;
+  /** SPI-1404: the runs that bring parked change cards in line with their closed changes, one at a time. */
+  #parkedChangesCleared: Promise<void> = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: EnvironmentEnv) {
     super(ctx, env);
@@ -242,6 +248,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     // SPI-1389: a CLI agent's parked cards, which outlive its process and this object's reset. An allowance is for its
     // answer turn's process, which ended with the old instance: none outlives a boot.
     const parked = parkedCards(ctx.storage.sql, (run) => ctx.storage.transactionSync(run));
+    this.#parked = parked;
     try {
       parked.dropAllAllowances();
     } catch (error) {
@@ -815,9 +822,65 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
           }),
       running: () => runningContainers({ budget: () => this.#budgetState() }),
       log: (event) => console.log(JSON.stringify(event)),
+      changeClosed: (id, state) => this.#parkedChangeClosed(id, state),
       // `list_workspaces` and `purge_workspace` (ADR-0044 §5): the Settings page's reads and acts.
       workspaces: (await this.workspacesApi()).deps,
     };
+  }
+
+  /**
+   * SPI-1404: an Open change closed. When a CLI turn parked on it, its park question is brought in line once t3 takes
+   * commands: at once when t3 runs; when it does not, an answer boots it for the delivery, as answering on the question
+   * would, and an expiry or a withdrawal waits for the next boot. Never delays the close; a failure is logged.
+   */
+  #parkedChangeClosed(id: string, state: ChangeState): void {
+    let parked: boolean;
+    try {
+      // An answer's decision is noted on the parked cards now, so a delivery retried after the change's row is pruned
+      // still answers with it.
+      parked = noteChangeClosed(this.#parked, id, state);
+    } catch (error) {
+      console.warn(JSON.stringify({ t3flare: "cli-park-clear-failed", change: id, error: String(error) }));
+      return;
+    }
+    if (!parked) return;
+    const running = this.#runtime;
+    if (running === undefined && (state === "expired" || state === "withdrawn")) return;
+    this.ctx.waitUntil(
+      (running ?? this.boot("park-answer")).then(
+        (runtime) => this.#clearParkedChanges(runtime),
+        (error: unknown) =>
+          console.warn(JSON.stringify({ t3flare: "cli-park-clear-failed", change: id, error: String(error) })),
+      ),
+    );
+  }
+
+  /** SPI-1404: once t3 takes commands, brings every parked change card in line with its change (`parkedChanges.ts`). */
+  #clearParkedChanges(runtime: Runtime): Promise<void> {
+    this.#parkedChangesCleared = this.#parkedChangesCleared.then(async () => {
+      try {
+        await runtime.commandReady();
+        const [{ clearClosedParkedChanges }, questions, settings] = await Promise.all([
+          import("./provider/cli/parkedChanges.ts"),
+          import("./agents/parkQuestions.ts"),
+          this.#settingsDeps(),
+        ]);
+        const cleared = await clearClosedParkedChanges({
+          parked: this.#parked,
+          change: (changeId) => settings.changes.get(changeId),
+          question: (requestId) => questions.parkQuestionOf(this.ctx.storage.sql, requestId),
+          answer: (card, approve) =>
+            runtime.run(questions.dispatchParkCommand(questions.parkAnswerCommand(card, approve))),
+          dismiss: (card) => runtime.run(questions.dispatchParkCommand(questions.parkDismissCommand(card))),
+          log: (event) => console.warn(JSON.stringify(event)),
+        });
+        if (cleared.answered + cleared.dismissed + cleared.dropped > 0)
+          console.log(JSON.stringify({ t3flare: "cli-park-changes-cleared", ...cleared }));
+      } catch (error) {
+        console.warn(JSON.stringify({ t3flare: "cli-park-clear-failed", error: String(error) }));
+      }
+    });
+    return this.#parkedChangesCleared;
   }
 
   /** The Settings server's call: t3flare's own agent, as the MCP host passes it with the caller this object derived. */
@@ -1245,6 +1308,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       // A boot follows a deploy, which may bring a new Workspace image: the Builder checks its key (ADR-0047 §5).
       this.#pokeBuilder("the Environment booted");
       this.#startIdleChecks();
+      // SPI-1404: a parked change answered on its page while t3 was down, or expired since, is brought in line.
+      void this.#clearParkedChanges(runtime);
       this.#reraised = runtime
         .commandReady()
         .then(async () => {

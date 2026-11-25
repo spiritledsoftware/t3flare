@@ -101,6 +101,26 @@ describe("the parked cards (SPI-1389)", () => {
     expect(store.nativeSessions()).toEqual(["s-2"]);
   });
 
+  it("finds change cards, all or by their Open change, and drops one (SPI-1404)", () => {
+    const store = nodeParkedCards();
+    const { call: _call, ...uncalled } = card();
+    store.park(card());
+    store.park({ ...uncalled, id: "c1", kind: "change", changeId: "chg-1" });
+    store.park({ ...uncalled, id: "c2", kind: "change", changeId: "chg-2" });
+    const ids = store.changeCards().map((record) => record.id);
+    expect(ids.toSorted()).toEqual(["c1", "c2"]);
+    expect(store.changeCards("chg-2").map((record) => record.id)).toEqual(["c2"]);
+    expect(store.changeCards("chg-3")).toEqual([]);
+    // An answer elsewhere is noted on its change's cards only: how many there are.
+    expect(store.noteAnsweredElsewhere("chg-2", false)).toBe(1);
+    expect(store.noteAnsweredElsewhere("chg-3", true)).toBe(0);
+    expect(store.get("c2")?.answeredElsewhere).toEqual({ approve: false });
+    expect(store.get("c1")?.answeredElsewhere).toBeUndefined();
+    store.drop("c2");
+    expect(store.changeCards().map((record) => record.id)).toEqual(["c1"]);
+    expect(store.get(card().id)).toEqual(card());
+  });
+
   it("hashes arguments by their canonical JSON: key order does not matter, values do", async () => {
     expect(await argsHashOf({ a: 1, b: [2, 3] })).toBe(await argsHashOf({ b: [2, 3], a: 1 }));
     expect(await argsHashOf({ a: 1 })).not.toBe(await argsHashOf({ a: 2 }));

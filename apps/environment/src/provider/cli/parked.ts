@@ -5,8 +5,9 @@
 // arguments' hash, so the repeated call runs without a second card.
 //
 // Kept in the Environment DO's SQLite, not memory: the answer can come days later, after the Environment reset (ADR-0003).
-// A record goes when it is answered; an allowance when it is taken, when its answer turn ends without the call, or when
-// the Environment boots (its answer turn's process is gone with the old instance).
+// A record goes when it is answered, or, for a change card, when its Open change closed elsewhere and its question is
+// dismissed or gone (`parkedChanges.ts`); an allowance when it is taken, when its answer turn ends without the call, or
+// when the Environment boots (its answer turn's process is gone with the old instance).
 import type { SqlStorage } from "@cloudflare/workers-types/index.ts";
 
 export const PARKED_TABLE = "t3flare_parked_cards";
@@ -47,6 +48,11 @@ export interface ParkedCard {
   readonly server?: string;
   /** A change card's Open change. */
   readonly changeId?: string;
+  /**
+   * A change card's Open change was answered elsewhere (its Change page): whether it was approved, kept at the close so
+   * a later delivery answers with it after the change's row is pruned (SPI-1404).
+   */
+  readonly answeredElsewhere?: { readonly approve: boolean };
   /** The CLI's own session id for the thread (its native thread id): kept from session pruning while parked. */
   readonly nativeSession?: string;
   readonly parkedAt: number;
@@ -60,6 +66,12 @@ export interface ParkedCards {
   parkAll(cards: ReadonlyArray<ParkedCard>): void;
   /** Removes a card that was never shown (its park was abandoned). */
   discard(id: string): void;
+  /** The change cards parked on Open change `changeId`, or on any Open change when it is omitted (SPI-1404). */
+  changeCards(changeId?: string): ReadonlyArray<ParkedCard>;
+  /** Notes on every change card of `changeId` that it was answered elsewhere with `approve`: how many there are. */
+  noteAnsweredElsewhere(changeId: string, approve: boolean): number;
+  /** Removes a change card whose Open change closed elsewhere and whose question is dealt with (SPI-1404). */
+  drop(id: string): void;
   get(id: string): ParkedCard | undefined;
   /** The Owner's answer: the record goes, and an allow leaves one allowance for its call. Undefined if none is parked. */
   answer(id: string, decision: ParkedDecision): ParkedCard | undefined;
@@ -128,6 +140,38 @@ export const parkedCards = (sql: Pick<SqlStorage, "exec">, transaction: <T>(run:
       });
     },
     discard: remove,
+    changeCards: (changeId) => {
+      prepare();
+      const kind = `json_valid(record) AND json_extract(record, '$.kind') = 'change'`;
+      return (
+        changeId === undefined
+          ? sql.exec<{ record: string }>(`SELECT record FROM ${PARKED_TABLE} WHERE ${kind}`)
+          : sql.exec<{ record: string }>(
+              `SELECT record FROM ${PARKED_TABLE} WHERE ${kind} AND json_extract(record, '$.changeId') = ?`,
+              changeId,
+            )
+      )
+        .toArray()
+        .flatMap((row) => {
+          const card = parse(row.record);
+          return card === undefined ? [] : [card];
+        });
+    },
+    noteAnsweredElsewhere: (changeId, approve) => {
+      prepare();
+      sql.exec(
+        `UPDATE ${PARKED_TABLE} SET record = json_set(record, '$.answeredElsewhere', json(?)) WHERE json_valid(record) AND json_extract(record, '$.kind') = 'change' AND json_extract(record, '$.changeId') = ?`,
+        JSON.stringify({ approve }),
+        changeId,
+      );
+      return sql
+        .exec<{ count: number }>(
+          `SELECT COUNT(*) AS count FROM ${PARKED_TABLE} WHERE json_valid(record) AND json_extract(record, '$.kind') = 'change' AND json_extract(record, '$.changeId') = ?`,
+          changeId,
+        )
+        .toArray()[0]!.count;
+    },
+    drop: remove,
     get,
     answer: (id, decision) => {
       const card = get(id);

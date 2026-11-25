@@ -165,6 +165,11 @@ export interface SettingsServerDeps {
   /** The Containers running now. */
   readonly running?: () => Promise<{ readonly count: number; readonly holders: ReadonlyArray<string> } | null>;
   readonly log?: (event: Record<string, unknown>) => void;
+  /**
+   * An Open change closed, by any answer or without one (SPI-1404): the Environment DO brings a CLI turn's park question
+   * on it in line (`parkedChanges.ts`). Fire-and-forget: it never changes or delays the close.
+   */
+  readonly changeClosed?: AnswerDeps["changeClosed"];
   readonly cardWaitMs?: number;
   /**
    * The Workspaces (ADR-0044 §5): `list_workspaces` reads them and `purge_workspace` purges one through
@@ -1294,6 +1299,7 @@ export const answerDepsOf = (deps: SettingsServerDeps): AnswerDeps => ({
   revisionOf: (entity) => revisionOf(deps, entity),
   apply: (record, input) => applyOpenChange(deps, record, input),
   ...(deps.log === undefined ? {} : { log: deps.log }),
+  ...(deps.changeClosed === undefined ? {} : { changeClosed: deps.changeClosed }),
 });
 
 /** The Change page's and the panel list's view of the Open changes (plan D10): answers there are by `page`. */
