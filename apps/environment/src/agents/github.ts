@@ -1,8 +1,9 @@
 // @effect-diagnostics globalDate:off globalFetch:off
 // GitHub tokens from the t3flare GitHub App (ADR-0013), minted by the Environment DO alone (ADR-0018's broker): the
-// private key is a secret of the environment Worker only. Every token names its repositories and its permissions
-// (`@t3flare/github-app/permissions`): a Workspace's Container token is its one repo, with its own narrow list; the
-// Environment's own token (t3's PR and issue features) names an owner's repos and takes all the installation grants.
+// private key is a secret of the environment Worker only. Every token names its repositories, and every token but the
+// Environment's names its permissions (`@t3flare/github-app/permissions`): a Workspace's Container token is its one
+// repo, with its own narrow list; the Environment's own token (t3's PR and issue features) names an owner's repos and
+// takes all the installation grants.
 import { GitHubApp, type MintedToken } from "@t3flare/github-app/app";
 import type { GitHubPermissions } from "@t3flare/github-app/permissions";
 

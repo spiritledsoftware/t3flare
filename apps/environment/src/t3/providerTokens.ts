@@ -157,7 +157,9 @@ const pinnedTo = <A, E, R>(
     if ((yield* PinnedGitHubCredential) !== null) return yield* effect;
     const wanted = target();
     if (wanted === undefined) return yield* effect;
-    const names = [...new Set([...pins.reposOf(wanted.owner), ...wanted.names].map((name) => name.toLowerCase()))];
+    const projects = pins.reposOf(wanted.owner).map((name) => name.toLowerCase());
+    const others = wanted.names.map((name) => name.toLowerCase()).filter((name) => !projects.includes(name));
+    const names = [...new Set([...projects, ...others])];
     const minted = yield* Effect.promise(() =>
       pins
         .mint({ owner: wanted.owner, repositories: names, permissions: ENVIRONMENT_GITHUB_PERMISSIONS })
@@ -169,8 +171,12 @@ const pinnedTo = <A, E, R>(
       Effect.provideService(PinnedGitHubCredential, {
         host: APP_HOST,
         token: Redacted.make(minted.token),
-        // The rate-limit scope t3 keys its pauses by: one per installation, as GitHub counts.
-        credentialFingerprint: `${APP_HOST}:t3flare-app:${wanted.owner}`,
+        // The rate-limit scope and the batch key t3 groups GraphQL reads by: the installation's, as GitHub counts its
+        // limit, and the repos past its Projects too, so a batch never carries a token that cannot reach one of them.
+        credentialFingerprint:
+          others.length === 0
+            ? `${APP_HOST}:t3flare-app:${wanted.owner}`
+            : `${APP_HOST}:t3flare-app:${wanted.owner}:${[...new Set(others)].sort().join(",")}`,
       }),
       Effect.tapError((error) =>
         refusedCredential(error) ? Effect.sync(() => pins.invalidate(minted.token)) : Effect.void,
@@ -214,7 +220,7 @@ export const environmentPins = (): ProviderPins => {
     reposOf: (owner) =>
       services.workspaces
         .projects()
-        .filter((ws) => ws.host === APP_HOST && ws.owner === owner && ws.name !== null)
+        .filter((ws) => ws.host === APP_HOST && ws.owner?.toLowerCase() === owner && ws.name !== null)
         .map((ws) => ws.name!),
   };
 };

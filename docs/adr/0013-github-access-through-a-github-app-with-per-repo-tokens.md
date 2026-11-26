@@ -107,7 +107,7 @@ Container token its one repo. A lookup the App cannot mint for says why: the App
 the owner, or the repo is not among the installation's selected repositories (GitHub answers the same for a repo that
 does not exist, so the two are named together).
 
-## Refinement (2026-11-26): t3's PR features get a token for the owner of the repo each operation acts on
+## Refinement (2026-11-26): t3's GitHub operations get a token for the owner of the repo each acts on
 
 t3's PR features failed with 403 ("Resource not accessible by integration") on every repo of a second owner: t3 reads
 one credential per host from `gh auth token`, and the Environment token it answers is minted for one installation, the

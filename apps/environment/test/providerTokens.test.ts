@@ -251,6 +251,24 @@ describe("t3's GitHub operations in an Environment with Projects under two owner
     expect(seen).toEqual(["GET /user Bearer token:other:app"]);
   });
 
+  it("keys a token reaching past the owner's Projects apart, so t3 never batches a Project's read onto it", async () => {
+    const log = newLog();
+    const fingerprint = await Effect.runPromise(
+      stockPullRequests([]).pipe(
+        Effect.flatMap((stock) =>
+          withProviderTokens(stock, pinsOf(log)).withVerifiedCredential!(
+            { cwd: "/w/acme-web", host: "github.com", repository: "Other/Elsewhere" },
+            (verified) => Effect.succeed(verified.credentialFingerprint),
+          ),
+        ),
+      ),
+    );
+    expect(log.mints).toEqual([
+      { owner: "other", repositories: ["app", "elsewhere"], permissions: ENVIRONMENT_GITHUB_PERMISSIONS },
+    ]);
+    expect(fingerprint).toBe("github.com:t3flare-app:other:elsewhere");
+  });
+
   it("drops a token GitHub refuses, so the next operation mints another", async () => {
     const seen: Array<string> = [];
     const log = newLog();

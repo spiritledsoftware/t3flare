@@ -2026,19 +2026,21 @@ Moved from U58 when its Commissary readers went (SPI-1176).
   `IssueTrackerRegistry` and `SourceControlProviderRegistry` (each built over t3's own `layer`, in its place in
   `composition.ts`). The `github` provider, tracker and source control provider each `get`/`resolve`/`resolveHandle`
   answers are wrapped in a Proxy that runs every method returning an Effect with an Environment token (every
-  permission the installation grants) for the owner of the repo its first argument names, pinned as t3's `PinnedGitHubCredential`
-  (`GitHubRequestPolicy.ts`, `const pinned = yield* PinnedGitHubCredential;` in `choose`); `resolveLink` is pinned
+  permission the installation grants) for the owner of the repo its first argument names, pinned as t3's
+  `PinnedGitHubCredential` (`GitHubRequestPolicy.ts`, `const pinned = yield* PinnedGitHubCredential;` in `choose`); `resolveLink` is pinned
   in the registry, since t3 calls the inner provider there. The repo is read from the input by field name
   (`pinTargetOf`): `repository` (`ProviderRepositoryRef` in `PullRequestProvider.ts`, `getRepositoryCloneUrls`),
   `repositories` and `changeRequests[].repository` (the reads across repos), `scope` (`IssueTracker.ts`), `url`
   (`resolveLink`), `context.remoteUrl` with `context.provider.baseUrl` (`SourceControlProvider.ts`), else `cwd` mapped
   to its Workspace (scratch checkouts through `scratchProjectOf`). The token covers the owner's Projects and the repos
   named, because t3 batches GraphQL reads across repos by `credentialFingerprint` (`gitHubGraphQlClient.ts`
-  `batchKey`), which is the installation's (`github.com:t3flare-app:<owner>`). It leans on t3's
+  `batchKey`), which is the installation's (`github.com:t3flare-app:<owner>`), with the repos past the owner's
+  Projects appended when an operation names any, so a batch never shares a token that cannot reach one of its repos. It leans on t3's
   `withVerifiedCredential` capturing the credential `choose` picks (`captureVerifiedCredential` →
   `appAccess.credentialFor` → `api.credential`), so the outer pin is the one t3 re-pins. Streams
   (`changeRequestEvents`) are not pinned: a Stream outlives a token. t3's media fetch (`fetchMedia`, read from
-  `SourceControlDrivers` in `ws.ts`) and the star reads are not either.
+  `SourceControlDrivers` in `ws.ts`), the star reads, and the discovery registry `ws.ts` builds for itself are not
+  either.
 - **Breaks when**: t3 renames or stops honouring `PinnedGitHubCredential`, renames the input fields above (an operation
   then runs on `gh auth token`, as before the fix), runs a provider's request off the caller's fiber, changes the batch
   key, builds the registries somewhere `composition.ts` does not provide, or makes a provider method return something
@@ -2049,8 +2051,8 @@ Moved from U58 when its Commissary readers went (SPI-1176).
   and the wrapped one opens the pull request and verifies its credential on the right owner's token. The upstream
   fingerprint ([T2](#gaps-in-detection)) holds a bump for review when the pin's read no longer appears. **Silent**: a
   renamed input field.
-- **Blast radius**: PR features (create, merge, review, comment, sync and watch) and GitHub issues fail with 403 on the
-  repos of every owner but the first Workspace's.
+- **Blast radius**: PR features (create, merge, review, comment, sync, and watch's polling; its event stream was never
+  pinned) and GitHub issues fail with 403 on the repos of every owner but the first Workspace's.
 - **Fix**: read the repo from wherever t3's operation names it now; pin wherever t3 now picks the credential.
 
 ## Retired entries
