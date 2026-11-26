@@ -605,7 +605,7 @@ to its real id when an endpoint is at Commissary): `apps/environment/test/modelL
 
 ### U62. Container previews and the carried-socket script (G11)
 
-- **Where**: `apps/agents/src/workspace/containerPreview.ts` and `containerPreviewScript.ts`, `WorkspaceDO.containerPreview` with its use and hold accounting (`#someoneWorks`, `#previewHold`), `WorkspaceContainerPreviews` (agents Worker) and `ContainerPreviews` (Environment Worker), the routes `previewRoutes` picks (`apps/environment/src/preview/previewRoutes.ts`: at most eight, Browser Run's limit; the Owner's opt-in `previewPorts`, else the Container's listeners and the usual ports; never `RESERVED_CONTAINER_PORTS`; SPI-1364, SPI-1390).
+- **Where**: `apps/agents/src/workspace/containerPreview.ts` and `containerPreviewScript.ts`, `WorkspaceDO.containerPreview` with its use and hold accounting (`#someoneWorks`, which counts the Owner's preview input since SPI-1448, [U113](#u113-the-owners-preview-input-read-from-t3s-server-browser-viewers-spi-1448); `#previewHold`), `WorkspaceContainerPreviews` (agents Worker) and `ContainerPreviews` (Environment Worker), the routes `previewRoutes` picks (`apps/environment/src/preview/previewRoutes.ts`: at most eight, Browser Run's limit; the Owner's opt-in `previewPorts`, else the Container's listeners and the usual ports; never `RESERVED_CONTAINER_PORTS`; SPI-1364, SPI-1390).
 - **Breaks when**: Browser Run starts routing WebSockets (the script becomes dead weight), a dev-server client changes how it opens sockets (Vite's `SharedWorker` ping), or Containers change `getTcpPort`.
 - **Detection**: `apps/agents/test/containerPreview.test.ts` (Host and Location, refusals, the script). **Silent**: HMR stops while pages still load. Cheapest check: `scripts/previews.ts browser` (its HMR line).
 - **Blast radius**: no live reload; pages still load.
@@ -2054,6 +2054,33 @@ Moved from U58 when its Commissary readers went (SPI-1176).
 - **Blast radius**: PR features (create, merge, review, comment, sync, and watch's polling; its event stream was never
   pinned) and GitHub issues fail with 403 on the repos of every owner but the first Workspace's.
 - **Fix**: read the repo from wherever t3's operation names it now; pin wherever t3 now picks the credential.
+
+### U113. The Owner's preview input, read from t3's server browser viewers (SPI-1448)
+
+- **Where**: `apps/environment/src/preview/previewInput.ts`, a Layer over t3's `ServerBrowser` service
+  (`t3code/apps/server/src/preview/ServerBrowser.ts`, wired in `t3/composition.ts` over `ServerBrowser.layer`). It
+  wraps each viewer `attachViewer` returns; every other method is t3's. A viewer's `input` messages of type `mouse`,
+  `key`, `wheel` or `text` (the cases `dispatchViewerInput` dispatches as CDP input) note Workspace input on the tab's
+  thread's Workspace DO (`threadWorkspaceFrom`, then `WorkspaceDO.previewInput`), at most once every
+  `PREVIEW_INPUT_NOTE_EVERY_MS` (30 s) per Workspace. The DO folds it into `someoneWorks`
+  (`apps/agents/src/workspace/previewInput.ts`), the last input a Container preview's hold reads
+  ([U62](#u62-container-previews-and-the-carried-socket-script-g11)), and notes nothing on a stopped Container. It
+  counts on t3's `ServerBrowserStream.ts` being `attachViewer`'s one caller, giving a viewer only an Owner client's
+  messages, and only when the client may operate the tab (`canOperate`); an agent's `preview_*` calls run through
+  t3's automation, never a viewer.
+- **Breaks when**: t3 adds, renames or splits a viewer message type; sends an agent's actions, or a read-only client's
+  messages, through a viewer; changes `attachViewer`'s input (its `threadId`) or the viewer's shape; or moves the
+  Owner's input off the viewer.
+- **Detection**: typecheck catches a changed service or viewer shape. `apps/environment/test/previewInput.test.ts`
+  reads `dispatchViewerInput`'s `case` labels from t3's source and fails unless each is sorted as input or not, so a
+  new or renamed type is decided rather than missed. **Silent**: agent or read-only traffic routed through a viewer
+  (it would hold the Container), and Owner input moved to another path (a preview tab that would stop holding: the
+  Container stops under an Owner working only in a preview, after the busy hold). Cheapest check: `rg attachViewer
+  t3code/apps/server/src` names only `ServerBrowserStream.ts`.
+- **Blast radius**: low. Either an Owner working in a preview tab loses the Container after the busy hold, as before
+  SPI-1448, or an Owner's or agent's activity holds it up to the busy hold longer than it should.
+- **Fix**: re-read `dispatchViewerInput` and `ServerBrowserStream.ts`'s `receive`, and sort the message types again in
+  `previewInput.ts` and its test.
 
 ## Retired entries
 

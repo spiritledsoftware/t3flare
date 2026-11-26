@@ -185,6 +185,7 @@ import { keepPriorSkills } from "./skillSetWait.ts";
 import { awaitContainerCopy, type TakeAnswer, takeSkillSet } from "./skillSetTake.ts";
 import { ContainerGate } from "./containerGate.ts";
 import { endTerminalsPastHolds, type AppliedHolds } from "./terminalHolds.ts";
+import { OwnerPreviewInput, someoneWorks } from "./previewInput.ts";
 import { TerminalHost } from "./terminalHost.ts";
 import { TerminalSync } from "./terminalSync.ts";
 import { placeSecretFile, type SecretFileAnswer, type SecretFileDeps, sweepSecretFiles } from "./secretFiles.ts";
@@ -468,6 +469,11 @@ export class WorkspaceDO extends ContainerHost {
   #lastCommandAt = 0;
   /** G11: open carried sockets of Container previews; each holds the Container within the cap (`#previewHolds`). */
   #previewHolds = 0;
+  /** SPI-1448: the Owner's last input in one of the Workspace's preview tabs, while its Container ran. */
+  readonly #ownerPreviewInput = new OwnerPreviewInput({
+    running: () => this.containerRunning(),
+    now: () => Date.now(),
+  });
   /** G11 (ADR-0031): the Container previews' server. */
   readonly #preview = new ContainerPreview({
     running: () => this.containerRunning(),
@@ -2796,20 +2802,35 @@ export class WorkspaceDO extends ContainerHost {
 
   /** Whether t3's or the agent's terminals hold the Container: input within the hold (ADR-0021, review F10). */
   /**
-   * G11 (review M5): whether someone works in the Workspace now: a command runs, or a terminal, an agent's Terminal or
-   * a CLI process had input (or a CLI is in a turn) within the cap of a foreground terminal (ADR-0021; the busy hold,
-   * `terminalBusyHoldMinutes`, SPI-1317). A Container preview's requests and carried sockets keep the Container only
-   * while this holds.
+   * G11 (review M5): whether someone works in the Workspace now: a command runs, or a terminal, an agent's Terminal, a
+   * preview tab (the Owner's, SPI-1448) or a CLI process had input (or a CLI is in a turn) within the cap of a
+   * foreground terminal (ADR-0021; the busy hold, `terminalBusyHoldMinutes`, SPI-1317). A Container preview's requests
+   * and carried sockets keep the Container only while this holds (`someoneWorks`).
    */
   #someoneWorks(): boolean {
-    const cap = this.#terminalHold().terminalBusyHoldMs;
-    const lastInput = Math.max(
-      this.#terminals.lastInput,
-      this.#agentHost.lastInput,
-      this.#processes.lastInput,
-      this.#lastCommandAt,
-    );
-    return this.#running > 0 || Date.now() - lastInput < cap || this.#processes.holdsContainer(cap);
+    return someoneWorks({
+      now: Date.now(),
+      cap: this.#terminalHold().terminalBusyHoldMs,
+      running: this.#running,
+      lastInputs: [
+        this.#terminals.lastInput,
+        this.#agentHost.lastInput,
+        this.#processes.lastInput,
+        this.#lastCommandAt,
+        this.#ownerPreviewInput.lastInput,
+      ],
+      processesHold: (cap) => this.#processes.holdsContainer(cap),
+    });
+  }
+
+  /**
+   * SPI-1448: the Owner worked in one of this Workspace's preview tabs (mouse, keys, wheel, inserted text), as the
+   * Environment's `ServerBrowser` Layer notes it, at most every 30 s. Workspace input, as Terminal typing is: it extends
+   * a Container preview's hold (`#someoneWorks`). Never starts the Container: on a stopped one it is a no-op.
+   */
+  previewInput(): boolean {
+    if (this.#isDestroyed()) return false;
+    return this.#ownerPreviewInput.note();
   }
 
   #previewHold(): boolean {

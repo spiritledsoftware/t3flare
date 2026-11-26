@@ -77,6 +77,7 @@ import * as ProviderInstanceRegistryHydration from "t3/src/provider/ProviderInst
 import * as ProjectSettingsOverrideSweep from "t3/src/provider/ProjectSettingsOverrideSweep.ts";
 import * as TerminalLayer from "../terminal/layer.ts";
 import * as PreviewBrowserLayer from "../preview/previewBrowser.ts";
+import { layerServerBrowserNotesInput } from "../preview/previewInput.ts";
 import * as PortDiscoveryLayer from "../preview/portDiscovery.ts";
 import * as McpHttpServer from "t3/src/mcp/McpHttpServer.ts";
 import * as PeerForwarding from "t3/src/peer/PeerForwarding.ts";
@@ -822,8 +823,14 @@ export const make = (options: CompositionOptions) => {
     // As t3's `server.ts`: one instance serves the MCP link calls and refreshes snapshots on thread events.
     Layer.provide(ThreadIssueService.layer),
     Layer.provide(layerIssueService),
+    // t3flare (SPI-1448): t3's own `ServerBrowser` under a Layer of ours that notes the Owner's preview input on the
+    // tab's Workspace DO (Workspace input, as Terminal typing is; fragility U113).
     Layer.provide(
-      ServerBrowser.layer.pipe(Layer.provide(Layer.merge(DesktopBrowserChannel.layer, PreviewAgentActivity.layer))),
+      layerServerBrowserNotesInput.pipe(
+        Layer.provide(
+          ServerBrowser.layer.pipe(Layer.provide(Layer.merge(DesktopBrowserChannel.layer, PreviewAgentActivity.layer))),
+        ),
+      ),
     ),
     // t3flare (G11, ADR-0031): Chrome is never downloaded; its executable is the bridge to Browser Run.
     Layer.provide(PreviewBrowserLayer.layer),
