@@ -434,6 +434,9 @@ export class ContainerPreview {
       void write(": keep-alive\n\n");
     }, this.#deps.keepAliveMs());
 
+    // A binary message as an ArrayBuffer, read at once and so in order with text: at the Worker's compatibility date a
+    // Workers WebSocket gives a Blob by default (SPI-1450: noVNC's `RFB 003.008\n` arrived empty).
+    socket.binaryType = "arraybuffer";
     // Listening before the socket is accepted: the dev server's first message (Vite's `connected`) comes at once.
     socket.addEventListener("message", (event) => {
       const data = isString(event.data) ? { text: event.data } : { binary: toBase64(new Uint8Array(event.data)) };

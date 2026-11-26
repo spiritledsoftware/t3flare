@@ -37,17 +37,7 @@ export const CONTAINER_PREVIEW_SCRIPT = `(() => {
       this._id = null;
       this._sent = Promise.resolve();
       this._abort = new AbortController();
-      for (const type of ["open", "message", "close", "error"]) {
-        let handler = null;
-        Object.defineProperty(this, "on" + type, {
-          get: () => handler,
-          set: (value) => {
-            if (handler) this.removeEventListener(type, handler);
-            handler = typeof value === "function" ? value : null;
-            if (handler) this.addEventListener(type, handler);
-          },
-        });
-      }
+      this._handlers = {};
       const target = new URL(url);
       const list = protocols === undefined ? [] : [].concat(protocols);
       const query = new URLSearchParams({ path: target.pathname + target.search, protocols: list.join(",") });
@@ -110,7 +100,11 @@ export const CONTAINER_PREVIEW_SCRIPT = `(() => {
       if (this.readyState === 0) throw new DOMException("Still in CONNECTING state.", "InvalidStateError");
       if (this.readyState !== 1) return;
       if (typeof data === "string") this._post("send", "", data);
-      else this._post("send", "&binary=1", data);
+      // The bytes as they are now: the POST waits for the ones before it, and a caller may reuse its buffer (noVNC).
+      else if (data instanceof ArrayBuffer) this._post("send", "&binary=1", data.slice(0));
+      else if (ArrayBuffer.isView(data)) {
+        this._post("send", "&binary=1", new Uint8Array(data.buffer, data.byteOffset, data.byteLength).slice());
+      } else this._post("send", "&binary=1", data);
     }
     close(code, reason) {
       if (this.readyState >= 2) return;
@@ -128,6 +122,22 @@ export const CONTAINER_PREVIEW_SCRIPT = `(() => {
       this._abort.abort();
       this.dispatchEvent(new CloseEvent("close", { code, reason, wasClean: code === 1000 }));
     }
+  }
+  // The \`on*\` handlers as accessors on the prototype, as a WebSocket has them: a client may look for them there (noVNC's
+  // \`attach\` lists \`Object.keys\` and the prototype's own names).
+  for (const type of ["open", "message", "close", "error"]) {
+    Object.defineProperty(CarriedSocket.prototype, "on" + type, {
+      configurable: true,
+      get() {
+        return this._handlers[type] ?? null;
+      },
+      set(value) {
+        const handler = this._handlers[type];
+        if (handler) this.removeEventListener(type, handler);
+        this._handlers[type] = typeof value === "function" ? value : null;
+        if (this._handlers[type]) this.addEventListener(type, this._handlers[type]);
+      },
+    });
   }
   Object.assign(CarriedSocket, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
   Object.assign(CarriedSocket.prototype, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });

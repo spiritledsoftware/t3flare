@@ -1,10 +1,14 @@
 // G11's Container previews (ADR-0031): what a preview browser's page gets from the Workspace DO for
 // `http://<port>.t3flare.internal/`, over a fake Container port. The carried sockets' streams need workerd's WebSocket
-// and are checked on the stage (`scripts/previews.ts`); their refusals are checked here.
+// and are checked on the stage (`scripts/previews.ts`) and in `containerPreview.workerd.test.ts`; their refusals are
+// checked here, and the page's script on Node's DOM globals.
+// @effect-diagnostics globalTimers:off nodeBuiltinImport:off
+import vm from "node:vm";
+
 import { describe, expect, it } from "vitest";
 
 import { closeReason, ContainerPreview, type ContainerPreviewDeps } from "../src/workspace/containerPreview.ts";
-import { CONTAINER_PREVIEW_HEADER } from "../src/workspace/containerPreviewScript.ts";
+import { CONTAINER_PREVIEW_HEADER, CONTAINER_PREVIEW_SCRIPT } from "../src/workspace/containerPreviewScript.ts";
 
 const harness = (options: { running?: boolean; answer?: (request: Request) => Response | Promise<Response> } = {}) => {
   const seen: Array<{
@@ -168,6 +172,107 @@ describe("a Container preview", () => {
       ).status,
     ).toBe(404);
     expect(run.seen).toEqual([]);
+  });
+});
+
+/** A browser's WebSocket, as a page uses one: the Workers type has no `on*` handlers. */
+type PageSocket = WebSocket & {
+  onopen: ((event: Event) => void) | null;
+  onmessage: ((event: MessageEvent) => void) | null;
+};
+
+/**
+ * The script run as a page runs it, on Node's DOM globals, with a fake `fetch`: `open` answers a stream of events the
+ * test writes, and each POST is recorded with its body's bytes as they were when it was sent.
+ */
+const scriptPage = () => {
+  const events = new TransformStream<Uint8Array, Uint8Array>();
+  const writer = events.writable.getWriter();
+  const posts: Array<{ path: string; body: Uint8Array | string }> = [];
+  const window: Record<string, unknown> = {
+    WebSocket: class NativeWebSocket {},
+    fetch: async (path: string, init?: RequestInit) => {
+      if (init?.method !== "POST") return new Response(events.readable);
+      const body = init.body;
+      posts.push({
+        path,
+        body:
+          typeof body === "string"
+            ? body
+            : body instanceof ArrayBuffer
+              ? new Uint8Array(body.slice(0))
+              : ArrayBuffer.isView(body)
+                ? new Uint8Array(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength))
+                : new Uint8Array(await new Response(body).arrayBuffer()),
+      });
+      return new Response(null, { status: 204 });
+    },
+  };
+  const run = vm.runInThisContext(`(function (window, location) {${CONTAINER_PREVIEW_SCRIPT}})`) as (
+    window: Record<string, unknown>,
+    location: URL,
+  ) => void;
+  run(window, new URL("http://6080.t3flare.internal/vnc.html"));
+  const socket = new (window.WebSocket as new (url: string) => PageSocket)("ws://6080.t3flare.internal/websockify");
+  const event = (type: string, data: unknown) =>
+    writer.write(new TextEncoder().encode(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`));
+  const opened = new Promise((resolve) => socket.addEventListener("open", resolve, { once: true }));
+  return { socket, posts, event, opened, settle: () => new Promise((resolve) => setTimeout(resolve, 10)) };
+};
+
+describe("the carried-socket script's socket", () => {
+  it("has every property noVNC 1.7 checks a raw channel for (`core/websock.js`, `attach`)", () => {
+    const { socket } = scriptPage();
+    // noVNC's `rawChannelProps`, and where its `attach` looks for them.
+    const rawChannelProps = ["send", "close", "binaryType", "onerror", "onmessage", "onopen", "protocol", "readyState"];
+    const channelProps = [...Object.keys(socket), ...Object.getOwnPropertyNames(Object.getPrototypeOf(socket))];
+    expect(rawChannelProps.filter((prop) => !channelProps.includes(prop))).toEqual([]);
+  });
+
+  it("calls its `on*` handlers, one per type, the last set winning", async () => {
+    const page = scriptPage();
+    const seen: string[] = [];
+    page.socket.onopen = () => seen.push("first");
+    page.socket.onopen = () => seen.push("open");
+    page.socket.onmessage = (message) => seen.push(`message ${String(message.data)}`);
+    await page.event("open", { id: "x", protocol: "binary" });
+    await page.opened;
+    await page.event("message", { text: "hi" });
+    await page.settle();
+    expect(seen).toEqual(["open", "message hi"]);
+    expect(page.socket.protocol).toBe("binary");
+  });
+
+  it("delivers a binary message's bytes as an ArrayBuffer when asked to", async () => {
+    const page = scriptPage();
+    page.socket.binaryType = "arraybuffer";
+    const received: unknown[] = [];
+    page.socket.onmessage = (message) => received.push(message.data);
+    await page.event("open", { id: "x", protocol: "" });
+    await page.event("message", { binary: btoa("RFB 003.008\n") });
+    await page.settle();
+    expect(received).toHaveLength(1);
+    expect(new TextDecoder().decode(received[0] as ArrayBuffer)).toBe("RFB 003.008\n");
+  });
+
+  it("sends a buffer's bytes as they were at `send`, though the caller reuses it before the POST", async () => {
+    const page = scriptPage();
+    await page.event("open", { id: "x", protocol: "" });
+    await page.opened;
+    const buffer = new Uint8Array([1, 2, 3, 4]);
+    page.socket.send(buffer.subarray(1, 3));
+    buffer.fill(9);
+    const whole = new Uint8Array([5, 6]);
+    page.socket.send(whole.buffer);
+    whole.fill(0);
+    page.socket.send("text");
+    await page.settle();
+    expect(page.posts.map((post) => post.body)).toEqual([new Uint8Array([2, 3]), new Uint8Array([5, 6]), "text"]);
+    expect(page.posts.map((post) => post.path)).toEqual([
+      "/__t3flare/ws/send?id=x&binary=1",
+      "/__t3flare/ws/send?id=x&binary=1",
+      "/__t3flare/ws/send?id=x",
+    ]);
   });
 });
 
