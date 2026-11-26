@@ -46,6 +46,9 @@ export const CONTAINER_IGNORE: ReadonlyArray<string> = [
   "**/.terraform",
   "**/.gradle",
   "**/.wrangler",
+  // The Container desktop's own files, its screenshots among them (SPI-1445 D12): outside the repo, never synced, never
+  // in git. The Durable agent's file tools reach them on the Container.
+  "/.container-desktop",
   // The harness's own directory is always synced, so both sides see it.
   "!/.t3flare",
   "!/.t3flare/**",
