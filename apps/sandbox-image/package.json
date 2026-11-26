@@ -14,7 +14,8 @@
     "./ports": "./src/ports.ts",
     "./globalMise": "./src/globalMise.ts",
     "./containerSetup": "./src/containerSetup.ts",
-    "./mcp-bridge": "./src/mcp-bridge.ts"
+    "./mcp-bridge": "./src/mcp-bridge.ts",
+    "./desktop": "./src/desktop.ts"
   },
   "scripts": {
     "typecheck": "effect-tsgo tsrs --noEmit",

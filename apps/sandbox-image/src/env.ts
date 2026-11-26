@@ -1,4 +1,6 @@
 // What the Workspace DO gives each Container command; no Node imports, so the agents Worker can import it.
+import { DESKTOP_ENV } from "./desktop.ts";
+
 /**
  * The directory of the image's own files that commands read. Its earlier path, which the image keeps a copy at for one
  * release (`image/Dockerfile`): on a Container started on the previous image, `/usr/local/share/t3flare` lacks
@@ -49,6 +51,9 @@ export const DOTFILES_MISE_CONFIG = `${OWNER_HOME}/.config/mise/config.toml`;
  * mise's own directories are pinned to the image's defaults under /root, where the lay-down installs (and the shims on
  * PATH point): a CLI profile that moves XDG_* (OpenCode's home) would otherwise send mise elsewhere, and a command
  * there would install the pins again, or find none with auto-install off.
+ *
+ * The Container desktop's display and session bus (`DESKTOP_ENV`, SPI-1447): every command, Terminal and CLI agent
+ * names them, whether the desktop runs or not, as a process on the Owner's machine names its own.
  */
 export const COMMAND_ENV: Readonly<Record<string, string>> = {
   MISE_SYSTEM_CONFIG_FILE: BASE_MISE_CONFIG,
@@ -66,4 +71,5 @@ export const COMMAND_ENV: Readonly<Record<string, string>> = {
   MISE_DISABLE_BACKENDS: "",
   GIT_TERMINAL_PROMPT: "0",
   BASH_ENV: `${IMAGE_SHARE}/command.bash`,
+  ...DESKTOP_ENV,
 };

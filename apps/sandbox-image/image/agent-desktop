@@ -1,0 +1,24 @@
+#!/usr/bin/bash
+# agent-desktop's shim (SPI-1447, ADR-0050): starts the Container desktop if it is not running, then runs agent-desktop
+# with the same arguments. It stands first on the image's PATH (apps/sandbox-image/src/desktop.ts' DESKTOP_BIN) beside
+# container-desktop. It runs the next agent-desktop on PATH, so a Toolchain's own (an Owner's mise config may install
+# one) still runs as it would on the Owner's machine; with none, the image's.
+#
+# On the run that starts the desktop, `container-desktop ensure`'s notice (where to watch it, where screenshots go) goes
+# to stderr: agent-desktop's stdout is JSON and stays so. When the desktop cannot start, the shim fails with ensure's
+# message and status, and agent-desktop does not run.
+set -u
+
+here=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")
+"$here/container-desktop" ensure --notice-if-started >&2 || exit
+
+self=$(readlink -f -- "${BASH_SOURCE[0]}")
+real=/opt/t3flare/agent-desktop/agent-desktop
+IFS=: read -r -a dirs <<< "${PATH:-}"
+for dir in "${dirs[@]}"; do
+  [ -n "$dir" ] && [ -x "$dir/agent-desktop" ] && [ ! -d "$dir/agent-desktop" ] || continue
+  [ "$(readlink -f -- "$dir/agent-desktop")" = "$self" ] && continue
+  real=$dir/agent-desktop
+  break
+done
+exec "$real" "$@"
