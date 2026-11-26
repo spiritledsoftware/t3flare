@@ -32,15 +32,38 @@ describe("the update dispatch token (ADR-0037)", () => {
     expect(GITHUB_APP_PERMISSIONS.actions).toBe("write");
   });
 
-  it("is the only list that writes Actions", () => {
+  it("is the only narrowed list that writes Actions", () => {
     for (const list of [
       containerGitHubPermissions(false),
       containerGitHubPermissions(true),
-      ENVIRONMENT_GITHUB_PERMISSIONS,
       SKILL_FETCH_GITHUB_PERMISSIONS,
       REPOSITORY_LOOKUP_GITHUB_PERMISSIONS,
     ]) {
       expect((list as Record<string, string>).actions).not.toBe("write");
+    }
+  });
+});
+
+describe("the Environment token", () => {
+  it("narrows nothing: it takes every permission the installation grants", () => {
+    expect(ENVIRONMENT_GITHUB_PERMISSIONS).toBeUndefined();
+  });
+});
+
+describe("the narrowed lists", () => {
+  const rank = { read: 1, write: 2, admin: 3 } as const;
+
+  it("ask for nothing above what the App is registered with", () => {
+    for (const list of [
+      containerGitHubPermissions(true),
+      SKILL_FETCH_GITHUB_PERMISSIONS,
+      REPOSITORY_LOOKUP_GITHUB_PERMISSIONS,
+      UPDATE_DISPATCH_GITHUB_PERMISSIONS,
+    ]) {
+      for (const [name, level] of Object.entries(list)) {
+        const registered = (GITHUB_APP_PERMISSIONS as Record<string, keyof typeof rank | undefined>)[name];
+        expect({ name, ok: registered !== undefined && rank[registered] >= rank[level] }).toEqual({ name, ok: true });
+      }
     }
   });
 });

@@ -518,7 +518,7 @@ A GitHub installation token for one Workspace's one repo (code and pull requests
 _Avoid_: repo token, deploy key (the repo's one deploy key is `land.yml`'s, ADR-0037 §7)
 
 **Environment token**:
-The GitHub installation token t3's own PR features use, answered to `gh auth token`; it never reaches a Container or a Session.
+The GitHub installation token t3's own PR and issue features use, with every permission the installation grants: minted per operation for the owner of the repo it acts on and pinned to its requests, else answered to `gh auth token`; it never reaches a Container or a Session.
 _Avoid_: gh token, PAT
 
 **Handle**:

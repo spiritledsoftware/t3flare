@@ -260,6 +260,12 @@
       "literal": "return yield* new GitHubApiAuthenticationError(context);",
       "ourFile": "apps/environment/src/t3/repositoryLookup.ts",
       "entry": "U109"
+    },
+    {
+      "file": "packages/source-control-github/src/server/GitHubRequestPolicy.ts",
+      "literal": "const pinned = yield* PinnedGitHubCredential;",
+      "ourFile": "apps/environment/src/t3/providerTokens.ts",
+      "entry": "U112"
     }
   ],
   "files": {
