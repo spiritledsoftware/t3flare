@@ -121,6 +121,8 @@ publishes a prebuilt image ([ADR-0040](docs/adr/0040-the-workspace-image-is-buil
 
 - Deployers: [`docs/deploy.md`](docs/deploy.md), [`docs/model-endpoints.md`](docs/model-endpoints.md),
   [`docs/cost.md`](docs/cost.md).
+- Owners: [`docs/container-desktop.md`](docs/container-desktop.md), the Linux desktop agents drive in a Workspace's
+  Container.
 - Contributors: [`CONTRIBUTING.md`](CONTRIBUTING.md), [`GLOSSARY.md`](GLOSSARY.md), the decisions in
   [`docs/adr/`](docs/adr/), the platform facts in [`docs/research/`](docs/research/), and
   [`docs/upstream-fragility.md`](docs/upstream-fragility.md) for where following t3code's nightlies breaks t3flare.
