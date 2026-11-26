@@ -1,11 +1,13 @@
 // @effect-diagnostics globalConsole:off globalDate:off
-// SPI-1448 (refines ADR-0021 and ADR-0031): the Owner's input in a preview tab is Workspace input, as Terminal typing
-// is. A Layer over t3's `ServerBrowser` (ADR-0001; fragility U113) wraps each viewer `attachViewer` hands out: the
+// SPI-1448 (A7, refines ADR-0021 and ADR-0031; fragility U113): the Owner's input in a preview tab is Workspace input,
+// as Terminal typing is. A Layer over t3's `ServerBrowser` (ADR-0001) wraps each viewer `attachViewer` hands out: the
 // server browser stream (`ServerBrowserStream.ts`) gives a viewer only an Owner client's messages, and only while it may
-// operate the tab. Mouse, keys, wheel and inserted text there note Workspace input on the tab's Workspace DO
-// (`previewInput`), at most every 30 s per Workspace. Navigation, screencast acks, resize and the viewport are not
-// input, and an agent's `preview_*` calls never reach a viewer (its turn already holds the Container). Noting input on
-// a stopped Container is a no-op on the DO: it starts nothing.
+// operate the tab. Mouse, keys, wheel and inserted text there are noted on the tab's Workspace DO
+// (`noteOwnerPreviewInput`), where they hold the running Container as Terminal input does
+// (`apps/agents/src/workspace/previewInput.ts`). Navigation, screencast acks, resize and the viewport are not input, and
+// an agent's `preview_*` calls never reach a viewer (its turn already holds the Container). A Workspace is noted at most
+// once every 30 s, counted from a note its DO took; one it did not (no Container runs: noting starts nothing) or that
+// failed is asked again at the next input. Nothing in noting ever keeps the Owner's input from reaching t3.
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as ServerBrowser from "t3/src/preview/ServerBrowser.ts";
@@ -16,7 +18,7 @@ import { threadWorkspaceFrom } from "./portDiscovery.ts";
 
 /**
  * The most often one Workspace's preview input is noted on its DO (the ticket's value). Guards the Workspace DO from an
- * RPC per mouse move; far inside any Terminal hold, so the hold it extends is never short by more than this.
+ * RPC per mouse move; the hold it gives can end this much early, which the Owner accepted.
  */
 export const PREVIEW_INPUT_NOTE_EVERY_MS = 30_000;
 
@@ -30,56 +32,73 @@ export interface PreviewInputNoterDeps {
   readonly now: () => number;
   /** The tab's thread's Workspace, or undefined for a thread in none. */
   readonly workspaceOf: (threadId: string) => string | undefined;
-  /** The Workspace DO's `previewInput`: whether it noted the input (false on a stopped Container). */
-  readonly note: (workspace: string) => Promise<unknown>;
+  /** The Workspace DO's `noteOwnerPreviewInput`: true when noted on its running Container, false when none runs. */
+  readonly note: (workspace: string) => Promise<boolean>;
 }
 
 export interface PreviewInputNoter {
-  /** A viewer's message on a tab of `threadId`: noted on its Workspace when it is input and that one's 30 s have passed. */
-  readonly input: (threadId: string, message: unknown) => void;
+  /** Notes a viewer's message on a tab of `threadId` when it is input and its Workspace's window allows; never throws. */
+  readonly noteInput: (threadId: string, message: unknown) => void;
   /** Resolves once every note sent so far has settled (tests). */
   readonly settled: () => Promise<void>;
 }
 
+const warnFailed = (workspace: string | undefined, cause: unknown) =>
+  console.warn(
+    JSON.stringify({
+      t3flare: "preview-input-note-failed",
+      workspace: workspace ?? null,
+      error: cause instanceof Error ? cause.name : "error",
+    }),
+  );
+
 export const makePreviewInputNoter = (deps: PreviewInputNoterDeps): PreviewInputNoter => {
-  /** By Workspace: when its input was last sent to its DO. Bounded by the Environment's Workspaces. */
+  /** By Workspace: when a note its DO took was asked. Bounded by the Environment's Workspaces. */
   const notedAt = new Map<string, number>();
+  /** Workspaces whose DO is being asked now: one note in flight each. */
+  const asking = new Set<string>();
   const inFlight = new Set<Promise<void>>();
+  const ask = (workspace: string, now: number) => {
+    asking.add(workspace);
+    // Through `then`, so a note that throws at once (no Workspace stub) fails as a rejected one does.
+    const sent: Promise<void> = Promise.resolve()
+      .then(() => deps.note(workspace))
+      .then(
+        (noted) => {
+          if (noted === true) notedAt.set(workspace, now);
+        },
+        (cause: unknown) => warnFailed(workspace, cause),
+      )
+      .finally(() => {
+        asking.delete(workspace);
+        inFlight.delete(sent);
+      });
+    inFlight.add(sent);
+  };
   return {
-    input: (threadId, message) => {
-      if (!isOwnerInput(message)) return;
-      const workspace = deps.workspaceOf(threadId);
-      if (workspace === undefined) return;
-      const now = deps.now();
-      const last = notedAt.get(workspace);
-      if (last !== undefined && now - last < PREVIEW_INPUT_NOTE_EVERY_MS) return;
-      // Marked before the call, so a slow or failing DO is asked at most once a window, not on every key.
-      notedAt.set(workspace, now);
-      const sent: Promise<void> = deps
-        .note(workspace)
-        .then(
-          () => undefined,
-          (cause: unknown) =>
-            console.warn(
-              JSON.stringify({
-                t3flare: "preview-input-note-failed",
-                workspace,
-                error: cause instanceof Error ? cause.name : "error",
-              }),
-            ),
-        )
-        .finally(() => inFlight.delete(sent));
-      inFlight.add(sent);
+    noteInput: (threadId, message) => {
+      let workspace: string | undefined;
+      try {
+        if (!isOwnerInput(message)) return;
+        workspace = deps.workspaceOf(threadId);
+        if (workspace === undefined || asking.has(workspace)) return;
+        const now = deps.now();
+        const last = notedAt.get(workspace);
+        if (last !== undefined && now - last < PREVIEW_INPUT_NOTE_EVERY_MS) return;
+        ask(workspace, now);
+      } catch (cause) {
+        warnFailed(workspace, cause);
+      }
     },
     settled: async () => {
-      await Promise.all(inFlight);
+      while (inFlight.size > 0) await Promise.all(inFlight);
     },
   };
 };
 
 type Service = ServerBrowser.ServerBrowser["Service"];
 
-/** t3's `ServerBrowser`, every method as t3 has it, with each viewer's input also given to `noter`. */
+/** t3's `ServerBrowser`, every method as t3 has it, with each viewer's messages also given to `noter` (never throws). */
 export const withPreviewInputNotes = (real: Service, noter: PreviewInputNoter): Service =>
   ServerBrowser.ServerBrowser.of({
     ...real,
@@ -89,7 +108,7 @@ export const withPreviewInputNotes = (real: Service, noter: PreviewInputNoter): 
         output: viewer.output,
         input: (message: unknown) =>
           Effect.andThen(
-            Effect.sync(() => noter.input(input.threadId, message)),
+            Effect.sync(() => noter.noteInput(input.threadId, message)),
             viewer.input(message),
           ),
       };
@@ -101,7 +120,7 @@ const environmentNoter = (): PreviewInputNoter =>
   makePreviewInputNoter({
     now: () => Date.now(),
     workspaceOf: (threadId) => threadWorkspaceFrom(environmentServices().sql)(threadId),
-    note: (workspace) => workspaceRpc(workspace).previewInput(),
+    note: (workspace) => workspaceRpc(workspace).noteOwnerPreviewInput(),
   });
 
 /** Our Layer over t3's `ServerBrowser` (provide t3's `ServerBrowser.layer` under it). */

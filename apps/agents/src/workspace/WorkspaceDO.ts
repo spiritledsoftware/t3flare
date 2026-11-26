@@ -186,6 +186,7 @@ import { awaitContainerCopy, type TakeAnswer, takeSkillSet } from "./skillSetTak
 import { ContainerGate } from "./containerGate.ts";
 import { endTerminalsPastHolds, type AppliedHolds } from "./terminalHolds.ts";
 import { OwnerPreviewInput, someoneWorks } from "./previewInput.ts";
+import { type HoldSources, idleStopHeld, reclaimBusy } from "./containerHolds.ts";
 import { TerminalHost } from "./terminalHost.ts";
 import { TerminalSync } from "./terminalSync.ts";
 import { placeSecretFile, type SecretFileAnswer, type SecretFileDeps, sweepSecretFiles } from "./secretFiles.ts";
@@ -469,7 +470,7 @@ export class WorkspaceDO extends ContainerHost {
   #lastCommandAt = 0;
   /** G11: open carried sockets of Container previews; each holds the Container within the cap (`#previewHolds`). */
   #previewHolds = 0;
-  /** SPI-1448: the Owner's last input in one of the Workspace's preview tabs, while this Container runs. */
+  /** SPI-1448: the Owner's last input in a preview tab, on the running Container (`previewInput.ts`). */
   readonly #ownerPreviewInput = new OwnerPreviewInput({
     running: () => this.containerRunning(),
     now: () => Date.now(),
@@ -1239,6 +1240,8 @@ export class WorkspaceDO extends ContainerHost {
       (spec: ContainerLaunchSpec): Promise<ContainerRuntimeInfo> =>
         this.#gate.start(async () => {
           const fresh = !this.containerRunning();
+          // SPI-1448: no Owner preview input made on an earlier Container holds the new one.
+          if (fresh) this.#ownerPreviewInput.containerStarted();
           const launch = await this.#launch();
           await lease(fresh ? launch.budget : undefined);
           // The wait is the kept copy's, as every start's is (`#takeSettings`): a start learns a new wait only by keeping it.
@@ -2756,12 +2759,7 @@ export class WorkspaceDO extends ContainerHost {
     // A Builder holding a lease (`builderInBudget`) gives it back when its build ends, never to a reclaim.
     if (this.#isBuilder()) return "the Builder";
     if (!this.containerRunning()) return "not running";
-    const busy =
-      this.#running > 0 ||
-      this.#terminalsHold() ||
-      this.#ownerPreviewHolds() ||
-      this.#processes.reclaimable().length < this.#processes.size;
-    if (busy) return "in use";
+    if (reclaimBusy(this.#holdSources(), this.#terminalHold())) return "in use";
     const lastUse = (await this.ctx.storage.get<number>(LAST_USE_KEY)) ?? 0;
     // SPI-1364: some protection is needed, else two Workspaces under a full budget stop each other between commands.
     const protectionSeconds = RECLAIM_PROTECTION_SECONDS;
@@ -2803,7 +2801,6 @@ export class WorkspaceDO extends ContainerHost {
     return { released: true, reason: "idle" };
   }
 
-  /** Whether t3's or the agent's terminals hold the Container: input within the hold (ADR-0021, review F10). */
   /**
    * G11 (review M5): whether someone works in the Workspace now: a command runs, or a terminal, an agent's Terminal, a
    * preview tab (the Owner's, SPI-1448) or a CLI process had input (or a CLI is in a turn) within the cap of a
@@ -2826,13 +2823,8 @@ export class WorkspaceDO extends ContainerHost {
     });
   }
 
-  /**
-   * SPI-1448: the Owner worked in one of this Workspace's preview tabs (mouse, keys, wheel, inserted text), as the
-   * Environment's `ServerBrowser` Layer notes it, at most every 30 s. Workspace input, as Terminal typing is: it holds
-   * the running Container for the busy hold (`#ownerPreviewHolds`, the idle stop and the reclaim) and extends a Container
-   * preview's hold (`#someoneWorks`). Never starts the Container: on a stopped one it is a no-op.
-   */
-  previewInput(): boolean {
+  /** SPI-1448: the Owner's input in a preview tab, as the Environment notes it (`previewInput.ts`); never starts one. */
+  noteOwnerPreviewInput(): boolean {
     if (this.#isDestroyed()) return false;
     return this.#ownerPreviewInput.note();
   }
@@ -2894,17 +2886,16 @@ export class WorkspaceDO extends ContainerHost {
     return (await probeRunningPort(this.ctx.container, port, path, PORT_PROBE_MS)) ?? null;
   }
 
-  /**
-   * SPI-1448 (A7): the Owner's input in a preview tab holds the running Container on its own, as a Terminal's typing does:
-   * for the busy hold from the last input, whether or not a Container preview has a socket open or is making requests.
-   */
-  #ownerPreviewHolds(): boolean {
-    return this.#ownerPreviewInput.holdsContainer(this.#terminalHold());
-  }
-
-  #terminalsHold(): boolean {
-    const hold = this.#terminalHold();
-    return this.#terminals.holdsContainer(hold) || this.#agentHost.holdsContainer(hold);
+  /** What holds the running Container from the idle stop and a reclaim (`containerHolds.ts`). */
+  #holdSources(): HoldSources {
+    return {
+      running: this.#running,
+      terminals: this.#terminals,
+      agentHost: this.#agentHost,
+      ownerPreviewInput: this.#ownerPreviewInput,
+      processes: this.#processes,
+      previewHold: () => this.#previewHold(),
+    };
   }
 
   /**
@@ -3055,10 +3046,7 @@ export class WorkspaceDO extends ContainerHost {
     await dropOrphanedRuns(this.#runCancels, () => environment.environmentEpoch());
     await this.#sweepSecretFiles();
     const lastUse = (await this.ctx.storage.get<number>(LAST_USE_KEY)) ?? 0;
-    // Terminals hold the Container until their last input is older than the hold (review F10: output is not use), and
-    // so does the Owner's input in a preview tab (SPI-1448).
-    const held =
-      this.#terminalsHold() || this.#ownerPreviewHolds() || this.#processes.holdsContainer() || this.#previewHold();
+    const held = idleStopHeld(this.#holdSources(), this.#terminalHold());
     if (this.#running === 0 && !held && Date.now() - lastUse >= this.#idleMs()) {
       const applied = this.#endTerminalsPastHolds();
       console.log(
