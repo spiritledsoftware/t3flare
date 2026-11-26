@@ -1,8 +1,12 @@
 // SPI-1448 (ADR-0021, ADR-0031): the Owner's input in a preview tab (mouse, keys, wheel, inserted text) is Workspace
 // input, as Terminal typing is. The Environment notes it here, at most every 30 s per Workspace
-// (`apps/environment/src/preview/previewInput.ts`), and it joins the last input a Container preview's hold reads
-// (`someoneWorks`). Noting it while the Container is stopped is a no-op: it starts nothing, and the next Container never
-// inherits an input made before it ran.
+// (`apps/environment/src/preview/previewInput.ts`). It holds the running Container on its own, for the Terminals' busy
+// hold from the last input (`holdsContainer`, as `TerminalHost`'s does), whether or not a Container preview has a socket
+// open or is making requests; and it joins the last input a Container preview's hold reads (`someoneWorks`). Noting it
+// while the Container is stopped is a no-op: it starts nothing, and the next Container never inherits an input made
+// before it ran.
+
+import type { TerminalHold } from "./containerLaunch.ts";
 
 export interface OwnerPreviewInputDeps {
   readonly running: () => boolean;
@@ -27,6 +31,19 @@ export class OwnerPreviewInput {
     if (!this.#deps.running()) return false;
     this.#lastInput = this.#deps.now();
     return true;
+  }
+
+  /**
+   * Whether the Owner's preview input holds the Container now (the idle stop, the reclaim): while it runs, for
+   * `terminalBusyHoldMs` from the last input, as a Terminal's typing holds it. An untouched tab holds nothing.
+   */
+  holdsContainer(hold: TerminalHold): boolean {
+    return this.#lastInput > 0 && this.#deps.running() && this.#deps.now() - this.#lastInput < hold.terminalBusyHoldMs;
+  }
+
+  /** The Container stopped: its input never holds the next one. */
+  containerStopped(): void {
+    this.#lastInput = 0;
   }
 }
 

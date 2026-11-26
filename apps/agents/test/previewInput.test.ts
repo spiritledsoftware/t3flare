@@ -1,11 +1,15 @@
-// SPI-1448: the Owner's input in a preview tab is Workspace input (ADR-0021, ADR-0031): the Environment notes it on the
-// tab's Workspace DO, which folds it into the last input a Container preview's hold reads. Noting it on a stopped
+// SPI-1448: the Owner's input in a preview tab is Workspace input, as Terminal typing is (ADR-0021, ADR-0031): the
+// Environment notes it on the tab's Workspace DO, where it holds the running Container for the busy hold from the last
+// input, as Terminal input does, and joins the last input a Container preview's hold reads. Noting it on a stopped
 // Container is a no-op: it starts nothing, and a later Container never inherits it.
 import { describe, expect, it } from "vitest";
 
+import type { TerminalHold } from "../src/workspace/containerLaunch.ts";
 import { OwnerPreviewInput, someoneWorks } from "../src/workspace/previewInput.ts";
 
 const CAP = 30 * 60_000;
+/** The Terminals' default holds (SPI-1317): the busy one is the 30 minutes from the last input. */
+const HOLD: TerminalHold = { terminalBusyHoldMs: CAP, terminalPromptHoldMs: 10 * 60_000 };
 
 const clock = (start: number) => {
   let now = start;
@@ -42,6 +46,43 @@ describe("OwnerPreviewInput", () => {
     running = true;
     expect(input.lastInput).toBe(0);
     expect(works(input, time.now())).toBe(false);
+    expect(input.holdsContainer(HOLD)).toBe(false);
+  });
+});
+
+describe("OwnerPreviewInput.holdsContainer (the idle stop and the reclaim, as Terminal input holds)", () => {
+  it("Owner clicks in a static preview with no socket and no requests: the Container is held as by Terminal input", () => {
+    // Nothing else is open: no Container preview socket or request (`#previewHolds` 0), no Terminal, no CLI process.
+    // The input alone holds, for the busy hold from the last input, as a Terminal's typing does.
+    const time = clock(10 * CAP);
+    const input = new OwnerPreviewInput({ running: () => true, now: time.now });
+    expect(input.holdsContainer(HOLD)).toBe(false);
+    input.note();
+    time.advance(HOLD.terminalBusyHoldMs - 1);
+    expect(input.holdsContainer(HOLD)).toBe(true);
+    input.note();
+    time.advance(HOLD.terminalBusyHoldMs - 1);
+    expect(input.holdsContainer(HOLD)).toBe(true);
+    time.advance(1);
+    expect(input.holdsContainer(HOLD)).toBe(false);
+  });
+
+  it("an open, untouched tab holds nothing", () => {
+    const input = new OwnerPreviewInput({ running: () => true, now: () => 10 * CAP });
+    expect(input.holdsContainer(HOLD)).toBe(false);
+  });
+
+  it("holds only a running Container, and a stopped one's input never holds the next", () => {
+    let running = true;
+    const time = clock(10 * CAP);
+    const input = new OwnerPreviewInput({ running: () => running, now: time.now });
+    input.note();
+    running = false;
+    expect(input.holdsContainer(HOLD)).toBe(false);
+    input.containerStopped();
+    running = true;
+    expect(input.lastInput).toBe(0);
+    expect(input.holdsContainer(HOLD)).toBe(false);
   });
 });
 

@@ -469,7 +469,7 @@ export class WorkspaceDO extends ContainerHost {
   #lastCommandAt = 0;
   /** G11: open carried sockets of Container previews; each holds the Container within the cap (`#previewHolds`). */
   #previewHolds = 0;
-  /** SPI-1448: the Owner's last input in one of the Workspace's preview tabs, while its Container ran. */
+  /** SPI-1448: the Owner's last input in one of the Workspace's preview tabs, while this Container runs. */
   readonly #ownerPreviewInput = new OwnerPreviewInput({
     running: () => this.containerRunning(),
     now: () => Date.now(),
@@ -2757,7 +2757,10 @@ export class WorkspaceDO extends ContainerHost {
     if (this.#isBuilder()) return "the Builder";
     if (!this.containerRunning()) return "not running";
     const busy =
-      this.#running > 0 || this.#terminalsHold() || this.#processes.reclaimable().length < this.#processes.size;
+      this.#running > 0 ||
+      this.#terminalsHold() ||
+      this.#ownerPreviewHolds() ||
+      this.#processes.reclaimable().length < this.#processes.size;
     if (busy) return "in use";
     const lastUse = (await this.ctx.storage.get<number>(LAST_USE_KEY)) ?? 0;
     // SPI-1364: some protection is needed, else two Workspaces under a full budget stop each other between commands.
@@ -2825,8 +2828,9 @@ export class WorkspaceDO extends ContainerHost {
 
   /**
    * SPI-1448: the Owner worked in one of this Workspace's preview tabs (mouse, keys, wheel, inserted text), as the
-   * Environment's `ServerBrowser` Layer notes it, at most every 30 s. Workspace input, as Terminal typing is: it extends
-   * a Container preview's hold (`#someoneWorks`). Never starts the Container: on a stopped one it is a no-op.
+   * Environment's `ServerBrowser` Layer notes it, at most every 30 s. Workspace input, as Terminal typing is: it holds
+   * the running Container for the busy hold (`#ownerPreviewHolds`, the idle stop and the reclaim) and extends a Container
+   * preview's hold (`#someoneWorks`). Never starts the Container: on a stopped one it is a no-op.
    */
   previewInput(): boolean {
     if (this.#isDestroyed()) return false;
@@ -2888,6 +2892,14 @@ export class WorkspaceDO extends ContainerHost {
   async probePort(port: number, path: string): Promise<PortProbe | null> {
     if (this.#isDestroyed()) return null;
     return (await probeRunningPort(this.ctx.container, port, path, PORT_PROBE_MS)) ?? null;
+  }
+
+  /**
+   * SPI-1448 (A7): the Owner's input in a preview tab holds the running Container on its own, as a Terminal's typing does:
+   * for the busy hold from the last input, whether or not a Container preview has a socket open or is making requests.
+   */
+  #ownerPreviewHolds(): boolean {
+    return this.#ownerPreviewInput.holdsContainer(this.#terminalHold());
   }
 
   #terminalsHold(): boolean {
@@ -2990,6 +3002,7 @@ export class WorkspaceDO extends ContainerHost {
     this.#agentHost.containerStopped();
     this.#agentTerminals.containerStopped();
     this.#processes.containerStopped();
+    this.#ownerPreviewInput.containerStopped();
     this.#sandbox = undefined;
     await this.#release();
   }
@@ -3042,8 +3055,10 @@ export class WorkspaceDO extends ContainerHost {
     await dropOrphanedRuns(this.#runCancels, () => environment.environmentEpoch());
     await this.#sweepSecretFiles();
     const lastUse = (await this.ctx.storage.get<number>(LAST_USE_KEY)) ?? 0;
-    // Terminals hold the Container until their last input is older than the hold (review F10: output is not use).
-    const held = this.#terminalsHold() || this.#processes.holdsContainer() || this.#previewHold();
+    // Terminals hold the Container until their last input is older than the hold (review F10: output is not use), and
+    // so does the Owner's input in a preview tab (SPI-1448).
+    const held =
+      this.#terminalsHold() || this.#ownerPreviewHolds() || this.#processes.holdsContainer() || this.#previewHold();
     if (this.#running === 0 && !held && Date.now() - lastUse >= this.#idleMs()) {
       const applied = this.#endTerminalsPastHolds();
       console.log(

@@ -2062,9 +2062,10 @@ Moved from U58 when its Commissary readers went (SPI-1176).
   wraps each viewer `attachViewer` returns; every other method is t3's. A viewer's `input` messages of type `mouse`,
   `key`, `wheel` or `text` (the cases `dispatchViewerInput` dispatches as CDP input) note Workspace input on the tab's
   thread's Workspace DO (`threadWorkspaceFrom`, then `WorkspaceDO.previewInput`), at most once every
-  `PREVIEW_INPUT_NOTE_EVERY_MS` (30 s) per Workspace. The DO folds it into `someoneWorks`
-  (`apps/agents/src/workspace/previewInput.ts`), the last input a Container preview's hold reads
-  ([U62](#u62-container-previews-and-the-carried-socket-script-g11)), and notes nothing on a stopped Container. It
+  `PREVIEW_INPUT_NOTE_EVERY_MS` (30 s) per Workspace. On the DO (`apps/agents/src/workspace/previewInput.ts`) it holds
+  the running Container on its own, as Terminal input does, for the busy hold from the last input (the idle stop and
+  the reclaim), and joins `someoneWorks`, the last input a Container preview's hold reads
+  ([U62](#u62-container-previews-and-the-carried-socket-script-g11)); it notes nothing on a stopped Container. It
   counts on t3's `ServerBrowserStream.ts` being `attachViewer`'s one caller, giving a viewer only an Owner client's
   messages, and only when the client may operate the tab (`canOperate`); an agent's `preview_*` calls run through
   t3's automation, never a viewer.
@@ -2077,8 +2078,8 @@ Moved from U58 when its Commissary readers went (SPI-1176).
   (it would hold the Container), and Owner input moved to another path (a preview tab that would stop holding: the
   Container stops under an Owner working only in a preview, after the busy hold). Cheapest check: `rg attachViewer
   t3code/apps/server/src` names only `ServerBrowserStream.ts`.
-- **Blast radius**: low. Either an Owner working in a preview tab loses the Container after the busy hold, as before
-  SPI-1448, or an Owner's or agent's activity holds it up to the busy hold longer than it should.
+- **Blast radius**: low. Either an Owner working only in a preview tab loses the Container at the idle time, as before
+  SPI-1448, or traffic that is not the Owner's input holds it for the busy hold (cost).
 - **Fix**: re-read `dispatchViewerInput` and `ServerBrowserStream.ts`'s `receive`, and sort the message types again in
   `previewInput.ts` and its test.
 
