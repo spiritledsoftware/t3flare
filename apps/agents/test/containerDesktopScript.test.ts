@@ -1,8 +1,9 @@
 // The Container desktop's command and shim (SPI-1447, ADR-0050): the image's `container-desktop` and `agent-desktop`
 // name the values `@t3flare/sandbox-image/desktop` names, every command carries its display and bus, and no preview is
 // refused its port. Then `container-desktop` runs for real, on another display, ports and state directory, where the
-// desktop's packages are installed (the image's apt list: Xvfb, openbox, dbus, at-spi2-core, x11vnc, websockify);
-// skipped elsewhere, as in CI, whose runner has none of them.
+// desktop's packages are installed (the image's apt list: Xvfb, openbox, dbus, at-spi2-core, x11vnc, websockify) and
+// the image's noVNC page is at `NOVNC.dir` (websockify will not start without it); skipped elsewhere, as in CI, whose
+// runner has none of them.
 // @effect-diagnostics nodeBuiltinImport:off
 import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -90,7 +91,9 @@ describe("the Container desktop's values", () => {
 });
 
 const has = (command: string) => spawnSync("bash", ["-c", `command -v ${command}`]).status === 0;
-const installed = ["Xvfb", "openbox", "dbus-daemon", "dbus-send", "x11vnc", "websockify", "xdpyinfo", "ss"].every(has);
+const installed =
+  ["Xvfb", "openbox", "dbus-daemon", "dbus-send", "x11vnc", "websockify", "xdpyinfo", "ss"].every(has) &&
+  fs.existsSync(NOVNC.dir);
 
 describe.skipIf(!installed)("container-desktop, run", () => {
   const state = fs.mkdtempSync(path.join(os.tmpdir(), "container-desktop-"));
