@@ -65,6 +65,8 @@ export const CONTAINER_PROGRAMS: readonly string[] = names(
     "mvn gradle kotlin dotnet ruby gem bundle rake php composer perl lua swift zig gh curl wget ssh scp rsync",
     "docker docker-compose kubectl terraform mise apt apt-get dpkg sudo su nohup nice ps top htop lsof pkill pgrep",
     "killall sqlite3 psql mysql redis-cli yq unzip zip 7z openssl",
+    // The Container desktop's (SPI-1445 D7): it runs in the Container alone.
+    "agent-desktop container-desktop",
   ].join(" "),
 );
 
