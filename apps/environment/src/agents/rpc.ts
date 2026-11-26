@@ -110,6 +110,12 @@ export interface WorkspaceRpc {
   ): Promise<{ readonly running: boolean; readonly signalled: number; readonly survivors: number }>;
   /** G11: the Container's listeners; never starts it, not use. */
   listeners(): Promise<{ readonly running: boolean; readonly scan: PortScan | null }>;
+  /**
+   * SPI-1448: the Owner worked in one of the Workspace's preview tabs: Workspace input, which holds the running
+   * Container on its own, as Terminal input does (`preview/previewInput.ts`). Never starts it: true when noted on the
+   * running Container, false, noting nothing, when none runs.
+   */
+  noteOwnerPreviewInput(): Promise<boolean>;
   /** The Settings page's Files column (ADR-0044 §1): the DO's storage size and whether its Container runs; never starts it. */
   usage(): Promise<{
     readonly bytes: number;
