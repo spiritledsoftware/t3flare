@@ -60,6 +60,8 @@ describe("the Container desktop's values", () => {
     expect(/^ {4}PATH=([^:]+):/m.exec(dockerfile)?.[1]).toBe(DESKTOP_BIN);
     expect(dockerfile).toContain(`DISPLAY=${DESKTOP_DISPLAY} \\`);
     expect(dockerfile).toContain(`DBUS_SESSION_BUS_ADDRESS=${DESKTOP_BUS_ADDRESS} \\`);
+    expect(dockerfile).toContain("ACCESSIBILITY_ENABLED=1 \\");
+    expect(dockerfile).toContain("QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1 \\");
   });
 
   it("has the shim run the image's agent-desktop when PATH has no other", () => {
@@ -68,7 +70,13 @@ describe("the Container desktop's values", () => {
 
   it("are in every command's environment, and so in every Terminal's and CLI agent's", () => {
     expect(COMMAND_ENV).toMatchObject(DESKTOP_ENV);
-    expect(DESKTOP_ENV).toEqual({ DISPLAY: DESKTOP_DISPLAY, DBUS_SESSION_BUS_ADDRESS: DESKTOP_BUS_ADDRESS });
+    // Electron and Qt apps show their accessibility trees to AT-SPI only when asked to (SPI-1445 A1).
+    expect(DESKTOP_ENV).toEqual({
+      DISPLAY: DESKTOP_DISPLAY,
+      DBUS_SESSION_BUS_ADDRESS: DESKTOP_BUS_ADDRESS,
+      ACCESSIBILITY_ENABLED: "1",
+      QT_LINUX_ACCESSIBILITY_ALWAYS_ON: "1",
+    });
   });
 
   it("leave the view's port to Container previews: it is not one of t3flare's own", () => {
@@ -156,6 +164,17 @@ describe.skipIf(!installed)("container-desktop, run", () => {
     const after = pids();
     expect(after["openbox"]).not.toBe(before["openbox"]);
     expect({ ...after, openbox: "" }).toEqual({ ...before, openbox: "" });
+  });
+
+  it("restarts every part after the display when the display died, and keeps the bus", () => {
+    const before = pids();
+    process.kill(Number(before["xvfb"]), "SIGKILL");
+    spawnSync("sleep", ["0.3"]);
+    expect(run("ensure", "--notice-if-started").stdout).toContain("Watch it at");
+    const after = pids();
+    expect(after["bus"]).toBe(before["bus"]);
+    for (const part of ["xvfb", "openbox", "x11vnc", "websockify"]) expect(after[part]).not.toBe(before[part]);
+    expect(run("status").status).toBe(0);
   });
 
   it("stops every part", () => {

@@ -208,13 +208,17 @@ RUN cp -a /usr/local/share/t3flare /usr/local/share/cloudpid
 # default, it is rebuilt from the Workspace DO at each start.
 # The Container desktop's directory (`DESKTOP_BIN`) comes before mise's shims, so a Toolchain's own agent-desktop never
 # skips the desktop's start; its display and session bus are named here for the image's own processes, and reach a
-# command, a Terminal and a CLI agent through `COMMAND_ENV`, since computerd passes on only PATH.
+# command, a Terminal and a CLI agent through `COMMAND_ENV`, since computerd passes on only PATH. So do the two switches
+# that make Electron (ACCESSIBILITY_ENABLED) and Qt (QT_LINUX_ACCESSIBILITY_ALWAYS_ON) apps show their accessibility
+# trees to agent-desktop: without them they do only when a screen reader runs.
 ENV PORT=8080 \
     MOUNT_POINT=/workspace \
     FUSE_MOUNT=auto \
     COMPUTERD_DB=/var/lib/computerd/state.db \
     DISPLAY=:99 \
     DBUS_SESSION_BUS_ADDRESS=unix:path=/run/container-desktop/bus \
+    ACCESSIBILITY_ENABLED=1 \
+    QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1 \
     PATH=/opt/t3flare/desktop/bin:/root/.local/share/mise/shims:/usr/local/share/mise/shims:${PATH}
 RUN mkdir -p /var/lib/computerd
 EXPOSE 8080

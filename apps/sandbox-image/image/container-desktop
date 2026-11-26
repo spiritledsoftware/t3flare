@@ -158,17 +158,19 @@ stop_part() {
 }
 
 ensure() {
-  local only_if_started=$1 part started=0
+  local only_if_started=$1 part started=0 rest=0
   mkdir -p "$state/runtime" "$screenshots" || return 1
   chmod 700 "$state/runtime"
   exec 9> "$state/lock"
   flock -w "$wait_seconds" 9 || { say "another container-desktop held $state/lock for ${wait_seconds}s"; return 1; }
   for part in "${parts[@]}"; do
-    ready "$part" && continue
-    # A part that runs but does not answer is restarted; so is everything after the bus or the display it needs.
+    # A part that runs but does not answer is restarted; so is every part after a bus or a display that was (re)started,
+    # since each later part is bound to the bus and the display it started on.
+    ((rest)) || ! ready "$part" || continue
     stop_part "$part"
     start "$part" || return 1
     started=1
+    case $part in bus | xvfb) rest=1 ;; esac
   done
   exec 9>&-
   if ((started)) || [ "$only_if_started" = 0 ]; then notice; fi

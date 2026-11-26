@@ -62,8 +62,16 @@ export const NOVNC = {
   dir: "/opt/t3flare/novnc",
 } as const;
 
-/** What every process's environment carries for the desktop: its display and its session bus. */
+/**
+ * What every process's environment carries for the desktop: its display and its session bus, and the two switches that
+ * make Electron and Qt apps, the desktop's main use (SPI-1445 A1), show their accessibility trees on the AT-SPI bus
+ * agent-desktop reads. Without them Chromium (so Electron) and Qt expose a tree only when they detect an assistive
+ * technology such as a screen reader, which a Container never runs. GTK apps need neither: GTK 3 loads the AT-SPI
+ * bridge (`libatk-bridge2.0-0t64`) and GTK 4 speaks AT-SPI itself, each finding it through the session bus.
+ */
 export const DESKTOP_ENV: Readonly<Record<string, string>> = {
   DISPLAY: DESKTOP_DISPLAY,
   DBUS_SESSION_BUS_ADDRESS: DESKTOP_BUS_ADDRESS,
+  ACCESSIBILITY_ENABLED: "1",
+  QT_LINUX_ACCESSIBILITY_ALWAYS_ON: "1",
 };
