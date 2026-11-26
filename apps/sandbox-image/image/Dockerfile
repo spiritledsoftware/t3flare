@@ -19,6 +19,13 @@ ARG CODEX_SHA256=8246e846c550ea21197fcc4067bc270dca895e94ea42ed6a282e6f4e0125b15
 # Step 4b: OpenCode's release binary (one per platform; npm's package installs the musl build beside it, M0 P7).
 ARG OPENCODE_VERSION=2.2.7
 ARG OPENCODE_SHA256=89a6cee227b54bc011179c528a5e63176032462b1a5e21723b616801cddc2ca7
+# The Container desktop (SPI-1447, ADR-0050): agent-desktop's release binary and noVNC's page
+# (apps/sandbox-image/src/desktop.ts holds the same values, apps/agents/test/containerDesktopScript.test.ts keeps them
+# equal).
+ARG AGENT_DESKTOP_VERSION=1.3.1
+ARG AGENT_DESKTOP_SHA256=ca77b6b75034eeb12e537dd8c0a4f2a3424119253f38b7e6bd79ba0d2fef1264
+ARG NOVNC_VERSION=1.7.0
+ARG NOVNC_SHA256=b1003a11b6e6e8d8f7f5e5586daae7f8ca651d8aee0aa155ff9ac841c48f52c6
 
 # Every base image is pinned by digest as well as by tag, so a rebuild cannot move to another computerd build or Ubuntu
 # point release. Refresh a digest together with its tag: computerd's is the manifest of
@@ -60,6 +67,27 @@ RUN apt-get update \
  && mkdir /out && tar -xzf /opencode.tgz -C /out \
  && mv /out/opencode /opencode \
  && chmod 755 /opencode
+
+# The Container desktop's two downloads, the same way: agent-desktop's release (the binary and the clipboard helper it
+# looks for beside itself), and noVNC's tagged source, of which only the page and its scripts are kept. noVNC is not
+# Ubuntu's package, which would bring an apt Node beside the image's.
+FROM --platform=linux/amd64 ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c AS desktop
+ARG AGENT_DESKTOP_VERSION
+ARG AGENT_DESKTOP_SHA256
+ARG NOVNC_VERSION
+ARG NOVNC_SHA256
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl \
+ && curl -fsSL -o /agent-desktop.tgz https://github.com/vercel-labs/agent-desktop/releases/download/v${AGENT_DESKTOP_VERSION}/agent-desktop-v${AGENT_DESKTOP_VERSION}-x86_64-unknown-linux-gnu.tar.gz \
+ && echo "${AGENT_DESKTOP_SHA256}  /agent-desktop.tgz" | sha256sum -c - \
+ && mkdir /agent-desktop && tar -xzf /agent-desktop.tgz -C /agent-desktop \
+ && test -x /agent-desktop/agent-desktop && test -x /agent-desktop/agent-desktop-linux-clipboard-owner \
+ && curl -fsSL -o /novnc.tgz https://github.com/novnc/noVNC/archive/refs/tags/v${NOVNC_VERSION}.tar.gz \
+ && echo "${NOVNC_SHA256}  /novnc.tgz" | sha256sum -c - \
+ && mkdir /novnc && tar -xzf /novnc.tgz -C /novnc --strip-components=1 \
+      noVNC-${NOVNC_VERSION}/app noVNC-${NOVNC_VERSION}/core noVNC-${NOVNC_VERSION}/vendor \
+      noVNC-${NOVNC_VERSION}/vnc.html noVNC-${NOVNC_VERSION}/defaults.json noVNC-${NOVNC_VERSION}/mandatory.json \
+      noVNC-${NOVNC_VERSION}/package.json noVNC-${NOVNC_VERSION}/LICENSE.txt
 
 FROM --platform=linux/amd64 ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c
 
@@ -138,6 +166,19 @@ COPY claude-handle-unset.cjs /opt/t3flare/share/claude-handle-unset.cjs
 COPY --chmod=755 t3flare-opencode /opt/t3flare/bin/opencode
 COPY opencode-key-plugin /opt/t3flare/share/opencode-key-plugin
 
+# The Container desktop (SPI-1447, ADR-0050), after the CLI layers so a pin bump rebuilds only this: an X11 display on
+# Xvfb with openbox, a D-Bus session bus with the AT-SPI bus agent-desktop reads, x11vnc and websockify for noVNC's page,
+# and fonts. Nothing starts it with the Container: `container-desktop ensure` does, or the `agent-desktop` shim's first
+# run. The shim and container-desktop stand in a directory of their own, first on PATH (below).
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      xvfb x11-utils openbox dbus dbus-x11 at-spi2-core libatk-bridge2.0-0t64 x11vnc websockify \
+      fonts-dejavu-core fonts-liberation2 \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=desktop --chown=0:0 /agent-desktop /opt/t3flare/agent-desktop
+COPY --from=desktop --chown=0:0 /novnc /opt/t3flare/novnc
+COPY --chmod=755 container-desktop agent-desktop /opt/t3flare/desktop/bin/
+
 COPY --chmod=755 supervise /usr/local/bin/t3flare-supervise
 
 # The memory guard, which the supervisor runs: earlyoom (an apt package above), and a note for the commands that run
@@ -165,11 +206,20 @@ RUN cp -a /usr/local/share/t3flare /usr/local/share/cloudpid
 # computerd keeps its copy of the Workspace in COMPUTERD_DB, on the Container's disk, so a snapshot holds it with its
 # sync positions: a Container restored from one is sent only what changed since, not every file. In memory, the
 # default, it is rebuilt from the Workspace DO at each start.
+# The Container desktop's directory (`DESKTOP_BIN`) comes before mise's shims, so a Toolchain's own agent-desktop never
+# skips the desktop's start; its display and session bus are named here for the image's own processes, and reach a
+# command, a Terminal and a CLI agent through `COMMAND_ENV`, since computerd passes on only PATH. So do the two switches
+# that make Electron (ACCESSIBILITY_ENABLED) and Qt (QT_LINUX_ACCESSIBILITY_ALWAYS_ON) apps show their accessibility
+# trees to agent-desktop: without them they do only when a screen reader runs.
 ENV PORT=8080 \
     MOUNT_POINT=/workspace \
     FUSE_MOUNT=auto \
     COMPUTERD_DB=/var/lib/computerd/state.db \
-    PATH=/root/.local/share/mise/shims:/usr/local/share/mise/shims:${PATH}
+    DISPLAY=:99 \
+    DBUS_SESSION_BUS_ADDRESS=unix:path=/run/container-desktop/bus \
+    ACCESSIBILITY_ENABLED=1 \
+    QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1 \
+    PATH=/opt/t3flare/desktop/bin:/root/.local/share/mise/shims:/usr/local/share/mise/shims:${PATH}
 RUN mkdir -p /var/lib/computerd
 EXPOSE 8080
 

@@ -134,6 +134,10 @@ _Avoid_: headless Chrome (stock's, on its host), remote browser
 A preview browser's request to `http://<port>.t3flare.internal/`, answered from that port of the Workspace's Container, which it never starts (ADR-0031).
 _Avoid_: port proxy, tunnel, preview URL (t3's configured URL)
 
+**Container desktop**:
+The virtual display in a Workspace's Container that agents drive for computer use, and that the Owner watches as a Container preview. Gone when the Container stops.
+_Avoid_: desktop (that is t3's desktop client), VNC, VM, sandbox display
+
 **Session**:
 One Durable agent's conversation, kept in its own Durable Object.
 _Avoid_: thread (that is t3's), run

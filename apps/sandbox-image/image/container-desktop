@@ -1,0 +1,217 @@
+#!/usr/bin/bash
+# container-desktop: the Container desktop (SPI-1447, ADR-0050), an X11 display agents drive with agent-desktop and the
+# Owner watches as a Container preview of its noVNC page.
+#
+#   container-desktop ensure    start whatever part of it is not running, then say where to watch it and where
+#                               screenshots go; with --notice-if-started, say so only when it started something
+#   container-desktop status    say which parts run; exit 0 when all do, 3 when one does not
+#   container-desktop stop      stop every part
+#
+# ensure is idempotent: it holds a lock (flock, released when it exits), and starts only a part not running, each found
+# by its pid file and its process name, so a stale pid file from an earlier Container is never trusted. The parts: a
+# D-Bus session bus at a fixed socket with the AT-SPI bus on it, Xvfb, openbox, x11vnc on loopback, websockify serving
+# noVNC on every address (a Container preview cannot reach loopback).
+#
+# Each part starts in a session of its own (setsid), with an environment holding only what it needs and none of the
+# command's: no T3FLARE_EXEC, so t3flare's process checks and kill script never count or take it, and it outlives the
+# command and the turn; no model or tool handle. Its stdin, stdout and stderr are /dev/null and its log, so the command
+# that started it ends when ensure does. None of it is input: the Container stops on its usual schedule and takes the
+# desktop with it.
+#
+# apps/sandbox-image/src/desktop.ts holds the same values; apps/agents/test/containerDesktopScript.test.ts keeps them
+# equal, and runs this script where the packages are installed. The CONTAINER_DESKTOP_* variables move its state, ports
+# and display for that test only.
+set -u
+
+display=${CONTAINER_DESKTOP_DISPLAY:-:99}
+geometry=1280x800x24
+state=${CONTAINER_DESKTOP_STATE:-/run/container-desktop}
+bus="unix:path=$state/bus"
+vnc_port=${CONTAINER_DESKTOP_VNC_PORT:-5900}
+view_port=${CONTAINER_DESKTOP_VIEW_PORT:-6080}
+view_url="http://$view_port.t3flare.internal/vnc.html?autoconnect=1&resize=scale"
+screenshots=${CONTAINER_DESKTOP_SCREENSHOTS:-/workspace/.container-desktop/screenshots}
+novnc=/opt/t3flare/novnc
+# How long ensure waits for the lock, and for each part to answer once started: guards against a part that never comes
+# up, so ensure fails naming it instead of hanging the agent's command.
+wait_seconds=20
+
+# The parts in start order, each with the process name its pid file is checked against.
+parts=(bus xvfb openbox x11vnc websockify)
+declare -A comm=([bus]=dbus-daemon [xvfb]=Xvfb [openbox]=openbox [x11vnc]=x11vnc [websockify]=websockify)
+
+say() { printf 'container-desktop: %s\n' "$*" >&2; }
+
+# The pid in a part's pid file when that process runs under the part's name; else nothing, status 1.
+pid_of() {
+  local pid name
+  read -r pid 2>/dev/null < "$state/$1.pid" || return 1
+  [[ $pid =~ ^[0-9]+$ ]] || return 1
+  read -r name 2>/dev/null < "/proc/$pid/comm" || return 1
+  # websockify is a Python program: its comm is python3's, so its command line names it.
+  if [ "$1" = websockify ]; then
+    tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -q websockify || return 1
+  else
+    [ "$name" = "${comm[$1]}" ] || return 1
+  fi
+  echo "$pid"
+}
+
+running() { pid_of "$1" > /dev/null; }
+
+listening() { [ -n "$(ss -Hltn "sport = :$1" 2>/dev/null)" ]; }
+
+bus_answers() {
+  dbus-send --bus="$bus" --dest=org.freedesktop.DBus --type=method_call --print-reply / org.freedesktop.DBus.GetId \
+    > /dev/null 2>&1
+}
+
+display_answers() { DISPLAY=$display xdpyinfo > /dev/null 2>&1; }
+
+# Whether a running part also answers: its bus, display or port.
+ready() {
+  running "$1" || return 1
+  case $1 in
+    bus) bus_answers ;;
+    xvfb) display_answers ;;
+    x11vnc) listening "$vnc_port" ;;
+    websockify) listening "$view_port" ;;
+    *) return 0 ;;
+  esac
+}
+
+# Starts a part detached: its own session, a clean environment, its output to its log, its pid in its pid file.
+launch() {
+  local part=$1
+  shift
+  : > "$state/$part.log"
+  env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root LANG=C.UTF-8 \
+    DISPLAY="$display" DBUS_SESSION_BUS_ADDRESS="$bus" XDG_RUNTIME_DIR="$state/runtime" \
+    /usr/bin/setsid "$@" < /dev/null >> "$state/$part.log" 2>&1 9>&- &
+  echo $! > "$state/$part.pid"
+}
+
+# Waits for a part to answer; fails naming it, with its log's last lines.
+await() {
+  local part=$1 deadline=$((SECONDS + wait_seconds)) pid
+  read -r pid < "$state/$part.pid"
+  until ready "$part"; do
+    # Until it execs, the pid is env's or setsid's: only a pid that is gone has failed early.
+    if ! kill -0 "$pid" 2>/dev/null || ((SECONDS >= deadline)); then
+      say "$part did not start within ${wait_seconds}s; its log, $state/$part.log, ends:"
+      tail -n 5 "$state/$part.log" >&2
+      return 1
+    fi
+    sleep 0.1
+  done
+}
+
+start() {
+  case $1 in
+    bus)
+      rm -f "$state/bus"
+      launch bus dbus-daemon --session --nofork --nopidfile --address="$bus"
+      await bus || return 1
+      # The AT-SPI bus agent-desktop reads, started on the session bus now rather than at the first client's ask.
+      dbus-send --bus="$bus" --dest=org.a11y.Bus --type=method_call --print-reply /org/a11y/bus \
+        org.a11y.Bus.GetAddress > /dev/null 2>&1 || { say "the AT-SPI bus did not start"; return 1; }
+      ;;
+    xvfb)
+      launch xvfb Xvfb "$display" -screen 0 "$geometry" -nolisten tcp
+      await xvfb
+      ;;
+    openbox)
+      launch openbox openbox
+      await openbox
+      ;;
+    x11vnc)
+      launch x11vnc x11vnc -display "$display" -rfbport "$vnc_port" -localhost -nopw -shared -forever -quiet
+      await x11vnc
+      ;;
+    websockify)
+      launch websockify websockify --web "$novnc" "0.0.0.0:$view_port" "127.0.0.1:$vnc_port"
+      await websockify
+      ;;
+  esac
+}
+
+notice() {
+  cat << EOF
+The Container desktop runs on DISPLAY=$display ($geometry).
+Watch it at $view_url
+  An agent opens that address with preview_open; or give it to the Owner to open.
+Screenshots: agent-desktop screenshot --screen 0 $screenshots/<timestamp>.png
+  Always to a file there, never inline base64; then read the file.
+EOF
+}
+
+stop_part() {
+  local pid i
+  pid=$(pid_of "$1") || { rm -f "$state/$1.pid"; return 0; }
+  kill -TERM "$pid" 2>/dev/null
+  for ((i = 0; i < 50; i++)); do
+    running "$1" || break
+    sleep 0.1
+  done
+  running "$1" && kill -KILL "$pid" 2>/dev/null
+  rm -f "$state/$1.pid"
+}
+
+ensure() {
+  local only_if_started=$1 part started=0 rest=0
+  mkdir -p "$state/runtime" "$screenshots" || return 1
+  chmod 700 "$state/runtime"
+  exec 9> "$state/lock"
+  flock -w "$wait_seconds" 9 || { say "another container-desktop held $state/lock for ${wait_seconds}s"; return 1; }
+  for part in "${parts[@]}"; do
+    # A part that runs but does not answer is restarted; so is every part after a bus or a display that was (re)started,
+    # since each later part is bound to the bus and the display it started on.
+    ((rest)) || ! ready "$part" || continue
+    stop_part "$part"
+    start "$part" || return 1
+    started=1
+    case $part in bus | xvfb) rest=1 ;; esac
+  done
+  exec 9>&-
+  if ((started)) || [ "$only_if_started" = 0 ]; then notice; fi
+}
+
+status() {
+  local part pid all=0
+  for part in "${parts[@]}"; do
+    if pid=$(pid_of "$part") && ready "$part"; then
+      echo "$part: running (pid $pid)"
+    else
+      echo "$part: stopped"
+      all=3
+    fi
+  done
+  [ $all = 0 ] && echo "view: $view_url"
+  return $all
+}
+
+stop() {
+  local i
+  mkdir -p "$state"
+  exec 9> "$state/lock"
+  flock -w "$wait_seconds" 9 || { say "another container-desktop held $state/lock for ${wait_seconds}s"; return 1; }
+  for ((i = ${#parts[@]} - 1; i >= 0; i--)); do stop_part "${parts[$i]}"; done
+  rm -f "$state/bus"
+  exec 9>&-
+}
+
+case "${1:-}" in
+  ensure)
+    case "${2:-}" in
+      "") ensure 0 ;;
+      --notice-if-started) ensure 1 ;;
+      *) say "ensure takes no argument but --notice-if-started"; exit 2 ;;
+    esac
+    ;;
+  status) status ;;
+  stop) stop ;;
+  *)
+    say "usage: container-desktop ensure | status | stop"
+    exit 2
+    ;;
+esac

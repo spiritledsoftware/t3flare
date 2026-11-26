@@ -126,6 +126,7 @@ export const withheldFromCommands = (name: string): boolean =>
  * sets a name this list misses, or this list keeps one nothing sets.
  */
 export const SET_BY_T3FLARE: ReadonlyArray<string> = [
+  "ACCESSIBILITY_ENABLED",
   "ALL_PROXY",
   "ANTHROPIC_API_KEY",
   "ANTHROPIC_AUTH_TOKEN",
@@ -164,11 +165,13 @@ export const SET_BY_T3FLARE: ReadonlyArray<string> = [
   "CLAUDE_CONFIG_DIR",
   "CODEX_HOME",
   "CODEX_SQLITE_HOME",
+  "DBUS_SESSION_BUS_ADDRESS",
   "DISABLE_AUTOUPDATER",
   "DISABLE_ERROR_REPORTING",
   "DISABLE_FEEDBACK_COMMAND",
   "DISABLE_TELEMETRY",
   "DISABLE_UPDATES",
+  "DISPLAY",
   "GIT_TERMINAL_PROMPT",
   "HISTFILE",
   "HISTFILESIZE",
@@ -208,6 +211,7 @@ export const SET_BY_T3FLARE: ReadonlyArray<string> = [
   "PS0",
   "PS1",
   "PWD",
+  "QT_LINUX_ACCESSIBILITY_ALWAYS_ON",
   "SHELL",
   "SSL_CERT_DIR",
   "SSL_CERT_FILE",
