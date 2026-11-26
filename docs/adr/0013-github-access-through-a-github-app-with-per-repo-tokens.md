@@ -106,3 +106,23 @@ the minters and the lookup runs as t3's own. The Environment token keeps its sco
 Container token its one repo. A lookup the App cannot mint for says why: the App is not installed on
 the owner, or the repo is not among the installation's selected repositories (GitHub answers the same for a repo that
 does not exist, so the two are named together).
+
+## Refinement (2026-11-26): t3's GitHub operations get a token for the owner of the repo each acts on
+
+t3's PR features failed with 403 ("Resource not accessible by integration") on every repo of a second owner: t3 reads
+one credential per host from `gh auth token`, and the Environment token it answers is minted for one installation, the
+first Workspace's owner. An installation token cannot reach another installation's repos, so no single token covers an
+Environment with Projects under two owners. Each operation of t3's GitHub pull request provider, source control
+provider and issue tracker now runs with an Environment token minted for the owner of the repo it acts on (its
+`repository`, the repos it reads across, an issue's scope, a link's URL, a remote, else the Workspace its `cwd` is in),
+covering that owner's Projects and the repo named, and pinned to the operation's requests through t3's
+`PinnedGitHubCredential` (Layers over t3's three provider registries, `apps/environment/src/t3/providerTokens.ts`). One
+token per owner rather than per repo, because t3 batches reads across repos into one request per credential. An
+operation naming no github.com repo, or repos of two owners, or an owner the App cannot mint for, runs as t3's own, on
+`gh auth token`, which keeps its scope; a token GitHub refuses is dropped and the next operation mints another.
+
+The Environment token no longer names its permissions: it takes every one the installation grants (owner, 2026-11-26:
+the App acts as the owner would, so t3's PR and issue tools can merge, write issues and re-run checks).
+`GITHUB_APP_PERMISSIONS`, the manifest a new App is registered from, mirrors the owner's App, which holds nearly every repository, organization, enterprise and account permission; an existing App's permissions change in its settings on GitHub, and each installation accepts
+them. The Environment token still never reaches a Container or a Session, and the other tokens keep their own narrow
+lists: a Container's token is readable by the agent.

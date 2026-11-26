@@ -49,12 +49,10 @@ import * as SpeechModelStore from "t3/src/speech/SpeechModelStore.ts";
 import * as SpeechService from "t3/src/speech/SpeechService.ts";
 import * as CloudSpeech from "t3/src/speech/CloudSpeech.ts";
 import { speechHttpApiLayer } from "t3/src/speech/http.ts";
-import * as PullRequestProviderRegistry from "t3/src/pullRequest/PullRequestProviderRegistry.ts";
 import * as PullRequestService from "t3/src/pullRequest/PullRequestService.ts";
 import * as IssueService from "t3/src/issue/IssueService.ts";
 import * as IssueTrackerConnections from "t3/src/issue/IssueTrackerConnections.ts";
 import * as IssueTrackerBindings from "t3/src/persistence/IssueTrackerBindings.ts";
-import * as IssueTrackerRegistry from "t3/src/issue/IssueTrackerRegistry.ts";
 import * as PullRequestFilesViewed from "t3/src/persistence/PullRequestFilesViewed.ts";
 import * as PullRequestReviewGuides from "t3/src/persistence/PullRequestReviewGuides.ts";
 import * as PullRequestReviewGuideService from "t3/src/pullRequest/PullRequestReviewGuideService.ts";
@@ -116,6 +114,7 @@ import * as LimitSources from "../usage/limitSources.ts";
 import { layerAcpRegistry } from "../provider/acpRegistry.ts";
 import * as DurableObjectDatabaseStorage from "./databaseStorage.ts";
 import * as DeletionWake from "./deletionWake.ts";
+import * as ProviderTokens from "./providerTokens.ts";
 import * as RepositoryLookup from "./repositoryLookup.ts";
 import { otlpConfigFromSettings } from "./otlp.ts";
 import * as ProjectFaviconResolver from "t3/src/project/ProjectFaviconResolver.ts";
@@ -394,7 +393,8 @@ export const make = (options: CompositionOptions) => {
   const layerVcsDriverRegistry = WorkspaceCheckpoints.layerVcsDriverRegistry(
     VcsDriverRegistry.layer.pipe(Layer.provide(VcsProjectConfig.layer)),
   );
-  const layerSourceControlProviderRegistry = SourceControlProviderRegistry.layer.pipe(
+  // t3flare: t3's GitHub providers run each operation on a GitHub App token for its repo's owner (`providerTokens.ts`).
+  const layerSourceControlProviderRegistry = ProviderTokens.layerSourceControlProviderRegistry.pipe(
     Layer.provideMerge(SourceControlBuiltInDrivers.layer),
     Layer.provideMerge(GitVcsDriver.layer),
     Layer.provideMerge(layerVcsDriverRegistry),
@@ -422,7 +422,7 @@ export const make = (options: CompositionOptions) => {
   ).pipe(Layer.provide(layerSourceControlProviderRegistry), Layer.provide(ProcessRunner.layer));
 
   const layerPullRequestService = PullRequestService.layer.pipe(
-    Layer.provide(PullRequestProviderRegistry.layer),
+    Layer.provide(ProviderTokens.layerPullRequestProviderRegistry),
     Layer.provide(PullRequestFilesViewed.layer),
     Layer.provide(PullRequestReadCache.layer),
     Layer.provide(layerSourceControlProviderRegistry),
@@ -431,7 +431,7 @@ export const make = (options: CompositionOptions) => {
 
   // As t3's `server.ts`: both read the one registry, so a tracker connected in Settings is the instance the listing reads.
   const layerIssueService = Layer.merge(IssueService.layer, IssueTrackerConnections.layer).pipe(
-    Layer.provide(Layer.merge(IssueTrackerRegistry.layer, IssueTrackerBindings.layer)),
+    Layer.provide(Layer.merge(ProviderTokens.layerIssueTrackerRegistry, IssueTrackerBindings.layer)),
   );
 
   const layerGitManager = GitManager.layer.pipe(
