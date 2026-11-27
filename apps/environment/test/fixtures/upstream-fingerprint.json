@@ -266,11 +266,24 @@
       "literal": "const pinned = yield* PinnedGitHubCredential;",
       "ourFile": "apps/environment/src/t3/providerTokens.ts",
       "entry": "U112"
+    },
+    {
+      "file": "apps/server/src/mcp/OrchestratorMcpService.ts",
+      "literal": ".resolveCommit({ cwd: project.workspaceRoot, revision: base.commitSha })",
+      "ourFile": "apps/environment/src/t3/delegateBaseFetch.ts",
+      "entry": "U114"
+    },
+    {
+      "file": "apps/server/src/vcs/GitVcsDriverCore.ts",
+      "literal": "detail: \"Git command timed out.\"",
+      "ourFile": "apps/environment/src/t3/delegateBaseFetch.ts",
+      "entry": "U114"
     }
   ],
   "files": {
     "apps/server/src/environment/ServerEnvironment.ts": "a340037016270d7bbe30577cc0992a0185d5dab9",
     "apps/server/src/environmentTheme.ts": "4be3c6aa9f31afdb0831b61fad8a59ebcb0fe522",
+    "apps/server/src/mcp/OrchestratorMcpService.ts": "5c80c95805dea2ca0b72d942a7daf8e45cfd3a9b",
     "apps/server/src/peer/PeerLinks.ts": "859266c469c70e78c5e7c77b6bd53825274e0b8f",
     "apps/server/src/server.ts": "491669209f7bf5e4e149f378720a9ab2bb11c64b",
     "apps/server/src/sourceControl/SourceControlDiscovery.ts": "2261ea4f9924d0aa4c0fe0d521591a4caf445bf3",
