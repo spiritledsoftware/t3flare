@@ -324,6 +324,8 @@ const USAGE_SCRIPT = [
 ].join("\n");
 /** Set by `destroy()` (review F4): every RPC but provisioning refuses, so a purged Workspace is never recreated. */
 const DESTROYED_KEY = "t3flare:destroyed";
+/** The reason `destroy` restarts the object with, which the Environment's `makeEmpty` retries on (routingFileSystem.ts). */
+const RESTARTED_AFTER_DESTROY = "t3flare: workspace destroyed";
 /** A worktree's copy of its project's untracked files (step 2b, plan section 4.2), linked at the project's t3 path in its Container. */
 export const PROJECT_ROOT_VIEW = `${HARNESS_ROOT}/project-root`;
 const LEASED_KEY = "t3flare:container-leased";
@@ -404,6 +406,11 @@ export class WorkspaceDO extends ContainerHost {
   /** Commands running now: the Container is not stopped under them. */
   #running = 0;
   /** Whether the Container may start, and the starts under way (`containerGate.ts`). */
+  /**
+   * Set by `destroy` until the object restarts: this instance's in-memory computer outlived the storage it wiped, so a
+   * provisioning call that lands before the restart fails with the restart's reason and is sent again to the new one.
+   */
+  #restarting = false;
   readonly #gate = new ContainerGate({
     closed: () => this.ctx.storage.kv.get<number>(CONTAINER_CLOSED_KEY) !== undefined,
     setClosed: (closed) =>
@@ -2452,6 +2459,7 @@ export class WorkspaceDO extends ContainerHost {
 
   /** Provisioning makes the Workspace again (a worktree at a reused path, review F5). */
   #revive(): void {
+    if (this.#restarting) throw new Error(RESTARTED_AFTER_DESTROY);
     this.ctx.storage.kv.delete(DESTROYED_KEY);
     this.#gate.reopen();
   }
@@ -2502,13 +2510,14 @@ export class WorkspaceDO extends ContainerHost {
       .release(this.ctx.id.toString())
       .catch(() => undefined);
     await this.ctx.storage.deleteAlarm();
+    this.#restarting = true;
     await this.ctx.storage.deleteAll();
     this.ctx.storage.kv.put(DESTROYED_KEY, Date.now());
     await this.ctx.storage.sync();
     console.log(
       JSON.stringify({ t3flare: "workspace-destroyed", workspace: this.ctx.id.name ?? this.ctx.id.toString() }),
     );
-    setTimeout(() => this.ctx.abort("t3flare: workspace destroyed"), 0);
+    setTimeout(() => this.ctx.abort(RESTARTED_AFTER_DESTROY), 0);
     return { destroyed: true };
   }
 
