@@ -9,6 +9,7 @@
 //   directory, as git's default does.
 // - `diff-index -M --numstat -z HEAD --`: each journal path's record recomputed (HEAD against the working tree).
 // - `ls-files --others --exclude-standard -z -- [one file's pathspec]`: journal paths added or removed.
+//   Its `--with-tree=HEAD` form (t3 since v0.1.13, a one-file review read's isolated index) gets the last answer alone.
 // - `-c diff.suppressBlankEmpty=false diff --find-renames … --src-prefix=a/ --dst-prefix=b/ [--minimal]
 //   <--patch | --raw --numstat -z> <HEAD or a merge base> -- [one file's pathspecs]` without a temporary index: each
 //   journal path's section or records recomputed.

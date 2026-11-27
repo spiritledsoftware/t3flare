@@ -5,6 +5,7 @@
 // overridden here is workerd's `node:fs`.
 import * as real from "node:fs";
 import { Buffer } from "node:buffer";
+import { EventEmitter } from "node:events";
 
 import * as store from "../platform/stateStore.ts";
 
@@ -291,6 +292,26 @@ export function accessSync(input: unknown): void {
   if (!existsSync(input)) throw new store.FsError("ENOENT", "access", String(input));
 }
 
+/** A watch that reports nothing, and closes. */
+class SilentWatcher extends EventEmitter {
+  close(): void {}
+  ref(): this {
+    return this;
+  }
+  unref(): this {
+    return this;
+  }
+}
+
+// t3's `watchDirectoryReplacements.ts` (since v0.1.13) watches an Environment themes folder's parent for the folder's
+// replacement. Only t3 writes the State directory, from this process, so a watch there reports no events, as the
+// Effect FileSystem's `watch` (../platform/fileSystem.ts); t3's one-second probe of the folder's identity still runs.
+export function watch(input: unknown, ...rest: Array<unknown>): real.FSWatcher {
+  const path = pathOf(input);
+  if (isReal(path)) return (real.watch as (...args: Array<unknown>) => real.FSWatcher)(input, ...rest);
+  return new SilentWatcher() as unknown as real.FSWatcher;
+}
+
 // File descriptors: t3 opens files for exclusive creation and lock files, and reads its Environment themes through
 // one (`readThemeFileGuarded`). A tiny table buffers writes and commits them on close, in one write; reads see the
 // file as stored, not writes still buffered on the descriptor.
@@ -436,6 +457,7 @@ export default {
   utimesSync,
   truncateSync,
   accessSync,
+  watch,
   openSync,
   readSync,
   writeSync,

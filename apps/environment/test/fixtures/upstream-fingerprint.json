@@ -1,10 +1,10 @@
 {
-  "reviewedCommit": "59651c1761f6c63e9b6056839067066968e6a406",
+  "reviewedCommit": "bc0f04da94f64b5e487c598761a43b4cf06b2ac9",
   "regions": [
     {
       "file": "apps/server/src/server.ts",
       "symbol": "*",
-      "hash": "8423502018c3ec73",
+      "hash": "dd3a9b581dcbb826",
       "ourFile": "apps/environment/src/t3/composition.ts",
       "entry": "U1"
     },
@@ -103,7 +103,7 @@
     {
       "file": "apps/server/src/peer/PeerLinks.ts",
       "symbol": "PeerLinks",
-      "hash": "738b44724ed0fa7d",
+      "hash": "30547b9b2c21da8e",
       "ourFile": "apps/environment/src/t3/peerLinks.ts",
       "entry": "U45"
     },
@@ -117,7 +117,7 @@
     {
       "file": "apps/server/src/environmentTheme.ts",
       "symbol": "readThemeFileGuarded",
-      "hash": "a37794e5e520e85d",
+      "hash": "20e359401bd50318",
       "ourFile": "apps/environment/src/shims/node-fs.ts",
       "entry": "U93"
     }
@@ -149,7 +149,7 @@
     },
     {
       "file": "apps/server/src/vcs/GitVcsDriverCore.ts",
-      "literal": "[\"ls-files\", \"--others\", \"--exclude-standard\", \"-z\", \"--\",",
+      "literal": "...(withTree ? [\"--with-tree=HEAD\"] : []),",
       "ourFile": "apps/agents/src/workspace/staleReads.ts",
       "entry": "U13"
     },
@@ -269,19 +269,19 @@
     }
   ],
   "files": {
-    "apps/server/src/environment/ServerEnvironment.ts": "a9dfdcb6e60486290eee95367d1d56005a4c2443",
-    "apps/server/src/environmentTheme.ts": "73df72f6b01e7bf081bf22adf4d16ea76c0ce7bd",
-    "apps/server/src/peer/PeerLinks.ts": "4fa159dd7033785744568a5c413b019f08e837bb",
-    "apps/server/src/server.ts": "35f63e9c44a60c70d8dc68ce087e92ebdc4df6ae",
-    "apps/server/src/sourceControl/SourceControlDiscovery.ts": "e69f0d3761e68b291b6e58b0710a09fcba9f9079",
-    "apps/server/src/sourceControl/SourceControlRepositoryService.ts": "b4b2dc0e92fe5a46bcbaa153e8efadd707b0c223",
-    "apps/server/src/terminal/Manager.ts": "a294ba7f1afe28eb83e0281e63221c9118589f20",
-    "apps/server/src/vcs/GitVcsDriverCore.ts": "b88ade886325903c12cf4666316092ca5ad659bd",
-    "packages/contracts/src/peerLink.ts": "0d72b978e26090bf4aad445c8eddf7f51fcf7b64",
+    "apps/server/src/environment/ServerEnvironment.ts": "a340037016270d7bbe30577cc0992a0185d5dab9",
+    "apps/server/src/environmentTheme.ts": "4be3c6aa9f31afdb0831b61fad8a59ebcb0fe522",
+    "apps/server/src/peer/PeerLinks.ts": "859266c469c70e78c5e7c77b6bd53825274e0b8f",
+    "apps/server/src/server.ts": "491669209f7bf5e4e149f378720a9ab2bb11c64b",
+    "apps/server/src/sourceControl/SourceControlDiscovery.ts": "2261ea4f9924d0aa4c0fe0d521591a4caf445bf3",
+    "apps/server/src/sourceControl/SourceControlRepositoryService.ts": "49a9edfdde0f787f8e00a5bda18bc8980821dcb7",
+    "apps/server/src/terminal/Manager.ts": "744a288e83220007e617de23b5d0f7e1fb49d58a",
+    "apps/server/src/vcs/GitVcsDriverCore.ts": "20e31077f46442c75a169fe1f02c94e69f198932",
+    "packages/contracts/src/peerLink.ts": "3ff0fe93228d8dc6e06edf7d535541567c878b3c",
     "packages/source-control-github/src/server/GitHubCredentials.ts": "a490da112a28eeffc5b0d1eb8ec60ce257df8c21",
     "packages/source-control-github/src/server/GitHubHttpClient.ts": "ed394d1d49c4a5cb515cc143065d6e4d2c057bbd",
     "packages/source-control-github/src/server/GitHubRequestPolicy.ts": "63394779ea76bb967ac6a357e98fda10e90fc4ba",
-    "packages/source-control-github/src/server/GitHubSourceControlProvider.ts": "f69e06fedc663dbc2b4744654b1a83995e1bb985",
+    "packages/source-control-github/src/server/GitHubSourceControlProvider.ts": "67915406a4856e466eb0d178ed6e0a0e19e7a370",
     "packages/source-control-github/src/server/gitHubAuthStatus.ts": "2766d305a014d71607ce0bf5baa7d21c04de2e4e"
   }
 }

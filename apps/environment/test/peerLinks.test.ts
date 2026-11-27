@@ -51,9 +51,10 @@ it("links, lists, resolves and unlinks as stock t3 does, through our Layer", asy
   });
   expect(result.listed.map((link) => [link.environmentId, link.status])).toEqual([[laptop.environmentId, "reachable"]]);
   expect(result.resolved.token.length).toBeGreaterThan(20);
-  expect(result.removed).toBe(true);
+  expect(result.removed).toEqual({ removed: true, endedThere: true });
   expect(Option.isNone(result.after)).toBe(true);
-  expect(result.sessions.length).toBe(1);
+  // Since v0.1.13 t3's unlink also ends the link's session on the peer.
+  expect(result.sessions.length).toBe(0);
 });
 
 it("answers every error with t3's reason, message and answeredAs, and no cause", async () => {
@@ -69,6 +70,7 @@ it("answers every error with t3's reason, message and answeredAs, and no cause",
     link: fail,
     linkUnlessLinked: fail,
     list: fail(),
+    names: fail(),
     get: fail,
     unlink: fail,
     resolve: fail,
@@ -85,13 +87,14 @@ it("answers every error with t3's reason, message and answeredAs, and no cause",
         Effect.flip(links.link({ url: "https://laptop.example", pairingCode: "PAIRCODE", access: "auto" })),
         Effect.flip(links.linkUnlessLinked({ url: "https://laptop.example", pairingCode: "PAIRCODE", access: "auto" })),
         Effect.flip(links.list),
+        Effect.flip(links.names),
         Effect.flip(links.get(id)),
         Effect.flip(links.unlink(id)),
         Effect.flip(links.resolve(id)),
       ]);
     }).pipe(Effect.provide(layerPeerLinksWithoutCause.pipe(Layer.provide(Layer.succeed(PeerLinks.PeerLinks, real))))),
   );
-  expect(errors).toHaveLength(6);
+  expect(errors).toHaveLength(7);
   for (const error of errors) {
     expect(error).toMatchObject({
       _tag: "PeerLinkError",

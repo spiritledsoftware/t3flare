@@ -1,8 +1,8 @@
 diff --git a/apps/server/src/terminal/Manager.ts b/apps/server/src/terminal/Manager.ts
-index a294ba7..17c4bb0 100644
+index 744a288e83..0897ad1804 100644
 --- a/apps/server/src/terminal/Manager.ts
 +++ b/apps/server/src/terminal/Manager.ts
-@@ -63,6 +63,7 @@ import * as Path from "effect/Path";
+@@ -71,6 +71,7 @@ import * as Path from "effect/Path";
  import * as Result from "effect/Result";
  import * as Schema from "effect/Schema";
  import * as Scope from "effect/Scope";
@@ -10,7 +10,7 @@ index a294ba7..17c4bb0 100644
  import * as Stream from "effect/Stream";
  import * as SynchronizedRef from "effect/SynchronizedRef";
  
-@@ -304,7 +305,7 @@ interface TerminalSessionState {
+@@ -319,7 +320,7 @@ interface TerminalSessionState {
    worktreePath: string | null;
    status: TerminalSessionStatus;
    pid: number | null;
@@ -19,7 +19,7 @@ index a294ba7..17c4bb0 100644
    pendingHistoryControlSequence: string;
    pendingProcessEvents: Array<PendingProcessEvent | undefined>;
    pendingProcessEventIndex: number;
-@@ -340,7 +341,7 @@ interface TerminalViewer {
+@@ -355,7 +356,7 @@ interface TerminalViewer {
  }
  
  interface PersistHistoryRequest {
@@ -28,7 +28,7 @@ index a294ba7..17c4bb0 100644
    immediate: boolean;
  }
  
-@@ -355,7 +356,7 @@ type DrainProcessEventAction =
+@@ -370,7 +371,7 @@ type DrainProcessEventAction =
        threadId: string;
        terminalId: string;
        sequence: number;
@@ -37,25 +37,24 @@ index a294ba7..17c4bb0 100644
        data: string;
      }
    | {
-@@ -405,7 +406,7 @@ function terminalWireLabel(session: TerminalSessionState): string {
-   return truncateTerminalWireLabel(getTerminalLabel(session.terminalId));
- }
+@@ -422,6 +423,7 @@ function terminalWireLabel(session: TerminalSessionState): string {
  
--function snapshot(session: TerminalSessionState): TerminalSessionSnapshot {
-+function snapshot(session: TerminalSessionState, history: string): TerminalSessionSnapshot {
+ function snapshot(
+   session: TerminalSessionState,
++  history: string,
+   supportsSnapshotSequenceState = false,
+ ): TerminalSessionSnapshot {
    return {
-     threadId: session.threadId,
-     terminalId: session.terminalId,
-@@ -413,7 +414,7 @@ function snapshot(session: TerminalSessionState): TerminalSessionSnapshot {
-     worktreePath: session.worktreePath,
+@@ -432,7 +434,7 @@ function snapshot(
      status: session.status,
      pid: session.pid,
--    history: session.history.value(),
-+    history,
+     supportsConditionalWrites: true,
+-    ...snapshotHistory(session, supportsSnapshotSequenceState),
++    ...snapshotHistory(session, history, supportsSnapshotSequenceState),
      exitCode: session.exitCode,
      exitSignal: session.exitSignal,
      label: terminalWireLabel(session),
-@@ -1191,6 +1192,82 @@ export class BoundedTerminalHistory {
+@@ -1242,6 +1244,82 @@ export class BoundedTerminalHistory {
    }
  }
  
@@ -138,7 +137,22 @@ index a294ba7..17c4bb0 100644
  // Pop beyond Ghostty's eight-entry Kitty stacks on both screens before clearing
  // flags. A 1049 round trip preserves the main cursor, text, and scrollback.
  const INHERITED_INPUT_RESET =
-@@ -2255,7 +2332,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -1488,8 +1566,12 @@ function unfinishedSequenceReplay(held: string): string {
+   return introducer + tail;
+ }
+ 
+-function snapshotHistory(session: TerminalSessionState, supportsSnapshotSequenceState: boolean) {
+-  const history = session.history.value();
++// t3flare (SPI-1391): `history` is the log's, which sessionSnapshot reads.
++function snapshotHistory(
++  session: TerminalSessionState,
++  history: string,
++  supportsSnapshotSequenceState: boolean,
++) {
+   const held = session.pendingHistoryControlSequence;
+   const oversized = held.startsWith(OVERSIZED_SEQUENCE);
+   // A long CSI compacts into a faithful replay, so only strings and oversized prefixes are omitted.
+@@ -2405,7 +2487,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
      yield* registerKillFiber(process, fiber);
    });
  
@@ -152,7 +166,7 @@ index a294ba7..17c4bb0 100644
    const persistWorker = yield* makeKeyedCoalescingWorker<
      string,
      PersistHistoryRequest,
-@@ -2276,34 +2358,58 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -2426,34 +2513,58 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
          return;
        }
  
@@ -233,7 +247,7 @@ index a294ba7..17c4bb0 100644
    ) {
      yield* persistWorker.enqueue(toSessionKey(threadId, terminalId), {
        history,
-@@ -2321,7 +2427,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -2471,7 +2582,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
    const persistHistory = Effect.fn("terminal.persistHistory")(function* (
      threadId: string,
      terminalId: string,
@@ -242,7 +256,7 @@ index a294ba7..17c4bb0 100644
    ) {
      yield* persistWorker.enqueue(toSessionKey(threadId, terminalId), {
        history,
-@@ -2374,6 +2480,44 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -2524,6 +2635,44 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
      };
    });
  
@@ -258,7 +272,7 @@ index a294ba7..17c4bb0 100644
 +
 +  // t3flare (SPI-1391): the log file's tail and the output not yet written, capped as stock caps
 +  // its history. Under the log's lock, so no write lands between the two reads.
-+  const sessionSnapshot = (session: TerminalSessionState) =>
++  const sessionSnapshot = (session: TerminalSessionState, supportsSnapshotSequenceState = false) =>
 +    session.history.lock.withPermits(1)(
 +      Effect.gen(function* () {
 +        const log = session.history;
@@ -276,18 +290,18 @@ index a294ba7..17c4bb0 100644
 +          lines <= historyLineLimit &&
 +          Buffer.byteLength(written) + Buffer.byteLength(unwritten) <= historyByteLimit
 +        ) {
-+          return snapshot(session, whole);
++          return snapshot(session, whole, supportsSnapshotSequenceState);
 +        }
 +        const history = log.history(written);
 +        history.append(unwritten);
-+        return snapshot(session, history.value());
++        return snapshot(session, history.value(), supportsSnapshotSequenceState);
 +      }),
 +    ).pipe(historyLock.withPermits(1));
 +
    const readHistory = Effect.fn("terminal.readHistory")(function* (
      threadId: string,
      terminalId: string,
-@@ -2941,7 +3085,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -3110,7 +3259,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
                threadId: session.threadId,
                terminalId: session.terminalId,
                sequence: eventStamp.sequence,
@@ -296,7 +310,7 @@ index a294ba7..17c4bb0 100644
              });
              // Publish startup before draining any events replayed during subscription.
              eventsActivated = true;
-@@ -3266,16 +3410,18 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -3447,16 +3596,18 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
      const existing = yield* getSession(input.threadId, terminalId);
      if (Option.isNone(existing)) {
        yield* flushPersist(input.threadId, terminalId);
@@ -318,58 +332,44 @@ index a294ba7..17c4bb0 100644
        const cols = input.cols ?? DEFAULT_OPEN_COLS;
        const rows = input.rows ?? DEFAULT_OPEN_ROWS;
        const session: TerminalSessionState = {
-@@ -3327,7 +3473,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
-         },
-         "started",
-       );
--      return snapshot(session);
-+      return yield* sessionSnapshot(session);
-     }
+@@ -3576,7 +3727,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+     withWorkspaceLease(
+       path.resolve(input.worktreePath ?? input.cwd),
+       openWithWorkspaceLease(input).pipe(
+-        Effect.map((session) => snapshot(session, supportsSnapshotSequenceState)),
++        Effect.flatMap((session) => sessionSnapshot(session, supportsSnapshotSequenceState)),
+       ),
+     );
  
-     const liveSession = existing.value;
-@@ -3377,14 +3523,14 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
-         },
-         "started",
-       );
--      return snapshot(liveSession);
-+      return yield* sessionSnapshot(liveSession);
-     }
- 
-     if (liveSession.cols !== targetCols || liveSession.rows !== targetRows) {
-       yield* resizeSession(liveSession, liveSession.process, targetCols, targetRows);
-     }
- 
--    return snapshot(liveSession);
-+    return yield* sessionSnapshot(liveSession);
-   });
- 
-   const openLocked = (input: TerminalOpenInput) =>
-@@ -3452,7 +3598,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -3643,7 +3794,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
        yield* resizeSession(session, session.process, targetCols, targetRows);
      }
  
--    return snapshot(session);
-+    return yield* sessionSnapshot(session);
+-    return snapshot(session, input.supportsSnapshotSequenceState);
++    return yield* sessionSnapshot(session, input.supportsSnapshotSequenceState);
    });
  
    const readAllTerminalMetadata = () =>
-@@ -3632,7 +3778,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
-   ) =>
+@@ -3824,7 +3975,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
      streamSession(
        input,
--      requireSession(input.threadId, input.terminalId).pipe(Effect.map(snapshot)),
-+      requireSession(input.threadId, input.terminalId).pipe(Effect.flatMap(sessionSnapshot)),
-       listener,
-       registerCleanup,
-     );
-@@ -3645,7 +3791,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
-     streamSession(
-       input,
-       getSession(input.threadId, input.terminalId).pipe(
--        Effect.map((session) => (Option.isSome(session) ? snapshot(session.value) : null)),
-+        Effect.flatMap((session) =>
-+          Option.isSome(session) ? sessionSnapshot(session.value) : Effect.succeed(null),
-+        ),
+       requireSession(input.threadId, input.terminalId).pipe(
+-        Effect.map((session) => snapshot(session, input.supportsSnapshotSequenceState)),
++        Effect.flatMap((session) => sessionSnapshot(session, input.supportsSnapshotSequenceState)),
        ),
        listener,
        registerCleanup,
+@@ -3838,10 +3989,10 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+     streamSession(
+       input,
+       getSession(input.threadId, input.terminalId).pipe(
+-        Effect.map((session) =>
++        Effect.flatMap((session) =>
+           Option.isSome(session)
+-            ? snapshot(session.value, input.supportsSnapshotSequenceState)
+-            : null,
++            ? sessionSnapshot(session.value, input.supportsSnapshotSequenceState)
++            : Effect.succeed(null),
+         ),
+       ),
+       listener,

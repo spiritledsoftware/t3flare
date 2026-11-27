@@ -51,12 +51,19 @@ const call = (operation: string, cwd: string, op: CheckpointOp): Effect.Effect<u
 };
 
 const ours = (stock: VcsDriver.VcsCheckpointOps): VcsDriver.VcsCheckpointOps => ({
+  // The Workspace answers no range. `undefined`, not t3's `null` ("no previous checkpoint", which would show the turn
+  // as changing nothing): t3's CheckpointService then asks `hasCheckpointRef` for the previous one and diffs by ref, as
+  // before v0.1.13 (fragility U17).
   captureCheckpoint: (input) =>
     isUnderW(input.cwd)
       ? call("checkpoints.captureCheckpoint", input.cwd, { op: "capture", ref: input.checkpointRef }).pipe(
-          Effect.asVoid,
+          Effect.as(undefined as unknown as VcsDriver.VcsCheckpointRange | null),
         )
       : stock.captureCheckpoint(input),
+  // Never clean for a `/w` folder, so t3 captures a full checkpoint through the Workspace each turn, as before v0.1.13,
+  // and never asks `captureHeadCheckpoint` for one.
+  resolveCleanHead: (cwd) => (isUnderW(cwd) ? Effect.succeed(null) : stock.resolveCleanHead(cwd)),
+  captureHeadCheckpoint: (input) => stock.captureHeadCheckpoint(input),
   hasCheckpointRef: (input) =>
     isUnderW(input.cwd)
       ? call("checkpoints.hasCheckpointRef", input.cwd, { op: "has", ref: input.checkpointRef }).pipe(

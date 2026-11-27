@@ -30,6 +30,12 @@ import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 
 import * as EnvironmentKeys from "t3/src/cloud/environmentKeys.ts";
 import * as AssetSigner from "t3/src/assets/AssetSigner.ts";
+import * as WorkspacePreviewRevisions from "t3/src/assets/WorkspacePreviewRevisions.ts";
+import * as MilestoneHub from "t3/src/milestones/MilestoneHub.ts";
+import * as OrchestrationMilestones from "t3/src/milestones/OrchestrationMilestones.ts";
+import * as WorkflowForge from "t3/src/workflows/WorkflowForge.ts";
+import * as ProviderMaintenanceRunner from "t3/src/provider/providerMaintenanceRunner.ts";
+import * as FeatureFlags from "@t3tools/shared/FeatureFlags";
 import * as DatabaseStorage from "t3/src/persistence/DatabaseStorage.ts";
 import * as StorageCleanup from "t3/src/storageCleanup.ts";
 import * as PullRequestSyncReactor from "t3/src/orchestration-v2/PullRequestSyncReactor.ts";
@@ -81,6 +87,10 @@ import { layerServerBrowserNotesInput } from "../preview/previewInput.ts";
 import * as PortDiscoveryLayer from "../preview/portDiscovery.ts";
 import * as McpHttpServer from "t3/src/mcp/McpHttpServer.ts";
 import * as PeerForwarding from "t3/src/peer/PeerForwarding.ts";
+import * as PeerClientPairing from "t3/src/peer/PeerClientPairing.ts";
+import * as PeerClientPairingHttp from "t3/src/peer/http.ts";
+import * as PeerThreadRelay from "t3/src/peer/PeerThreadRelay.ts";
+import * as LinkThreadHttp from "t3/src/peer/linkThreadHttp.ts";
 import * as RemoteDelegation from "t3/src/peer/RemoteDelegation.ts";
 import * as PeerLinkRequests from "t3/src/peer/PeerLinkRequests.ts";
 import * as PeerLinks from "t3/src/peer/PeerLinks.ts";
@@ -124,6 +134,11 @@ import * as RepositoryIdentityResolver from "t3/src/project/RepositoryIdentityRe
 import * as WorkspaceEntries from "t3/src/workspace/WorkspaceEntries.ts";
 import * as KnownWorkspaces from "t3/src/workspace/KnownWorkspaces.ts";
 import * as WorkspaceFileSystem from "t3/src/workspace/WorkspaceFileSystem.ts";
+import * as WorkspaceFolders from "t3/src/workspace/WorkspaceFolders.ts";
+import * as LayoutCommandApprovals from "t3/src/workspace/LayoutCommandApprovals.ts";
+import * as LayoutCommandApprovalWrites from "t3/src/workspace/LayoutCommandApprovalWrites.ts";
+import * as TaskFolders from "t3/src/workspace/TaskFolders.ts";
+import * as TaskFolderStore from "t3/src/workspace/TaskFolderStore.ts";
 import * as WorkspacePaths from "t3/src/workspace/WorkspacePaths.ts";
 import * as GitVcsDriver from "t3/src/vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "t3/src/vcs/VcsDriverRegistry.ts";
@@ -506,7 +521,12 @@ export const make = (options: CompositionOptions) => {
       Layer.provide(layerKnownWorkspaces),
     ),
   );
-  const layerWorkspace = Layer.mergeAll(WorkspacePaths.layer, layerWorkspaceEntries, layerWorkspaceFileSystem);
+  const layerWorkspace = Layer.mergeAll(
+    WorkspacePaths.layer,
+    layerWorkspaceEntries,
+    layerWorkspaceFileSystem,
+    WorkspaceFolders.layer.pipe(Layer.provide(Layer.merge(ProjectStore.layer, TaskFolderStore.layer))),
+  );
   const layerProjectFaviconResolver = ProjectFaviconResolver.layer.pipe(
     Layer.provide(WorkspacePaths.layer),
     Layer.provide(T3ProjectFileLoader.layer),
@@ -567,8 +587,31 @@ export const make = (options: CompositionOptions) => {
     Effect.sync(() => ({ relayHookBaseUrl: webhookBaseUrl(environmentServices().publicOrigin()) })),
   );
 
+  // As t3's `server.ts` (since v0.1.13), with our managed policy for t3's.
+  const layerTaskFolders = TaskFolders.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        TaskFolderStore.layer,
+        LayoutCommandApprovals.layer,
+        layerManagedPolicy,
+        ProjectStore.layer,
+        ProjectionStoreV2.layer,
+        VcsProcess.layer,
+      ),
+    ),
+    Layer.provide(layerGitWorkflow),
+  );
+
   const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
+    Layer.provide(
+      WorkflowForge.layer.pipe(
+        Layer.provide(layerIssueService),
+        Layer.provide(layerPullRequestService),
+        Layer.provide(RuntimeLayer.layerProjectService),
+      ),
+    ),
     Layer.provide(UsageLimitSources.layerResetFallback),
+    Layer.provide(layerTaskFolders),
     Layer.provide(layerScheduledTaskWebhookOrigin),
     Layer.provide(ProviderUsageAnalytics.layer),
     Layer.provide(layerCheckpointStore),
@@ -673,6 +716,13 @@ export const make = (options: CompositionOptions) => {
         yield* service.start();
       }),
     ).pipe(Layer.provide(DelegatedTaskQuestionReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
+    Layer.effectDiscard(
+      Effect.gen(function* () {
+        yield* (yield* OrchestrationMilestones.OrchestrationMilestones).start();
+      }),
+    ).pipe(Layer.provide(OrchestrationMilestones.layer), Layer.provide(ProjectionStoreV2.layer)),
+    // t3flare: no ProviderHostPathWatcher: it rebuilds providers when the desktop app reports a new shell PATH, and no
+    // desktop app runs this server.
     ProviderUsageLimitsIngestion.layer,
     layerProviderInstallationRefresh,
     ProviderInstallation.layer,
@@ -691,6 +741,9 @@ export const make = (options: CompositionOptions) => {
     layerFlareTheme,
   ).pipe(
     Layer.provideMerge(layerOrchestrationApplication),
+    // As t3's `server.ts`: one hub, which the feeders above and the workflow store inside the runtime publish to.
+    Layer.provideMerge(MilestoneHub.layer),
+    Layer.provideMerge(Layer.merge(layerTaskFolders, LayoutCommandApprovalWrites.layer)),
     Layer.provideMerge(RuntimeLayer.layerEventInfrastructure),
     Layer.provideMerge(Layer.merge(ProjectStore.layer, ThreadSearch.layer)),
     Layer.provideMerge(SecretCheck.layer),
@@ -749,7 +802,7 @@ export const make = (options: CompositionOptions) => {
     Layer.provideMerge(CodexManagedTokenBroker.layer),
     Layer.provideMerge(layerServerEnvironment),
     Layer.provideMerge(layerAuth),
-    Layer.provideMerge(Layer.mergeAll(AssetSigner.layer, EnvironmentKeys.layer)),
+    Layer.provideMerge(Layer.mergeAll(AssetSigner.layer, EnvironmentKeys.layer, WorkspacePreviewRevisions.layer)),
     Layer.provideMerge(layerSecretStore),
     Layer.provideMerge(
       Layer.mergeAll(
@@ -792,6 +845,7 @@ export const make = (options: CompositionOptions) => {
       HttpApiBuilder.layer(EnvironmentHttpApi).pipe(
         Layer.provide(AuthHttp.layer),
         Layer.provide(McpOAuthHttp.layer.pipe(Layer.provide(McpOAuth.layer))),
+        Layer.provide(PeerClientPairingHttp.layer.pipe(Layer.provide(PeerClientPairing.layerIssuer))),
         Layer.provide(CloudHttp.layer),
         Layer.provide(OrchestrationHttp.layer),
         Layer.provide(PullRequestHttp.layer),
@@ -800,13 +854,17 @@ export const make = (options: CompositionOptions) => {
         Layer.provide(ServerHttp.layerServerEnvironmentHttpApi),
         Layer.provide(WebhookRoute.layer.pipe(Layer.provide(RelayDeliveryProof.layer))),
         Layer.provide(AuthHttp.layerAuthenticatedAuth),
+        Layer.provide(ServerHttp.layerApiBodyLimit),
       ),
+      // t3flare: no desktop readiness proof route: no desktop app starts this server.
       ServerHttp.layerAssetRoute,
       ServerHttp.layerAttachmentUploadRoute,
       // t3flare: t3's browser-trace forwarder, as stock mounts it (answers 204 unless a traces endpoint is saved).
       ServerHttp.layerOtlpTracesProxyRoute,
       // t3flare (G11, ADR-0031): t3's server browser stream, as stock mounts it (`server.ts` `layerMakeRoutes`).
       ServerBrowserStream.routeLayer,
+      // As t3's `server.ts` (since v0.1.13): a linked client's thread stream, history and items.
+      LinkThreadHttp.layer,
       Ws.layer,
     ),
     McpHttpServer.layer.pipe(
@@ -835,7 +893,7 @@ export const make = (options: CompositionOptions) => {
     // t3flare (G11, ADR-0031): Chrome is never downloaded; its executable is the bridge to Browser Run.
     Layer.provide(PreviewBrowserLayer.layer),
     Layer.provide(
-      PeerForwarding.layer.pipe(
+      Layer.mergeAll(PeerForwarding.layer, PeerThreadRelay.layer, PeerClientPairing.layer).pipe(
         Layer.provideMerge(PeerMcpClient.layer),
         // t3flare: t3's own `PeerLinks`, with no error's `cause` (the request it may carry) sent back (SPI-1061, U45).
         Layer.provideMerge(layerPeerLinksWithoutCause.pipe(Layer.provide(PeerLinks.layer))),
@@ -847,11 +905,9 @@ export const make = (options: CompositionOptions) => {
     Layer.provide(PreviewAutomationBroker.layer),
     // t3flare (ADR-0037, in-app updates plan D3): the server Update dispatches CI, which proves and lands the bump.
     Layer.provide(CloudSelfUpdate.layer),
+    Layer.provide(ProviderMaintenanceRunner.layer),
     Layer.provide(layerCommandReadiness),
     Layer.provide(ServerHttp.layerBrowserApiCors),
-    // As t3's `server.ts`: no request log for signed URLs (webhooks, assets, attachment uploads), whose path carries a bearer.
-    // Moot while `HttpRouter.serve` runs with `disableLogger: true` (below); kept so turning the logger on cannot log one.
-    Layer.provide(ServerHttp.layerUnloggedSignedRequests),
     // t3flare: no response compression in t3; Cloudflare's edge compresses, and workerd
     // would compress a body t3 already gzipped a second time.
   );
@@ -923,6 +979,8 @@ export const make = (options: CompositionOptions) => {
           ),
         ),
         Layer.provideMerge(FetchHttpClient.layer),
+        // As t3's `server.ts` (since v0.1.13).
+        Layer.provideMerge(FeatureFlags.layer),
         Layer.provide(VcsProcess.layer),
         Layer.provideMerge(layerAgentScope),
         Layer.provideMerge(layerPlatformServices),
