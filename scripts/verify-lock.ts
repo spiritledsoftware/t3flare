@@ -41,11 +41,14 @@ const PEER_DRIFT: ReadonlyArray<{ readonly t3: ReadonlyArray<string>; readonly o
 const driftT3 = new Set(PEER_DRIFT.flatMap((drift) => drift.t3));
 const driftOurs = (key: string) => PEER_DRIFT.some((drift) => drift.ours.test(key));
 
+// A `file:` dependency (a tarball in t3's tree) is keyed by its path from the lock's root, which is `t3code/` in ours.
+const fromOurRoot = (key: string) => (key.startsWith("file:") ? `file:${PREFIX}${key.slice("file:".length)}` : key);
+
 // t3's importers: the same closure.
 const t3Importers = Object.keys(ours.importers).filter((dir) => dir.startsWith(PREFIX));
 let compared = 0;
 for (const dir of t3Importers) {
-  const theirs = new Set([...closure(t3, [dir.slice(PREFIX.length)])].map(bareKey));
+  const theirs = new Set([...closure(t3, [dir.slice(PREFIX.length)])].map((key) => fromOurRoot(bareKey(key))));
   const mine = new Set([...closure(ours, [dir])].map(bareKey));
   compared += theirs.size;
   const missing = [...theirs].filter((key) => !mine.has(key) && !driftT3.has(key));

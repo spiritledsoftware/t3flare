@@ -145,6 +145,29 @@ for (const key of Object.keys(ws.allowBuilds ?? {})) {
 }
 for (const name of OUR_DENIED_BUILDS) allowBuilds[name] = false;
 
+// vp (Vite+) is mise's `vp` tool at the version of t3's `vite-plus` catalog entry, so the owner's PATH, CI's setup-vp
+// (which reads the same entry through package.json's `catalog:` and the generated pnpm-workspace.yaml) and the
+// installed vite-plus all agree.
+const vpVersion = ws.catalog?.["vite-plus"] as string | undefined;
+if (vpVersion === undefined || !/^\d+\.\d+\.\d+$/.test(vpVersion)) {
+  throw new Error(`t3code/pnpm-workspace.yaml: expected an exact catalog entry for vite-plus, got ${vpVersion}`);
+}
+
+// Our packages' `vitest` (the runner @cloudflare/vitest-plugin needs) is the one t3's vite-plus depends on: vite-plus
+// pins vitest and its @vitest/* packages exactly, and a vitest of another version leaves their peers unmet, which t3's
+// strictPeerDependencies fails. Read from t3's lock, so a bump that moves vite-plus moves ours with it.
+const vitestVersions = new Set(
+  Object.entries<Json>(t3Lock.snapshots ?? {})
+    .filter(([key]) => key === `vite-plus@${vpVersion}` || key.startsWith(`vite-plus@${vpVersion}(`))
+    .map(([, snapshot]) => String(snapshot.dependencies?.vitest ?? "").replace(/\(.*$/, "")),
+);
+const [vitestVersion] = vitestVersions;
+if (vitestVersions.size !== 1 || !/^\d+\.\d+\.\d+/.test(vitestVersion ?? "")) {
+  throw new Error(
+    `t3code/pnpm-lock.yaml: expected one vitest under vite-plus@${vpVersion}, got ${[...vitestVersions].join(", ") || "none"}`,
+  );
+}
+
 const out: Json = {
   packages: [...OUR_WORKSPACES, ...[...members].sort().map((dir) => `${PREFIX}${dir}`)],
 };
@@ -159,7 +182,7 @@ for (const key of Object.keys(ws)) {
         .filter(([pin]) => ws.overrides[pin] === undefined)
         .sort(([a], [b]) => a.localeCompare(b)),
     );
-    out.overrides = { ...ws.overrides, ...OUR_OVERRIDES, ...pins };
+    out.overrides = { ...ws.overrides, ...OUR_OVERRIDES, vitest: vitestVersion, ...pins };
   } else if (key === "peerDependencyRules") {
     out.peerDependencyRules = {
       ...ws.peerDependencyRules,
@@ -177,14 +200,6 @@ if (pnpmVersion === undefined || nodeVersion === undefined || !/^\d+\.\d+\.\d+$/
   throw new Error(
     `t3code/package.json: expected packageManager pnpm@x.y.z and an exact engines.node, got ${t3Manifest.packageManager} / ${nodeVersion}`,
   );
-}
-
-// vp (Vite+) is mise's `vp` tool at the version of t3's `vite-plus` catalog entry, so the owner's PATH, CI's setup-vp
-// (which reads the same entry through package.json's `catalog:` and the generated pnpm-workspace.yaml) and the
-// installed vite-plus all agree.
-const vpVersion = ws.catalog?.["vite-plus"] as string | undefined;
-if (vpVersion === undefined || !/^\d+\.\d+\.\d+$/.test(vpVersion)) {
-  throw new Error(`t3code/pnpm-workspace.yaml: expected an exact catalog entry for vite-plus, got ${vpVersion}`);
 }
 
 const files = new Map<string, string>();
