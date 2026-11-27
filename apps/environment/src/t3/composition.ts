@@ -125,6 +125,7 @@ import * as LimitSources from "../usage/limitSources.ts";
 import { layerAcpRegistry } from "../provider/acpRegistry.ts";
 import * as DurableObjectDatabaseStorage from "./databaseStorage.ts";
 import * as DeletionWake from "./deletionWake.ts";
+import { layerDelegateBaseFetch } from "./delegateBaseFetch.ts";
 import * as ProviderTokens from "./providerTokens.ts";
 import * as RepositoryLookup from "./repositoryLookup.ts";
 import { otlpConfigFromSettings } from "./otlp.ts";
@@ -868,6 +869,8 @@ export const make = (options: CompositionOptions) => {
       Ws.layer,
     ),
     McpHttpServer.layer.pipe(
+      // t3flare (SPI-1454): `delegate_task`'s check fetches a parent's commit the project's clone lacks.
+      Layer.provide(layerDelegateBaseFetch),
       Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
       Layer.provide(McpOAuth.layerMcpClientAuthenticator),
       Layer.provide(ProjectionStoreV2.layer),
