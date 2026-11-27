@@ -36,10 +36,7 @@ export const gitDeadlineMs = (
  * A git run's deadline, as `gitDeadlineMs`, with the limit behind it (SPI-1430): the command time limit when it is that
  * limit's; none for its own `timeoutMs` (t3's) or `CANCELLABLE_RUN_MS` (a backstop), which no setting sets.
  */
-export const gitDeadline = (
-  run: { readonly timeoutMs?: number; readonly runId?: string },
-  command: TimedBy,
-): TimedBy =>
+export const gitDeadline = (run: { readonly timeoutMs?: number; readonly runId?: string }, command: TimedBy): TimedBy =>
   run.timeoutMs === undefined && run.runId === undefined
     ? command
     : { timeoutMs: gitDeadlineMs(run, command.timeoutMs), limit: undefined };

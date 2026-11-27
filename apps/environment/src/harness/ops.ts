@@ -103,11 +103,7 @@ export type Outcome<T> = ({ readonly ok: true } & T) | Refusal;
 const refuse = (status: Refusal["status"], error: string): Refusal => ({ ok: false, status, error });
 
 /** A moved revision's refusal, or undefined when none was expected or it has not moved. */
-const moved = (
-  entity: "Harness" | "Environment",
-  current: number,
-  expected: number | undefined,
-): Refusal | undefined =>
+const moved = (entity: "Harness" | "Environment", current: number, expected: number | undefined): Refusal | undefined =>
   expected === undefined || expected === current
     ? undefined
     : {

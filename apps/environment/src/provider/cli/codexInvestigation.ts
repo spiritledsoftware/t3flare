@@ -80,10 +80,12 @@ export const withCodexInvestigation =
         .makeTempFile({ prefix: "t3flare-codex-schema-" })
         .pipe(Effect.mapError((cause) => fail(operation, "Failed to write temp file", cause)));
       const answer = yield* Effect.gen(function* () {
-        yield* fileSystem
-          // @effect-diagnostics-next-line globalJsonInEffect:off -- a JSON Schema object is plain data: stringify cannot throw
-          .writeFileString(schemaPath, JSON.stringify(toJsonSchemaObject(request.outputSchema)))
-          .pipe(Effect.mapError((cause) => fail(operation, "Failed to write temp file", cause)));
+        yield* (
+          fileSystem
+            // @effect-diagnostics-next-line globalJsonInEffect:off -- a JSON Schema object is plain data: stringify cannot throw
+            .writeFileString(schemaPath, JSON.stringify(toJsonSchemaObject(request.outputSchema)))
+            .pipe(Effect.mapError((cause) => fail(operation, "Failed to write temp file", cause)))
+        );
         const child = yield* spawner
           .spawn(
             ChildProcess.make("codex", [...codexExecArgs(request.modelSelection.model, schemaPath)], {

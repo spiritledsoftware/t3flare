@@ -167,10 +167,8 @@ const emitAll = Effect.fn("emitAll")(function* (fixture: Fixture, shell: FakeShe
 /** The first snapshot a resumed attach gets, as a reconnecting client sees the Terminal. */
 const attachSnapshot = Effect.fn("attachSnapshot")(function* (manager: Manager, terminalId: string) {
   const first = yield* Deferred.make<TerminalSessionSnapshot>();
-  const stop = yield* manager.attachStream(
-    { ...input(terminalId), resume: true },
-    (event: TerminalAttachStreamEvent) =>
-      event.type === "snapshot" ? Deferred.succeed(first, event.snapshot).pipe(Effect.asVoid) : Effect.void,
+  const stop = yield* manager.attachStream({ ...input(terminalId), resume: true }, (event: TerminalAttachStreamEvent) =>
+    event.type === "snapshot" ? Deferred.succeed(first, event.snapshot).pipe(Effect.asVoid) : Effect.void,
   );
   const snapshot = yield* Deferred.await(first);
   stop();

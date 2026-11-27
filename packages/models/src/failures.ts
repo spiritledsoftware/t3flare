@@ -380,10 +380,7 @@ export const SHORT_RESET_MS = 14_000;
 export const MIN_RESET_MS = 30_000;
 
 /** A usage limit's reset as t3 takes it (ISO, at least `MIN_RESET_MS` after `now`), or null for another class or none. */
-export const heldReset = (
-  failure: { readonly class: string; readonly resetAt?: number },
-  now: number,
-): string | null =>
+export const heldReset = (failure: { readonly class: string; readonly resetAt?: number }, now: number): string | null =>
   failure.class === "usage_limit" && failure.resetAt !== undefined
     ? new Date(Math.max(failure.resetAt, now + MIN_RESET_MS)).toISOString()
     : null;
