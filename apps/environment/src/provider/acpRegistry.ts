@@ -106,6 +106,9 @@ export const refusingCatalog = (
   inspect: (settings) => Effect.fail(refusal(settings.agentId === "" ? undefined : settings.agentId)),
   resolve: (settings) => Effect.fail(refusal(settings.agentId === "" ? undefined : settings.agentId)),
   uninstallManagedBinary: (input) => Effect.succeed({ agentId: input.agentId, removed: false }),
+  // The registry index search reads: t3's own.
+  refreshIndex: (options) => stock.refreshIndex(options),
+  invalidateIndex: () => stock.invalidateIndex(),
 });
 
 /**

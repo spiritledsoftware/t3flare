@@ -138,4 +138,14 @@ describe("node:fs shim descriptors", () => {
       expect(after.bavail).toBeLessThan(before.bavail);
     });
   });
+
+  it("watches a State directory path with a watcher that never fires, and closes it (t3's themes folder, v0.1.13)", async () => {
+    await inObject("watch", () => {
+      const events: Array<unknown> = [];
+      const watcher = fs.watch("/t3/userdata/themes", (event: unknown) => events.push(event));
+      watcher.on("error", (error: unknown) => events.push(error));
+      expect(() => watcher.close()).not.toThrow();
+      expect(events).toEqual([]);
+    });
+  });
 });

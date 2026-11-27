@@ -9,6 +9,7 @@
 //   directory, as git's default does.
 // - `diff-index -M --numstat -z HEAD --`: each journal path's record recomputed (HEAD against the working tree).
 // - `ls-files --others --exclude-standard -z -- [one file's pathspec]`: journal paths added or removed.
+//   Its `--with-tree=HEAD` form (t3 since v0.1.13, a one-file review read's isolated index) leaves out paths HEAD has.
 // - `-c diff.suppressBlankEmpty=false diff --find-renames … --src-prefix=a/ --dst-prefix=b/ [--minimal]
 //   <--patch | --raw --numstat -z> <HEAD or a merge base> -- [one file's pathspecs]` without a temporary index: each
 //   journal path's section or records recomputed.
@@ -58,6 +59,8 @@ export interface StaleShape {
   readonly kind: StaleKind;
   readonly base: string;
   readonly paths?: ReadonlyArray<string>;
+  /** `ls-files --others --with-tree=HEAD`: a path HEAD has is not listed. */
+  readonly withTree?: boolean;
 }
 
 const REVIEW_PREFIX = [
@@ -80,6 +83,8 @@ const STATUS_SHAPE = ["status", "--porcelain=2", "--branch", "-z"];
 const UNTRACKED_NORMAL = "--untracked-files=normal";
 const NO_AHEAD_BEHIND = "--no-ahead-behind";
 const OTHERS_SHAPE = ["ls-files", "--others", "--exclude-standard", "-z", "--"];
+const WITH_TREE = "--with-tree=HEAD";
+const OTHERS_WITH_TREE_SHAPE = ["ls-files", "--others", "--exclude-standard", WITH_TREE, "-z", "--"];
 /** The review reads' tails, before the base: the patch read and the stats read (t3's `getReviewDiffPreview`). */
 const REVIEW_MODES: ReadonlyArray<readonly [ReadonlyArray<string>, StaleKind]> = [
   [["--patch"], "review-patch"],
@@ -110,9 +115,14 @@ export const kindOf = (
   }
   if (same(argv, ["diff-index", "-M", "--numstat", "-z", "HEAD", "--"]))
     return { kind: "diff-index-numstat", base: "HEAD" };
-  if (same(argv.slice(0, OTHERS_SHAPE.length), OTHERS_SHAPE)) {
-    const one = pathspecs(argv.slice(OTHERS_SHAPE.length));
-    return one === undefined ? undefined : { kind: "ls-files-others", base: "HEAD", ...one };
+  for (const [shape, withTree] of [
+    [OTHERS_SHAPE, false],
+    [OTHERS_WITH_TREE_SHAPE, true],
+  ] as const) {
+    if (!same(argv.slice(0, shape.length), shape)) continue;
+    const one = pathspecs(argv.slice(shape.length));
+    if (one === undefined) return undefined;
+    return { kind: "ls-files-others", base: "HEAD", ...one, ...(withTree ? { withTree } : {}) };
   }
   // The review diffs: HEAD or a merge base against the working tree; with untracked files staged in a temporary index
   // (`GIT_INDEX_FILE`) they are last-answer-only.
@@ -444,11 +454,17 @@ const sectionPaths = (header: string): ReadonlyArray<string> => {
 const patchReview = (stdout: string, journal: ReadonlyArray<string>, repo: RepoFacts): Promise<string> =>
   patchRecords([{ records: parseSections(stdout), render: filePatch }], journal, repo);
 
-const patchOthers = async (stdout: string, journal: ReadonlyArray<string>, repo: RepoFacts): Promise<string> => {
+const patchOthers = async (
+  stdout: string,
+  journal: ReadonlyArray<string>,
+  repo: RepoFacts,
+  withTree = false,
+): Promise<string> => {
   const listed = new Set(stdout.split("\0").filter((path) => path !== ""));
   for (const path of journal) {
     listed.delete(path);
-    if (isUntracked(await repo.facts(path))) listed.add(path);
+    const facts = await repo.facts(path);
+    if (isUntracked(facts) && !(withTree && facts.head !== null)) listed.add(path);
   }
   return [...listed]
     .toSorted(byPath)
@@ -481,7 +497,7 @@ export const patchAnswer = (
     case "diff-index-numstat":
       return patchNumstat(stdout, journal, repo);
     case "ls-files-others":
-      return patchOthers(stdout, journal, repo);
+      return patchOthers(stdout, journal, repo, shape.withTree === true);
     case "review-patch":
       return patchReview(stdout, journal, repo);
     case "review-stats":
@@ -505,7 +521,7 @@ const computeOneFile = async (shape: StaleShape, repo: RepoFacts): Promise<strin
   )
     return undefined;
   for (const path of paths) if ((await repo.untrackedUnder(path)).length > 0) return undefined;
-  if (shape.kind === "ls-files-others") return patchOthers("", paths, repo);
+  if (shape.kind === "ls-files-others") return patchOthers("", paths, repo, shape.withTree === true);
   if (repo.base === null) return undefined;
   const changes = await changesOf(paths, repo);
   if (mayPairInexactly(changes)) return undefined;

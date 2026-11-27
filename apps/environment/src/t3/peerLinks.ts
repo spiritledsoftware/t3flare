@@ -31,6 +31,7 @@ export const layerPeerLinksWithoutCause = Layer.effect(
         return yield* real.linkUnlessLinked(input).pipe(Effect.mapError(withoutCause));
       }),
       list: real.list.pipe(Effect.mapError(withoutCause)),
+      names: real.names.pipe(Effect.mapError(withoutCause)),
       get: Effect.fn("t3flare.PeerLinks.get")(function* (environmentId) {
         return yield* real.get(environmentId).pipe(Effect.mapError(withoutCause));
       }),

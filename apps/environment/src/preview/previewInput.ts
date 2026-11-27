@@ -22,8 +22,11 @@ import { threadWorkspaceFrom } from "./portDiscovery.ts";
  */
 export const PREVIEW_INPUT_NOTE_EVERY_MS = 30_000;
 
-/** The viewer messages t3 dispatches as the Owner's input (`dispatchViewerInput`): mouse, keys, wheel, inserted text. */
-const OWNER_INPUT_TYPES: ReadonlySet<unknown> = new Set(["mouse", "key", "wheel", "text"]);
+/**
+ * The viewer messages t3 dispatches as the Owner's input (`dispatchViewerInput`): mouse, keys, wheel, inserted text, and
+ * an option picked from a page's select menu (`selectMenu`, since v0.1.13).
+ */
+const OWNER_INPUT_TYPES: ReadonlySet<unknown> = new Set(["mouse", "key", "wheel", "text", "selectMenu"]);
 
 export const isOwnerInput = (message: unknown): boolean =>
   typeof message === "object" && message !== null && OWNER_INPUT_TYPES.has((message as { type?: unknown }).type);

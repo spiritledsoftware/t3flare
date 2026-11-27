@@ -74,7 +74,7 @@ const MOUSE = { type: "mouse", action: "down", x: 1, y: 2, button: "left", butto
 
 describe("isOwnerInput", () => {
   it("counts mouse, keys, wheel and inserted text; nothing else a viewer sends", () => {
-    for (const type of ["mouse", "key", "wheel", "text"]) expect(isOwnerInput({ type })).toBe(true);
+    for (const type of ["mouse", "key", "wheel", "text", "selectMenu"]) expect(isOwnerInput({ type })).toBe(true);
     for (const type of ["ack", "resize", "viewport", "navigate", "reload", "back", "forward", "probe", "dialog"])
       expect(isOwnerInput({ type })).toBe(false);
     expect(isOwnerInput(null)).toBe(false);
@@ -97,7 +97,7 @@ describe("t3's viewer messages (fragility U113)", () => {
     const body = source.slice(start, source.indexOf("\n  };\n", start));
     const byName = (a: string, b: string) => a.localeCompare(b);
     const types = [...new Set([...body.matchAll(/case "(\w+)":/g)].map((match) => String(match[1])))].toSorted(byName);
-    expect(types).toEqual(["key", "mouse", "text", "wheel", ...NOT_INPUT].toSorted(byName));
+    expect(types).toEqual(["key", "mouse", "selectMenu", "text", "wheel", ...NOT_INPUT].toSorted(byName));
     for (const type of NOT_INPUT) expect(isOwnerInput({ type })).toBe(false);
   });
 });

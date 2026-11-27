@@ -231,6 +231,7 @@ describe("runText on Model endpoints", () => {
     const calls = bind(() => ({ ok: true, text: "{}" }));
     const guide = makePiDurableTextGeneration().generateReviewGuide({
       cwd: "/w/x",
+      projectCwd: "/w/x",
       number: 7,
       title: "Fix the build",
       description: "",

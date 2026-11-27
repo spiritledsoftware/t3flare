@@ -31,8 +31,8 @@ const sends = <E>(policy: Layer.Layer<ManagedPolicy.ManagedPolicy, E>) => {
       ConfigProvider.layer(
         ConfigProvider.fromUnknown({
           T3CODE_TELEMETRY_ENABLED: true,
-          T3CODE_POSTHOG_KEY: "phc_test",
-          T3CODE_POSTHOG_HOST: "http://ingest.test",
+          T3CODE_TELEMETRY_KEY: "phc_test",
+          T3CODE_TELEMETRY_HOST: "http://ingest.test",
         }),
       ),
     ),

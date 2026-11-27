@@ -158,6 +158,12 @@ const run = <A, E>(
 const storedRequests = (values: Map<string, unknown>) =>
   [...values.keys()].filter((key) => key.startsWith("t3flare/secret/secret-request-") && !key.endsWith("-salt"));
 
+// A request without fields delivers one file (t3's `{ file }`; `{ files }` is a request with fields).
+const singleFile = (saved: { readonly file: string } | { readonly files: { readonly [name: string]: string } }) => {
+  if (!("file" in saved)) throw new Error(`expected one file, got ${JSON.stringify(saved)}`);
+  return saved.file;
+};
+
 describe("patch 0011: secret files go where the thread runs", () => {
   it("a file request's value moves into the thread's Workspace, once", async () => {
     const workspace = memoryWorkspace();
@@ -165,9 +171,9 @@ describe("patch 0011: secret files go where the thread runs", () => {
       (service) =>
         Effect.gen(function* () {
           yield* service.answer({ threadId, turnItemId, answer: { type: "save", secret: "AEB'$(id)" } });
-          const file = yield* service.saveToFile({ threadId, turnItemId });
+          const file = singleFile(yield* service.saveToFile({ threadId, turnItemId }));
           // A retried request_secret gets the same file; the stored copy is gone, so it is never a ref again.
-          const again = yield* service.saveToFile({ threadId, turnItemId });
+          const again = singleFile(yield* service.saveToFile({ threadId, turnItemId }));
           const reused = yield* service
             .consume({ ref: SecretRef.make(`secret-ref:${path.basename(file)}`), projectId })
             .pipe(Effect.flip);
