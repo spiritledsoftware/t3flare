@@ -258,7 +258,7 @@ describe("t3's lookup of a GitHub repository (SPI-1398)", () => {
     const error = await failureOf(
       service({ privateRepos: [] }).pipe(Effect.flatMap((svc) => lookup(svc, "acme/gone"))),
     );
-    expect(error.detail).toBe("Repository not found. Check the owner and name and try again.");
+    expect(error.detail).toBe("Repository acme/gone was not found. Check the owner and name and try again.");
   });
 
   it("takes live tokens and URL credentials out of the reason", async () => {

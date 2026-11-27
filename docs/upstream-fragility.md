@@ -2060,7 +2060,8 @@ Moved from U58 when its Commissary readers went (SPI-1176).
 - **Where**: `apps/environment/src/preview/previewInput.ts`, a Layer over t3's `ServerBrowser` service
   (`t3code/apps/server/src/preview/ServerBrowser.ts`, wired in `t3/composition.ts` over `ServerBrowser.layer`). It
   wraps each viewer `attachViewer` returns; every other method is t3's. A viewer's `input` messages of type `mouse`,
-  `key`, `wheel` or `text` (the cases `dispatchViewerInput` dispatches as CDP input) note Workspace input on the tab's
+  `key`, `wheel`, `text` or `selectMenu` (the cases `dispatchViewerInput` dispatches as CDP input; `selectMenu`, a
+  page's select menu option, since v0.1.13) note Workspace input on the tab's
   thread's Workspace DO (`threadWorkspaceFrom`, then `WorkspaceDO.noteOwnerPreviewInput`), at most once every
   `PREVIEW_INPUT_NOTE_EVERY_MS` (30 s) per Workspace from a note its DO took; one it did not take (no Container runs)
   or that failed is asked again at the next input, and nothing in noting keeps the input from reaching t3. On the DO
