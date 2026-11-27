@@ -272,6 +272,12 @@
       "literal": ".resolveCommit({ cwd: project.workspaceRoot, revision: base.commitSha })",
       "ourFile": "apps/environment/src/t3/delegateBaseFetch.ts",
       "entry": "U114"
+    },
+    {
+      "file": "apps/server/src/vcs/GitVcsDriverCore.ts",
+      "literal": "detail: \"Git command timed out.\"",
+      "ourFile": "apps/environment/src/t3/delegateBaseFetch.ts",
+      "entry": "U114"
     }
   ],
   "files": {

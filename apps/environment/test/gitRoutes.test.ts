@@ -88,6 +88,7 @@ describe("mayStartContainer", () => {
     for (const argv of [
       ["clone", "--progress", "--", "https://github.com/a/b.git", "b"],
       ["fetch", "--quiet", "origin"],
+      ["fetch", "--quiet", "--no-tags", "--", "origin", "0123456789abcdef0123456789abcdef01234567"],
       ["push", "-u", "origin", "HEAD"],
       ["commit", "-m", "x"],
       ["checkout", "-b", "feature"],

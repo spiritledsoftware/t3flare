@@ -164,26 +164,33 @@ const git = (cwd: string, args: ReadonlyArray<string>) => {
 };
 
 /** A project cloned from its origin, then one commit pushed to the origin that the clone has not fetched. */
-const projectBehind = () => {
-  const origin = join(root, "origin");
+const projectBehind = (name: string) => {
+  const origin = join(root, `${name}-origin`);
   git(root, ["init", "-q", "-b", "main", origin]);
   fs.writeFileSync(join(origin, "README.md"), "# t3flare\n");
   git(origin, ["add", "-A"]);
   git(origin, ["commit", "-q", "-m", "one"]);
-  const dir = join(root, "t3flare");
+  const dir = join(root, name);
   git(root, ["clone", "-q", origin, dir]);
   fs.writeFileSync(join(origin, "README.md"), "# t3flare\n\ntwo\n");
   git(origin, ["commit", "-q", "-am", "two"]);
   return { dir, commit: git(origin, ["rev-parse", "HEAD"]).stdout.trim() };
 };
 
-/** The project `t3flare` over `dir`, its Container running real git; records each argv it is asked to run. */
-const environmentOver = (dir: string) => {
+/**
+ * The project `t3flare` over `dir`, real git while its Container runs; records each argv it is asked to run. A stopped
+ * Container answers no passive read (none was answered before) and starts for a command allowed to start it.
+ */
+const environmentOver = (dir: string, container: "running" | "stopped" = "running") => {
   const asked: Array<ReadonlyArray<string>> = [];
+  const state = { running: container === "running" };
   const inDir = (word: string) => word.replaceAll(REPO_ROOT, dir);
   const projectStub = {
-    git: async (run: { argv: ReadonlyArray<string>; cwd: string }) => {
+    git: async (run: { argv: ReadonlyArray<string>; cwd: string; startContainer: boolean }) => {
       asked.push(run.argv);
+      if (!state.running && !run.startContainer)
+        return { ran: false, reason: "container_stopped", detail: "no earlier answer" };
+      state.running = true;
       const answer = git(inDir(run.cwd), run.argv.map(inDir));
       return {
         ran: true,
@@ -199,7 +206,7 @@ const environmentOver = (dir: string) => {
     kind: "project",
     state: "ready",
     host: "github.com",
-    owner: "ian-pascoe",
+    owner: "example-owner",
     name: "t3flare",
     createdAt: 1_763_700_000_000,
   } as unknown as WorkspaceRecord;
@@ -235,9 +242,19 @@ const viaLayer = <A, E>(use: (driver: GitVcsDriver.GitVcsDriver["Service"]) => E
 
 describe("delegate_task's check over the router (SPI-1454)", { timeout: 60_000 }, () => {
   it("finds a commit the project's clone had not fetched, after one fetch by its id", async () => {
-    const { dir, commit } = projectBehind();
+    const { dir, commit } = projectBehind("running");
     expect(git(dir, ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`]).exitCode).not.toBe(0);
     const environment = environmentOver(dir);
+    const exit = await viaLayer((driver) => driver.resolveCommit({ cwd: "/w/t3flare", revision: commit }));
+    expect(Exit.isSuccess(exit) && exit.value).toEqual({ commitSha: commit });
+    expect(environment.asked.filter((argv) => argv.includes("fetch"))).toEqual([
+      ["fetch", "--quiet", "--no-tags", "--", "origin", commit],
+    ]);
+  });
+
+  it("starts a stopped project Container with the fetch, though its remote cannot be read before", async () => {
+    const { dir, commit } = projectBehind("stopped");
+    const environment = environmentOver(dir, "stopped");
     const exit = await viaLayer((driver) => driver.resolveCommit({ cwd: "/w/t3flare", revision: commit }));
     expect(Exit.isSuccess(exit) && exit.value).toEqual({ commitSha: commit });
     expect(environment.asked.filter((argv) => argv.includes("fetch"))).toEqual([

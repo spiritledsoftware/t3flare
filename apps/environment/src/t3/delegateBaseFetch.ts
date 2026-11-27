@@ -29,13 +29,14 @@ const inProject = (cwd: string): boolean => {
   return isUnderW(path) && path !== W_ROOT && path !== worktrees && !path.startsWith(`${worktrees}/`);
 };
 
-const fetchedThen = (
+const fetchThenResolve = (
   stock: GitVcsDriver.GitVcsDriver["Service"],
   input: GitVcsDriver.GitResolveCommitInput,
   missing: GitCommandError,
 ) =>
   Effect.gen(function* () {
-    const remote = yield* stock.resolvePrimaryRemoteName(input.cwd);
+    // A stopped Container answers the remote's name only from an earlier read, and a project's clone has `origin`.
+    const remote = yield* stock.resolvePrimaryRemoteName(input.cwd).pipe(Effect.orElseSucceed(() => "origin"));
     yield* stock.execute({
       operation: "t3flare.delegateBaseFetch",
       cwd: input.cwd,
@@ -72,7 +73,7 @@ export const withBaseFetch = (stock: GitVcsDriver.GitVcsDriver["Service"]): GitV
       .pipe(
         Effect.catch((missing: GitCommandError) =>
           FULL_COMMIT_ID.test(input.revision) && inProject(input.cwd)
-            ? fetchedThen(stock, input, missing)
+            ? fetchThenResolve(stock, input, missing)
             : Effect.fail(missing),
         ),
       ),
